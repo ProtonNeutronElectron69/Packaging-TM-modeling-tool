@@ -117,7 +117,13 @@ class Analysis {
     if (kind === 'preview') return { all: [25], cycling: [], reflow: [25] };
     const cyc = temperatureSamples(c.cycling.Tmin, c.cycling.Tmax, this.tgs, [25]);
     const solidus = pv(findMaterial(c.materials, c.bump.solder).solidus || { v: 217 });
-    const ref = temperatureSamples(25, c.reflow.peak, this.tgs, c.reflow.reportTemps.concat([solidus, solidus + 1, c.reflow.peak]));
+    // reflow sweep: 15 degC steps above the cycling range, refined to 10 degC near a Tg, plus report temperatures and the solidus
+    const ref = [];
+    const set = new Set([25, c.reflow.peak, solidus, solidus + 1].concat(c.reflow.reportTemps));
+    for (let T = Math.ceil(c.cycling.Tmax / CONST.REFLOW_DT) * CONST.REFLOW_DT; T <= c.reflow.peak; T += CONST.REFLOW_DT) set.add(T);
+    for (const tg of this.tgs) for (let T = Math.ceil((tg - CONST.CYCLE_TG_BAND) / CONST.REFLOW_DT_FINE) * CONST.REFLOW_DT_FINE; T <= tg + CONST.CYCLE_TG_BAND; T += CONST.REFLOW_DT_FINE) set.add(T);
+    for (const T of set) if (T >= 25 && T <= c.reflow.peak) ref.push(T);
+    ref.sort((a, b) => a - b);
     const all = Array.from(new Set(cyc.concat(ref))).sort((a, b) => a - b);
     return { all, cycling: cyc, reflow: ref };
   }

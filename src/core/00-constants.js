@@ -70,6 +70,8 @@ const CONST = Object.freeze({
   CYCLE_DT_STEP: 10,         // degC between global cycling samples
   CYCLE_DT_FINE: 5,          // degC near a Tg
   CYCLE_TG_BAND: 15,         // degC half-width of the refined window
+  REFLOW_DT: 15,             // degC between reflow-sweep samples above the cycling range
+  REFLOW_DT_FINE: 10,        // degC near a Tg on the reflow sweep
   RAMP_MAX_DT: 5,            // degC per time step on ramps
   DWELL_MIN_STEPS: 10,
   INELASTIC_STEP_MAX: 2e-4,  // equivalent inelastic strain increment per step

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FCBGA Thermomechanical Screening Tool</title>
+<meta name="description" content="Approximate 3D finite-element warpage, die stress, bump loading and solder fatigue screening for flip chip BGA packages, in the browser.">
+<style>
+/*__CSS__*/
+</style>
+</head>
+<body>
+<div id="app">
+  <header id="topbar">
+    <div class="brand"><span class="logo">FCBGA</span> Thermomechanical Screening Tool <span class="build">build /*__BUILD_DATE__*/</span></div>
+    <div class="banner" role="note">Screening tool. Results are approximate and intended for design comparison and trend studies, not sign-off.</div>
+    <div class="topbtns">
+      <button id="btn-theme" class="icon" title="Toggle light / dark theme">◐</button>
+      <button id="btn-help" class="icon" title="Assumptions and limitations">?</button>
+    </div>
+  </header>
+  <div id="layout">
+    <nav id="stepper" aria-label="Steps"></nav>
+    <main id="center">
+      <div id="center-tabs" class="tabs"></div>
+      <div id="center-body"></div>
+    </main>
+    <aside id="context"></aside>
+  </div>
+  <div id="statusbar"><span id="status-text">Ready</span><progress id="status-progress" value="0" max="1" hidden></progress><button id="btn-cancel" hidden>Cancel</button></div>
+  <div id="modal" hidden><div class="modal-box"><div class="modal-head"><span id="modal-title"></span><button id="modal-close" class="icon">✕</button></div><div id="modal-body"></div></div></div>
+  <div id="toasts"></div>
+</div>
+<script type="application/json" id="materials-db">/*__MATERIALS_JSON__*/</script>
+<script type="text/plain" id="core">
+/*__CORE__*/
+</script>
+<script type="text/plain" id="worker-driver">
+/*__WORKER__*/
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" crossorigin="anonymous" onerror="window.__threeFailed = true"></script>
+<script>
+/*__UI__*/
+</script>
+</body>
+</html>

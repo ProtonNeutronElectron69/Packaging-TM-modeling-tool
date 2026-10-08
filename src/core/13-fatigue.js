@@ -403,7 +403,7 @@ class BumpSubmodel {
         const xc = 0.5 * (xs[i] + xs[i + 1]) - site.x, yc = 0.5 * (ys[j] + ys[j + 1]) - site.y;
         mat = Math.hypot(xc, yc) <= prof.radiusAt(zc - g.zt) ? MAT.SOLDER : MAT.UF;
       }
-      if (this.opts.uniformMaterial) mat = MAT.UF; // replaced below by the homogenized layer
+      if (this.opts.uniformMaterial && (mat === MAT.SOLDER || mat === MAT.UF)) mat = MAT.UF; // bump layer: homogenized phases (V7)
       return [{ group: mat, scale: 1, part: mat }];
     };
     this.mesh = buildStructuredMesh(xs, ys, zs, groups, assign);
@@ -421,7 +421,7 @@ class BumpSubmodel {
     this.siD = siliconD(findMaterial(this.lib, 'si'), d.si);
     this.siF = materialTables(findMaterial(this.lib, 'si')).F;
     this._prepareSubstrateSlice(g);
-    if (this.opts.uniformMaterial) this._prepareHomogenizedLayer(d);
+    if (this.opts.uniformMaterial) { this._prepareHomogenizedLayer(d); this.topSection = buildBandSection(g.sub.bands[g.sub.bands.length - 1], this.lib, CONST.NU_MAX_GLOBAL); }
     // Gauss-point material states
     this.anand = [];
     this.gpMat = new Int8Array(mesh.ne * 8);
@@ -537,7 +537,7 @@ class BumpSubmodel {
     this.bNodes = Int32Array.from(list);
     // global element and trilinear weights for each boundary node
     const nb = list.length;
-    this.bElem = new Int32Array(nb), this.bN = new Float64Array(nb * 8);
+    this.bElem = new Int32Array(nb), this.bN = new Float64Array(nb * 8), this.bNat = new Float64Array(nb * 3);
     const N = new Float64Array(8);
     for (let q = 0; q < nb; q++) {
       const n = list[q];
@@ -552,7 +552,26 @@ class BumpSubmodel {
       const [xi, eta, zeta] = naturalCoords(gm, e, x, y, z);
       hexN(xi, eta, zeta, N);
       this.bN.set(N, 8 * q);
+      this.bNat[3 * q] = xi; this.bNat[3 * q + 1] = eta; this.bNat[3 * q + 2] = zeta;
     }
+    this.bElems = Array.from(new Set(Array.from(this.bElem)));
+  }
+
+  /** Incompatible-mode parameters (9 per element) of the global solution at T for the boundary elements. */
+  _alphaAt(T) {
+    const an = this.an, m = an.model, st = an.finalStage;
+    const ts = an.temps.all;
+    const i = findInterval(ts, T);
+    const t = clamp((T - ts[i]) / (ts[i + 1] - ts[i]), 0, 1);
+    const out = new Map(), q = new Float64Array(33);
+    for (const e of this.bElems) {
+      const a = new Float64Array(9);
+      m.elementState(e, ts[i], st, an.fields.get(ts[i]), q);
+      for (let k = 0; k < 9; k++) a[k] = (1 - t) * q[24 + k];
+      if (t > 0) { m.elementState(e, ts[i + 1], st, an.fields.get(ts[i + 1]), q); for (let k = 0; k < 9; k++) a[k] += t * q[24 + k]; }
+      out.set(e, a);
+    }
+    return out;
   }
 
   /** Prescribed boundary displacement change u(T) - u(25) from the global fields. */
@@ -560,12 +579,23 @@ class BumpSubmodel {
     const an = this.an, gm = an.mesh;
     const uT = an.fieldAt(T, this._uT), u25 = an.fields.get(25);
     this._uT = uT;
+    // trilinear nodal interpolation within the global elements (Section 9.3); the elements' incompatible
+    // modes can be added with opts.withBubbles (it does not improve the V7 consistency, see the report)
+    const bub = this.opts.withBubbles;
+    if (bub && !this._alpha25) this._alpha25 = this._alphaAt(25);
+    const aT = bub ? this._alphaAt(T) : null, a25 = this._alpha25;
     for (let q = 0; q < this.bNodes.length; q++) {
       const n = this.bNodes[q], e = this.bElem[q];
       let ux = 0, uy = 0, uz = 0;
       for (let a = 0; a < 8; a++) {
         const gn = gm.conn[8 * e + a], w = this.bN[8 * q + a];
         ux += w * (uT[3 * gn] - u25[3 * gn]); uy += w * (uT[3 * gn + 1] - u25[3 * gn + 1]); uz += w * (uT[3 * gn + 2] - u25[3 * gn + 2]);
+      }
+      if (bub) {
+        const xi = this.bNat[3 * q], eta = this.bNat[3 * q + 1], zeta = this.bNat[3 * q + 2];
+        const P = [1 - xi * xi, 1 - eta * eta, 1 - zeta * zeta];
+        const al = aT.get(e), b25 = a25.get(e);
+        for (let k = 0; k < 3; k++) { ux += P[k] * (al[3 * k] - b25[3 * k]); uy += P[k] * (al[3 * k + 1] - b25[3 * k + 1]); uz += P[k] * (al[3 * k + 2] - b25[3 * k + 2]); }
       }
       u[3 * n] = ux; u[3 * n + 1] = uy; u[3 * n + 2] = uz;
     }
@@ -574,7 +604,7 @@ class BumpSubmodel {
   /** Elastic material data at T for a group: D (36) and thermal strain vector (3 normal). */
   _elastic(mat, T, D, eth) {
     const MAT = this.MAT;
-    if (this.opts.uniformMaterial) {
+    if (this.opts.uniformMaterial && mat === MAT.UF) {
       let x = clamp(T - CONST.TGRID_MIN, 0, TGRID_N - 1); const i = Math.min(Math.floor(x), TGRID_N - 2), t = x - i;
       for (let q = 0; q < 36; q++) D[q] = this.homD[36 * i + q] + t * (this.homD[36 * (i + 1) + q] - this.homD[36 * i + q]);
       for (let r = 0; r < 6; r++) eth[r] = this.homS0[6 * i + r] + t * (this.homS0[6 * (i + 1) + r] - this.homS0[6 * i + r]);
@@ -584,6 +614,30 @@ class BumpSubmodel {
     if (mat === MAT.UF) { isoD(gridAt(this.ufTables.E, T), this.ufTables.nu, CONST.NU_MAX_SUBMODEL, D); const f = gridAt(this.ufTables.F, T) - gridAt(this.ufTables.F, 25); eth[0] = eth[1] = eth[2] = f; return 'strain'; }
     if (mat === MAT.SOLDER) { const st = materialTables(this.solderMat); isoD(gridAt(st.E, T), st.nu, CONST.NU_MAX_SUBMODEL, D); const f = gridAt(st.F, T) - gridAt(st.F, 25); eth[0] = eth[1] = eth[2] = f; return 'strain'; }
     // substrate slice
+    if (this.opts.uniformMaterial && this._subZ !== undefined) {
+      // consistency mode: the global band's own sub-layer stiffness at this height
+      const sec = this.topSection;
+      let sl = sec.ns - 1;
+      for (let q2 = 0; q2 < sec.ns; q2++) if (this._subZ <= sec.subZ[q2][1] + 1e-12) { sl = q2; break; }
+      let x = clamp(T - CONST.TGRID_MIN, 0, TGRID_N - 1); const i = Math.min(Math.floor(x), TGRID_N - 2), t = x - i;
+      const da = (sl * TGRID_N + i) * 36, db = da + 36;
+      for (let q = 0; q < 36; q++) D[q] = sec.D[da + q] + t * (sec.D[db + q] - sec.D[da + q]);
+      const fb = sl * TGRID_N * 3, Fs = sec.F.subarray(fb, fb + TGRID_N * 3);
+      for (let c = 0; c < 3; c++) eth[c] = gridAt(Fs, T, 3, c) - gridAt(Fs, 25, 3, c);
+      // through-thickness response of the whole band (one thickness strain shared by its sub-layers in the
+      // global element): Voigt thickness modulus and Turner-weighted thermal strain over the band
+      let Ez = 0, EzF = 0, tt = 0;
+      for (let q2 = 0; q2 < sec.ns; q2++) {
+        const ts = sec.subZ[q2][1] - sec.subZ[q2][0];
+        const d2 = (q2 * TGRID_N + i) * 36, d3 = d2 + 36;
+        const E = sec.D[d2 + 14] + t * (sec.D[d3 + 14] - sec.D[d2 + 14]);
+        const F2 = sec.F.subarray(q2 * TGRID_N * 3, (q2 + 1) * TGRID_N * 3);
+        const f = gridAt(F2, T, 3, 2) - gridAt(F2, 25, 3, 2);
+        Ez += ts * E; EzF += ts * E * f; tt += ts;
+      }
+      D[14] = Ez / tt; eth[2] = EzF / Ez;
+      return 'strain';
+    }
     let x = clamp(T - CONST.TGRID_MIN, 0, TGRID_N - 1); const i = Math.min(Math.floor(x), TGRID_N - 2), t = x - i;
     for (let q = 0; q < 36; q++) D[q] = this.subD[36 * i + q] + t * (this.subD[36 * (i + 1) + q] - this.subD[36 * i + q]);
     for (let c = 0; c < 3; c++) eth[c] = gridAt(this.subF, T, 3, c) - gridAt(this.subF, 25, 3, c);
@@ -617,8 +671,11 @@ class BumpSubmodel {
       const isAnand = this.anand[e * 8] !== null;
       let kind = null;
       if (!isAnand) {
-        let rec = elas.get(mat);
-        if (!rec) { rec = { D: new Float64Array(36), eth: new Float64Array(6) }; rec.kind = this._elastic(mat, T, rec.D, rec.eth); elas.set(mat, rec); }
+        const k = m.eIJK[3 * e + 2];
+        const perElement = this.opts.uniformMaterial && mat === MAT.SUB;
+        const key = perElement ? 'sub' + k : mat;
+        let rec = elas.get(key);
+        if (!rec) { rec = { D: new Float64Array(36), eth: new Float64Array(6) }; this._subZ = perElement ? 0.5 * (m.zs[k] + m.zs[k + 1]) : undefined; rec.kind = this._elastic(mat, T, rec.D, rec.eth); this._subZ = undefined; elas.set(key, rec); }
         D.set(rec.D); eth.set(rec.eth); kind = rec.kind;
       }
       for (let gq = 0; gq < 8; gq++) {
@@ -675,7 +732,10 @@ class BumpSubmodel {
 
   /** PCG with IC(0) on the Jacobi-scaled tangent. */
   _solve(rhs, x) {
-    const P = this.pattern, val = this.val, n = this.ndof;
+    const P = this.pattern, n = this.ndof;
+    // scaled working copy (the assembled tangent may be reused by later iterations)
+    const val = this._vals || (this._vals = new Float64Array(this.val.length));
+    val.set(this.val);
     const s = this._s || (this._s = new Float64Array(n));
     for (let i = 0; i < P.n; i++) { const v = 9 * P.diag[i]; s[3 * i] = 1 / Math.sqrt(Math.max(val[v], 1e-300)); s[3 * i + 1] = 1 / Math.sqrt(Math.max(val[v + 4], 1e-300)); s[3 * i + 2] = 1 / Math.sqrt(Math.max(val[v + 8], 1e-300)); }
     for (let i = 0; i < P.n; i++) for (let k = P.rowPtr[i]; k < P.rowPtr[i + 1]; k++) { const j = P.col[k], v = 9 * k; for (let p = 0; p < 3; p++) for (let q = 0; q < 3; q++) val[v + 3 * p + q] *= s[3 * i + p] * s[3 * j + q]; }
@@ -703,22 +763,29 @@ class BumpSubmodel {
     return it;
   }
 
-  /** One time step to (T, t); returns {converged, newton, dMax}. */
+  /**
+   * One time step to temperature T with increment dt. Newton-Raphson with the
+   * algorithmic tangent, which is rebuilt on the first two iterations and then
+   * kept (modified Newton) while the residual keeps shrinking.
+   */
   stepTo(T, dt) {
     const n = this.ndof, u = this.u;
     const rint = this._rint || (this._rint = new Float64Array(n)), du = this._du || (this._du = new Float64Array(n)), rhs = this._rhs || (this._rhs = new Float64Array(n));
     this.prescribe(T, u);
-    let dMax = 0, converged = false, it;
-    let r0 = 0;
+    let dMax = 0, converged = false, it, rPrev = Infinity, haveK = false;
     for (it = 1; it <= CONST.SUB_NEWTON_MAXIT; it++) {
-      dMax = this.assemble(T, dt, u, rint, true);
-      this._constrain();
+      const wantK = it <= 2 || !haveK;
+      dMax = this.assemble(T, dt, u, rint, wantK);
+      if (wantK) { this._constrain(); haveK = true; }
       let rn = 0, fn = 0;
       for (let q = 0; q < n; q++) { if (!this.isC[q]) rn += rint[q] * rint[q]; fn += rint[q] * rint[q]; }
       rn = Math.sqrt(rn); fn = Math.sqrt(fn);
-      if (it === 1) r0 = rn;
       const ref = Math.max(fn, 1e-30);
-      if (rn / ref < CONST.SUB_RES_TOL || rn < 1e-12 * Math.max(r0, 1e-30)) { converged = true; break; }
+      if (rn / ref < CONST.SUB_RES_TOL) { converged = true; break; }
+      if (!wantK && rn > 0.5 * rPrev) { // stalled with the frozen tangent: refresh it
+        this.assemble(T, dt, u, rint, true); this._constrain();
+      }
+      rPrev = rn;
       for (let q = 0; q < n; q++) rhs[q] = this.isC[q] ? 0 : -rint[q];
       this._solve(rhs, du);
       let dun = 0, un = 0;
@@ -726,7 +793,8 @@ class BumpSubmodel {
       if (Math.sqrt(dun) < CONST.SUB_DU_TOL * Math.max(Math.sqrt(un), 1e-30)) { converged = true; it++; break; }
     }
     if (converged) {
-      // commit states (strain increment check is done by the caller)
+      // final state at the converged displacement (residual-only assembly refreshes the trial states)
+      dMax = this.assemble(T, dt, u, rint, false);
       for (const pt of this.anand) if (pt) pt.commit();
     }
     return { converged, newton: it, dMax };

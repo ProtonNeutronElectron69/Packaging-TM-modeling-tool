@@ -232,14 +232,24 @@ const VERIFICATION_TESTS = [
       an.run();
       const g = an.mesh.geom, d = g.dies[0];
       const sites = dieBumpSites(d);
-      // a bump well inside the field, away from the edge
+      // a bump well inside the field, nearest to the centre of a global bump-layer element (where the
+      // incompatible modes do not contribute to the strain, so nodal interpolation of the boundary data is exact)
+      const mesh0 = an.mesh, zm0 = g.zt + 0.5 * g.so, kb0 = findInterval(mesh0.zs, zm0);
       let q = 0, best = Infinity;
-      for (let s = 0; s < sites.x.length; s++) { const dd = Math.hypot(sites.x[s] - (d.cx + d.w / 4), sites.y[s] - (d.cy + d.h / 4)); if (dd < best) { best = dd; q = s; } }
+      for (let s = 0; s < sites.x.length; s++) {
+        if (Math.abs(sites.x[s] - d.cx) > d.w / 3 || Math.abs(sites.y[s] - d.cy) > d.h / 3) continue;
+        const i = findInterval(mesh0.xs, sites.x[s]), j = findInterval(mesh0.ys, sites.y[s]);
+        const dd = Math.hypot(sites.x[s] - 0.5 * (mesh0.xs[i] + mesh0.xs[i + 1]), sites.y[s] - 0.5 * (mesh0.ys[j] + mesh0.ys[j + 1]));
+        if (dd < best) { best = dd; q = s; }
+      }
       const site = { x: sites.x[q], y: sites.y[q], ix: sites.ix[q], iy: sites.iy[q] };
+      // consistent mode: solder elastic, solder and underfill voxels both carry the homogenized bump-layer
+      // phases, substrate and Si slices keep their global properties
       const sm = new BumpSubmodel(an, 0, site, { nxy: 8, nz: 8, elasticSolder: true, uniformMaterial: true });
       // global strain change at the site (25 -> 125)
       const mesh = an.mesh, model = an.model, zmid = g.zt + 0.5 * g.so, kb = findInterval(mesh.zs, zmid);
       const e = elementInCell(mesh, findInterval(mesh.xs, site.x), findInterval(mesh.ys, site.y), kb, PART.SOLDER);
+      // global strain change (nodal plus incompatible-mode contributions, as the cut-boundary data uses)
       const qv = new Float64Array(33), eA = new Float64Array(6), eB = new Float64Array(6);
       const [hx, hy, hz] = model.elementDims(e);
       const [xi, eta, zeta] = naturalCoords(mesh, e, site.x, site.y, zmid);
@@ -320,7 +330,9 @@ const VERIFICATION_TESTS = [
     run(ctx) {
       const cfg = presetConfig(ctx.db, 'default');
       const an = new Analysis(cfg, { preset: 'draft', evaluations: 'preview' });
-      an.build(); an.run();
+      an.build();
+      an.solver.opts.tol = 1e-10; // the reaction criterion (1e-9) needs a tighter residual than the production 1e-8
+      an.run();
       const rec = an.log.find(r => r.label.startsWith('as-assembled'));
       const u = an.fields.get(25), model = an.model;
       // reactions and energy balance from the unconstrained system
@@ -334,7 +346,7 @@ const VERIFICATION_TESTS = [
       const uKu = dot(u, Ku), fu = dot(f, u);
       const eb = Math.abs(uKu - fu) / Math.abs(fu);
       const pass = rec.relres < 1e-8 && reac / fscale < 1e-9;
-      return { pass, measured: 'relative residual ' + rec.relres.toExponential(2) + ' (' + rec.iters + ' iterations, ' + rec.precond + '); max reaction ' + (reac / fscale).toExponential(2) + ' of the internal force scale; energy balance |uKu - fu| / |fu| = ' + eb.toExponential(2), criterion: 'residual below 1e-8; reactions below 1e-9' };
+      return { pass, measured: 'relative residual ' + rec.relres.toExponential(2) + ' (' + rec.iters + ' iterations, ' + rec.precond + ', solved to 1e-10); max reaction ' + (reac / fscale).toExponential(2) + ' of the internal force scale (max entry of K u and f); energy balance |uKu - fu| / |fu| = ' + eb.toExponential(2), criterion: 'residual below 1e-8; reactions below 1e-9' };
     },
   },
   {
@@ -344,11 +356,15 @@ const VERIFICATION_TESTS = [
       const mesh = buildPackageMesh(cfg, { preset: 'draft' });
       const g = mesh.geom;
       const L = 30, c = 0.1;
-      const field = sign => { const u = new Float64Array(3 * mesh.nn); for (let n = 0; n < mesh.nn; n++) { const x = mesh.coords[3 * n], y = mesh.coords[3 * n + 1]; u[3 * n + 2] = sign * c * (1 - (x / L) ** 2 - (y / L) ** 2); } return u; };
-      const wp = warpageJEITA(mesh, g, field(1), cfg), wm = warpageJEITA(mesh, g, field(-1), cfg);
-      // analytic magnitude: plane fit of a symmetric dome is flat; magnitude = w(centre) - w(corner of the zone)
-      const z = g.bga.zone;
-      const an = c * ((z.x1 / L) ** 2 + (z.y1 / L) ** 2);
+      const dome = sign => (x, y) => sign * c * (1 - (x / L) ** 2 - (y / L) ** 2);
+      const field = sign => { const u = new Float64Array(3 * mesh.nn); for (let n = 0; n < mesh.nn; n++) u[3 * n + 2] = dome(sign)(mesh.coords[3 * n], mesh.coords[3 * n + 1]); return u; };
+      // the synthetic surface is sampled exactly at the ball sites (a quadratic is not reproduced by bilinear nodal interpolation)
+      const wp = warpageJEITA(mesh, g, field(1), cfg, dome(1)), wm = warpageJEITA(mesh, g, field(-1), cfg, dome(-1));
+      // analytic magnitude: the best-fit plane of a dome over the symmetric ball grid is horizontal, so the
+      // magnitude is the dome value at the ball nearest the centre minus the value at the farthest corner ball
+      let rmin = Infinity, rmax = -Infinity;
+      for (let q = 0; q < g.bga.x.length; q++) { const r2 = g.bga.x[q] ** 2 + g.bga.y[q] ** 2; rmin = Math.min(rmin, r2); rmax = Math.max(rmax, r2); }
+      const an = c * (rmax - rmin) / (L * L);
       const em = Math.abs(wp.mag - an) / an;
       const pass = wp.sign === 1 && wm.sign === -1 && em < 1e-9 && Math.abs(wm.mag - an) / an < 1e-9;
       return { pass, measured: 'dome sign ' + wp.sign + ', magnitude ' + wp.mag.toExponential(10) + ' vs analytic ' + an.toExponential(10) + ' (error ' + em.toExponential(2) + '); inverted dome sign ' + wm.sign, criterion: 'exact sign, magnitude to 1e-9' };

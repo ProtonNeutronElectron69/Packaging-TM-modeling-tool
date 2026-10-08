@@ -57,10 +57,11 @@ function planeIndex(mesh, z) {
  * JEITA ED-7306 / JESD22-B112 warpage of the substrate bottom surface over the
  * BGA measuring zone from displacement field u (Section 8.1).
  */
-function warpageJEITA(mesh, geom, u, cfg) {
+function warpageJEITA(mesh, geom, u, cfg, sampler) {
   const b = geom.bga, n = b.x.length;
+  const sample = sampler || ((x, y) => samplePlane(mesh, u, 0, 2, x, y));
   const w = new Float64Array(n);
-  for (let q = 0; q < n; q++) w[q] = samplePlane(mesh, u, 0, 2, b.x[q], b.y[q]);
+  for (let q = 0; q < n; q++) w[q] = sample(b.x[q], b.y[q]);
   const pl = fitPlane(b.x, b.y, w);
   const res = new Float64Array(n);
   let rmin = Infinity, rmax = -Infinity;
@@ -70,12 +71,12 @@ function warpageJEITA(mesh, geom, u, cfg) {
   const z = b.zone;
   const diag = (xa, ya, xb, yb) => {
     const m = CONST.DIAG_SAMPLES, s = new Float64Array(m), rel = new Float64Array(m), wv = new Float64Array(m);
-    const wa = samplePlane(mesh, u, 0, 2, xa, ya), wb = samplePlane(mesh, u, 0, 2, xb, yb);
+    const wa = sample(xa, ya), wb = sample(xb, yb);
     let mx = 0, mn = 0;
     for (let q = 0; q < m; q++) {
       const t = q / (m - 1);
       const x = xa + t * (xb - xa), y = ya + t * (yb - ya);
-      wv[q] = samplePlane(mesh, u, 0, 2, x, y);
+      wv[q] = sample(x, y);
       s[q] = t * Math.hypot(xb - xa, yb - ya);
       rel[q] = wv[q] - (wa + t * (wb - wa));
       if (rel[q] > mx) mx = rel[q];

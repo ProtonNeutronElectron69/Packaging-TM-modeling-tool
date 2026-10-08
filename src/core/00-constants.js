@@ -21,6 +21,7 @@ const CONST = Object.freeze({
   SIGMOID_W_DEFAULT: 8,      // degC, E(T) glass-transition width
   CTE_SMOOTH_DELTA: 3,       // degC, logistic smoothing of the bilinear CTE
   SOLDER_MOLTEN_FRACTION: 0.01, // solder E above solidus = 1 % of E(solidus)
+  LAYERED_PLANE_STRESS: true,   // continuum-shell sub-layer stiffness in the layered substrate bands
   GPA: 1000,                 // MPa per GPa
   PPM: 1e-6,
   // ---- mesher -------------------------------------------------------------

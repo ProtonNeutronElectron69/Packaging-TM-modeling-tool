@@ -530,6 +530,7 @@ function limitationsList(res) {
     'Fatigue constants come from other joint geometries and constitutive models; lives are order-of-magnitude and best used as ratios against a pinned baseline. The submodel assumes the solder is stress-free at 25 °C in the as-assembled state.',
     'Silicon elastic constants are temperature independent; Cu and metals are elastic.',
     'Poisson ratios are clamped to 0.45 in the global hexahedral elements (B-bar elements in the submodel accept up to 0.49).',
+    'Layered substrate bands use the continuum-shell form of each sub-layer stiffness (plane-stress in-plane block, uncoupled thickness modulus), because one thickness strain shared by all sub-layers of a band over-constrains the Poisson expansion (0.7 % warpage bias against lamination theory).',
     'Build decisions: the multigrid coarse space uses per-column shell aggregates (rigid-body plus thickness modes of each stiff stack) because plain nodal interpolation stalls on thin layered structures; the full symmetric block matrix is stored (instead of the upper triangle) for faster smoothing; single-material elements use a closed-form 12-point rule that reproduces 2×2×2 Gauss exactly; the drag preview solves to a looser tolerance (1e-5) and skips the chip-join state.',
   ];
   if (res && res.notes) L.push(...res.notes);

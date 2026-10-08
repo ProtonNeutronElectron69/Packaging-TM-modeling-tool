@@ -99,6 +99,22 @@ function substrateBands(layers) {
   return { total, rows, planes, bands };
 }
 
+/**
+ * Continuum-shell form of a sub-layer stiffness for layered integration: the
+ * in-plane block is condensed for sigma_zz = 0 (plane stress per sub-layer, as
+ * in classical lamination theory) and the thickness modulus is kept but
+ * uncoupled from the in-plane strains. A single thickness strain shared by all
+ * sub-layers of a band would otherwise over-constrain the Poisson expansion
+ * of the softer sub-layers (V5).
+ */
+function sublayerShellD(D) {
+  const zz = D[14];
+  const P = [0, 1, 3];
+  for (const a of P) for (const b of P) D[a * 6 + b] -= D[a * 6 + 2] * D[2 * 6 + b] / zz;
+  for (const a of P) { D[a * 6 + 2] = 0; D[2 * 6 + a] = 0; }
+  D[14] = zz;
+}
+
 /** Integrals of the quadratic Lagrange basis on {-1, 0, 1} over [a, b]. */
 function lagrange3Integrals(a, b) {
   const Im = z => z * z * z / 6 - z * z / 4;
@@ -144,6 +160,7 @@ function buildBandSection(band, lib, nuMax) {
     for (let i = 0; i < TGRID_N; i++) {
       const T = CONST.TGRID_MIN + i;
       orthoD(substrateRowEC(band.subs[s].row, T, lib), nuMax, tmpD);
+      if (CONST.LAYERED_PLANE_STRESS) sublayerShellD(tmpD);
       D.set(tmpD, (s * TGRID_N + i) * 36);
     }
   }

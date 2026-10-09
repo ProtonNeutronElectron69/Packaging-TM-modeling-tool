@@ -2,15 +2,16 @@
 
 ## Project status (read this first)
 
-The build specification that follows (from "Build Prompt" onward) has been **implemented in full** and merged to `main` through three pull requests. A new session should treat it as the reference design of an existing, working application, not as a task to start.
+The build specification that follows (from "Build Prompt" onward) has been **implemented in full** and merged to `main` through four pull requests (three of code, one of documentation). A new session should treat it as the reference design of an existing, working application, not as a task to start.
 
 | PR | Merged | Content |
 |---|---|---|
 | #1 | 2026-10-08 | Complete tool: physics core, worker, single-file UI, verification suite, build and test tooling |
 | #2 | 2026-10-09 | Feature-preserving multigrid (lid convergence), parallel temperature sweep and submodels on nested workers, faster submodel, JEITA shape class and sign confidence, three.js CDN fallback and 3D smoke test, "Estimated inputs in use" card, V7 made consistent (suite 15/15) |
 | #3 | 2026-10-09 | Tooltips on every control, dropdown, results tab and result quantity (344 elements) |
+| #4 | 2026-10-09 | Documentation: this status section and the README status, layout, verification, performance, deviations and known-issues sections |
 
-Current state on `main` (merge commit `e992fc8`):
+Current state on `main`:
 
 - Verification suite: **15/15 pass** headless in Node (`dist/verification.json` holds the last run with measured values).
 - Performance (Chromium, 4-core container, 3 workers): drag preview 2.3 to 2.6 s (target 2 s), full Standard analysis 147 s (target 90 s), screening 7 s (target 10 s), four submodels 286 s (target 120 s). The remaining gaps are the main open item; see README "Known issues and next steps".

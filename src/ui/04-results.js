@@ -12,17 +12,20 @@ function renderRunPanel(root) {
   const cfg = app.cfg;
   root.append(h('h2', null, '6. Run and results'));
   root.append(selectField('Mesh fidelity', () => cfg.mesh.preset, v => { cfg.mesh.preset = v; renderContext(); }, Object.entries(C.CONST.MESH_PRESETS).map(([k, p]) => ({ value: k, label: p.label + ' (h ' + p.hmin + ' to ' + p.hmax + ' mm, cap ' + p.cap.toLocaleString() + ' DOF)' })), { help: 'preset', section: 'mesh' }));
+  const hc = navigator.hardwareConcurrency || 2;
+  root.append(h('div', { class: 'field' }, h('label', null, 'Parallel workers', h('span', { class: 'help', title: 'The temperature sweep and the bump submodels are split over this many Web Workers (each holds its own copy of the model, so memory scales with the count). 1 keeps everything in one worker.' }, '?')), h('select', { onchange: e => { app.workers = +e.target.value; renderContext(); } }, ...Array.from({ length: Math.max(1, Math.min(8, hc)) }, (_, i) => i + 1).map(n => h('option', { value: n, selected: app.workers === n ? '' : null }, n + (n === 1 ? ' (single worker)' : ' workers')))), h('span', { class: 'unit' }, hc + ' cores' + (app.nestedWorkers === false ? '; nested workers unavailable in this browser' : ''))));
   const est = estimateRun(cfg, cfg.mesh.preset);
   if (est.error) root.append(h('div', { class: 'msg error' }, est.error));
   else {
     app.meshWarnings = est.warnings;
-    root.append(h('div', { class: 'kv' }, h('span', { class: 'k' }, 'Estimated mesh'), h('span', null, est.info.nx + ' × ' + est.info.ny + ' × ' + est.info.nz + ' grid, ' + est.info.nElem.toLocaleString() + ' elements, ' + est.info.nDof.toLocaleString() + ' DOF' + (est.info.scaled ? ' (sizes enlarged to meet the cap)' : '')), h('span', { class: 'k' }, 'Element sizes'), h('span', null, 'h_min ' + fmt(est.info.hmin, 3) + ', h_max ' + fmt(est.info.hmax, 3) + ' mm; max aspect ' + fmt(est.info.aspectMax, 0)), h('span', { class: 'k' }, 'Estimated memory'), h('span', null, fmt(est.memMB, 0) + ' MB'), h('span', { class: 'k' }, 'Estimated runtime'), h('span', null, 'preview ' + fmt(est.previewS, 0) + ' s, full analysis ' + fmt(est.fullS, 0) + ' s (single worker; scales with your CPU)')));
+    root.append(h('div', { class: 'kv' }, h('span', { class: 'k' }, 'Estimated mesh'), h('span', null, est.info.nx + ' × ' + est.info.ny + ' × ' + est.info.nz + ' grid, ' + est.info.nElem.toLocaleString() + ' elements, ' + est.info.nDof.toLocaleString() + ' DOF' + (est.info.scaled ? ' (sizes enlarged to meet the cap)' : '')), h('span', { class: 'k' }, 'Element sizes'), h('span', null, 'h_min ' + fmt(est.info.hmin, 3) + ', h_max ' + fmt(est.info.hmax, 3) + ' mm; max aspect ' + fmt(est.info.aspectMax, 0)), h('span', { class: 'k' }, 'Estimated memory'), h('span', { class: est.memMB > 600 ? 'warnc' : '' }, fmt(est.memMB, 0) + ' MB total (' + fmt(est.perWorkerMB, 0) + ' MB per worker' + (est.memMB > 600 ? '; above the 600 MB target, reduce the worker count if memory is tight' : '') + ')'), h('span', { class: 'k' }, 'Estimated runtime'), h('span', null, 'preview ' + fmt(est.previewS, 0) + ' s, full analysis ' + fmt(est.fullS, 0) + ' s with ' + app.workers + ' worker' + (app.workers > 1 ? 's' : '') + ' (scales with your CPU)')));
   }
   const canRun = !app.validation.errors.length;
   root.append(h('div', { class: 'row' }, h('button', { class: 'primary', disabled: canRun ? null : '', onclick: () => runFull() }, '▶ Run full global analysis'), h('button', { disabled: canRun ? null : '', onclick: () => runPreview(true) }, 'Quick preview (Draft, 25 °C)'), h('label', { class: 'small' }, h('input', { type: 'checkbox', checked: app.autoSolve ? '' : null, onchange: e => { app.autoSolve = e.target.checked; } }), ' auto-solve on die release')));
   root.append(h('div', { class: 'row' }, h('button', { disabled: app.results ? null : '', onclick: pinBaseline }, 'Pin as baseline'), h('button', { disabled: app.baseline ? null : '', onclick: () => { app.baseline = null; renderContext(); } }, 'Clear baseline'), h('button', { disabled: canRun ? null : '', onclick: checkMeshSensitivity }, 'Check mesh sensitivity'), h('button', { disabled: app.results ? null : '', onclick: exportCSV }, 'Export CSV'), h('button', { disabled: app.results ? null : '', onclick: openReport }, 'Report (print / PDF)')));
   if (cfg.name && cfg.name.startsWith('Core thickness study')) root.append(h('div', { class: 'row' }, h('button', { onclick: runCoreStudy }, 'Run both core variants and compare')));
   root.append(h('div', { class: 'small muted' }, 'Tip: pin a baseline, then compare variants. Ratios and deltas against the baseline are the most trustworthy outputs of a screening model.'));
+  root.append(estimatedInputsCard(cfg));
   renderValidation(root);
   if (!app.results) { root.append(h('div', { class: 'msg info' }, 'No results yet. Run the analysis to populate the results views in the center area.')); return; }
   const res = app.results;
@@ -30,7 +33,7 @@ function renderRunPanel(root) {
   const f = res.at25, w = f.warpage;
   const base = app.baseline;
   const delta = (v, bv, unit, dgt) => bv === undefined || bv === null || !isFinite(bv) ? '' : ' (Δ ' + (v - bv >= 0 ? '+' : '') + fmt(v - bv, dgt) + unit + ', ×' + fmt(v / bv, 2) + ' vs baseline)';
-  root.append(h('div', { class: 'card' }, h('h3', null, 'Signed warpage, JEITA, 25 °C'), h('div', { class: 'big' }, um(w.signed) + ' µm'), h('div', { class: 'sub' }, (w.sign > 0 ? 'convex (center farther from the PWB than the corners)' : (w.sign < 0 ? 'concave' : 'flat')) + '; magnitude ' + um(w.mag) + ' µm; RT reference ' + (w.limitRT * 1000) + ' µm' + (base ? delta(w.signed * 1000, base.at25.warpage.signed * 1000, ' µm', 1) : '')), whatThisMeans('warpage', res)));
+  root.append(h('div', { class: 'card' }, h('h3', null, 'Signed warpage, JEITA, 25 °C'), h('div', { class: 'big' }, um(w.signed) + ' µm', w.marginal ? h('span', { class: 'badge Handbook', title: 'The diagonal sum that sets the JEITA sign is only ' + fmt(100 * w.signConf, 0) + ' % of the magnitude (saddle or ring shape); the sign can flip between neighbouring states while the magnitude barely changes. Compare magnitudes.' }, 'marginal sign') : null), h('div', { class: 'sub' }, shapeText(w) + '; magnitude ' + um(w.mag) + ' µm; RT reference ' + (w.limitRT * 1000) + ' µm' + (base ? delta(w.signed * 1000, base.at25.warpage.signed * 1000, ' µm', 1) : '')), whatThisMeans('warpage', res)));
   const peak = res.sweep.reduce((m, r) => Math.abs(r.signed) > Math.abs(m.signed) ? r : m, res.sweep[0]);
   root.append(h('div', { class: 'card' }, h('h3', null, 'Reflow sweep peak'), h('div', { class: 'big' }, um(peak.signed) + ' µm at ' + peak.T + ' °C'), h('div', { class: 'sub' }, 'JEITA limit for ' + cfg.bga.pitch + ' mm pitch: ' + (w.limitHot * 1000) + ' µm → ' + (Math.abs(peak.signed) <= w.limitHot ? 'within limit' : 'exceeds limit') + (base ? delta(peak.signed * 1000, base.sweep.reduce((m, r) => Math.abs(r.signed) > Math.abs(m.signed) ? r : m, base.sweep[0]).signed * 1000, ' µm', 1) : ''))));
   f.dies.forEach((d, i) => {
@@ -48,10 +51,46 @@ function renderRunPanel(root) {
   root.append(h('details', null, h('summary', null, 'Solver log (' + res.solverLog.length + ' solves, ' + fmt(res.totalMs / 1000, 1) + ' s total)'), h('div', { class: 'mono small' }, 'Mesh ' + res.meshInfo.nDof + ' DOF, ' + res.meshInfo.nElem + ' elements, build ' + fmt(res.meshInfo.buildMs, 0) + ' ms; assembly ' + fmt(res.timings.assemble, 0) + ' ms; solves ' + fmt(res.timings.solve, 0) + ' ms'), h('table', { class: 'small' }, h('tr', null, h('th', null, 'Solve'), h('th', null, 'Iterations'), h('th', null, 'Residual'), h('th', null, 'Preconditioner'), h('th', null, 'ms')), ...res.solverLog.map(r => h('tr', null, h('td', null, r.label), h('td', null, String(r.iters) + (r.rebuilt ? ' (rebuilt)' : '') + (r.fallback ? ' (fallback from ' + r.fallback.first + ')' : '')), h('td', null, fmtE(r.relres, 1)), h('td', null, r.precond || ''), h('td', null, fmt(r.ms, 0)))))));
 }
 
+/** Every Estimated (placeholder) parameter the current configuration depends on. */
+function estimatedInputsInUse(cfg) {
+  const out = [];
+  for (const r of C.materialRoles(cfg)) {
+    const m = C.findMaterial(cfg.materials, r.id);
+    C.forEachParam({ elastic: m.elastic, cte: m.cte, cteXY: m.cteXY, cteZ: m.cteZ, cure: m.cure }, (p, path) => { if ((p.c || 'Estimated') === 'Estimated') out.push({ role: r.role, material: m.name, id: m.id, path, label: paramLabel(path), value: p.v, unit: p.u || '', note: p.n || '' }); });
+    if (m.elastic && m.elastic.E && m.elastic.E.type === 'table' && m.elastic.E.c === 'Estimated') out.push({ role: r.role, material: m.name, id: m.id, path: 'elastic.E', label: 'E(T) table', value: '', unit: '', note: m.elastic.E.n || '' });
+  }
+  return out;
+}
+function estimatedInputsCard(cfg) {
+  const list = estimatedInputsInUse(cfg);
+  const S = app.sensitivity;
+  const driven = new Set();
+  if (S) for (const k of ['warpRT', 'warpPeak', 'dieStress', 'dW']) if (S[k]) S[k].rows.slice(0, 5).forEach(r => driven.add(r.id));
+  const card = h('div', { class: 'card' }, h('h3', null, 'Estimated inputs in use ', h('span', { class: 'badge Estimated' }, String(list.length))),
+    h('div', { class: 'small' }, 'These placeholder values have no published source; replace them with measured or DMA data before trusting absolute numbers. Their influence is quantified by the sensitivity run (step 6 → Sensitivity), which includes them by default.'),
+    h('table', { class: 'small' }, h('tr', null, h('th', null, 'Role'), h('th', null, 'Material'), h('th', null, 'Parameter'), h('th', null, 'Value'), h('th')), ...list.map(e => h('tr', null, h('td', null, e.role), h('td', null, e.material), h('td', { title: e.note }, e.label), h('td', null, (typeof e.value === 'number' ? fmtInput(e.value) : e.value) + ' ' + e.unit), h('td', null, h('button', { class: 'small', onclick: () => { app.selectedMaterial = e.id; app.step = 4; renderAll(); } }, 'edit'))))),
+    S ? h('div', { class: 'small muted' }, 'In the last sensitivity run, ' + sensitivityEstimatedShare(S) + ' of the total top-5 swing came from Estimated inputs.') : null);
+  return card;
+}
+function sensitivityEstimatedShare(S) {
+  const estIds = new Set(C.sensitivityInputs(app.cfg).filter(i => i.estimated).map(i => i.id));
+  let tot = 0, est = 0;
+  for (const k of ['warpRT', 'warpPeak', 'dieStress', 'dW']) if (S[k]) for (const r of S[k].rows.slice(0, 5)) { const sw = r.swing / Math.max(Math.abs(S[k].base), 1e-30); tot += sw; if (estIds.has(r.id)) est += sw; }
+  return tot > 0 ? fmt(100 * est / tot, 0) + ' %' : 'none';
+}
+function shapeText(w) {
+  const base = w.sign > 0 ? 'convex (center farther from the PWB than the corners)' : (w.sign < 0 ? 'concave' : 'flat');
+  const sh = { dome: 'dome', bowl: 'bowl', saddle: 'saddle', ring: 'ring / W profile (the center sits on one side of the corner line, an intermediate ring on the other; the JEITA sign follows the deeper of the two, not the center)', flat: 'flat' }[w.shape] || w.shape;
+  return base + ', ' + sh + ' shape; sign confidence ' + fmt(100 * (w.signConf || 0), 0) + ' %';
+}
 function whatThisMeans(kind, res) {
   const f = res.at25, w = f.warpage, cfg = app.cfg;
   const lines = [];
   if (kind === 'warpage') {
+    if (w.shape === 'ring') lines.push('The surface has a ring (W or M) profile: the centre and an intermediate ring lie on opposite sides of the corner-to-corner line, so the JEITA sign describes the deeper feature rather than the centre. Lidded packages often show this at room temperature (the lid pulls the perimeter while the die holds the centre).');
+    if (w.marginal) lines.push('The sign is marginal here: the JEITA diagonal sum is only ' + fmt(100 * w.signConf, 0) + ' % of the magnitude, which happens for saddle and ring-shaped surfaces. Rank designs by the magnitude |C| and inspect the shape; a sign change between two nearby states does not mean the package flipped.');
+    const flips = res.sweep.filter((r, i) => i > 0 && r.sign !== res.sweep[i - 1].sign && r.sign !== 0 && res.sweep[i - 1].sign !== 0).map(r => r.T);
+    if (flips.length) lines.push('Over the reflow sweep the JEITA sign changes at about ' + flips.join(', ') + ' °C; the magnitude curve (dashed) shows whether the surface actually passes through flat there or only changes shape.');
     lines.push('Sign follows JEITA ED-7306 / JESD22-B112: positive means the package top surface arches and the center is farther from the board than the corners (convex); negative means concave. The magnitude is the peak-to-valley of the BGA-side surface after removing the best-fit plane over the ball field.');
     lines.push('The sign is determined by the two diagonals (AB: ' + um(w.diagAB.max) + ' / ' + um(w.diagAB.min) + ' µm, CD: ' + um(w.diagCD.max) + ' / ' + um(w.diagCD.min) + ' µm); saddle or ring-shaped surfaces can flip sign while the magnitude stays similar.');
     const peak = res.sweep.reduce((m, r) => Math.abs(r.signed) > Math.abs(m.signed) ? r : m, res.sweep[0]);
@@ -65,11 +104,11 @@ function whatThisMeans(kind, res) {
 // ---- running ----
 function runFull() {
   if (app.validation.errors.length) { toast('Fix the errors first.', 'error'); return; }
-  startRun({ type: 'run', cfg: app.cfg, preset: app.cfg.mesh.preset, evaluations: 'full' }, 'Full global analysis').then(res => {
+  startRun({ type: 'run', cfg: app.cfg, preset: app.cfg.mesh.preset, evaluations: 'full', workers: app.workers }, 'Full global analysis').then(res => {
     app.results = res; app.currentFields = res.at25; app.selectedT = 25; app.dirty = false;
     app.screening = res.screening || null; app.submodels = [];
     setCenterTab('results'); renderAll();
-    toast('Analysis complete in ' + fmt(res.totalMs / 1000, 1) + ' s (' + res.meshInfo.nDof + ' DOF).', 'ok');
+    toast('Analysis complete in ' + fmt(res.totalMs / 1000, 1) + ' s (' + res.meshInfo.nDof + ' DOF, ' + res.workers + ' worker' + (res.workers > 1 ? 's' : '') + ').', 'ok');
   }).catch(err => { if (err.message !== 'cancelled') toast('Analysis failed: ' + err.message, 'error', 9000); });
 }
 function runPreview(explicit) {
@@ -96,7 +135,7 @@ function checkMeshSensitivity() {
   const order = ['draft', 'standard', 'fine'];
   const cur = app.cfg.mesh.preset, next = order[Math.min(order.indexOf(cur) + 1, 2)];
   if (next === cur) { toast('Already at the finest preset.', 'warn'); return; }
-  const run = preset => startRun({ type: 'run', cfg: app.cfg, preset, evaluations: 'preview' }, 'Mesh check at ' + preset);
+  const run = preset => startRun({ type: 'run', cfg: app.cfg, preset, evaluations: 'preview', workers: app.workers }, 'Mesh check at ' + preset);
   run(cur).then(a => run(next).then(b => {
     const wa = a.at25.warpage.signed, wb = b.at25.warpage.signed;
     const sa = a.at25.dies[0].top.peakInterior, sb = b.at25.dies[0].top.peakInterior;
@@ -166,7 +205,7 @@ function renderWarpageView(root, res, f, Tsel) {
   left.append(mapCanvas(res, (ctx, X, Y, sc) => { drawGridField(ctx, res.xs, res.ys, grid, scale, X, Y, 0.95); drawContours(ctx, res.xs, res.ys, grid, ticks(scale.min, scale.max, 10), X, Y, 'rgba(0,0,0,0.3)'); drawPoints(ctx, w.ballX, w.ballY, Float32Array.from(w.ballRes, v => v * 1000), scale, X, Y, Math.max(1.5, 0.2 * cfg.bga.pitch * sc)); const z = res.geometry.bga.zone; ctx.setLineDash([6, 4]); ctx.strokeStyle = cssVar('--muted'); ctx.strokeRect(X(z.x0), Y(z.y1), (z.x1 - z.x0) * sc, (z.y1 - z.y0) * sc); ctx.setLineDash([]); ctx.strokeStyle = cssVar('--accent2'); ctx.beginPath(); ctx.moveTo(X(z.x0), Y(z.y0)); ctx.lineTo(X(z.x1), Y(z.y1)); ctx.moveTo(X(z.x0), Y(z.y1)); ctx.lineTo(X(z.x1), Y(z.y0)); ctx.stroke(); ctx.fillStyle = cssVar('--accent2'); ctx.font = '11px ' + cssVar('--font'); ctx.fillText('A', X(z.x0) - 10, Y(z.y0) + 4); ctx.fillText('B', X(z.x1) + 3, Y(z.y1)); ctx.fillText('C', X(z.x0) - 10, Y(z.y1)); ctx.fillText('D', X(z.x1) + 3, Y(z.y0) + 4); }));
   left.append(legendRow(scale, 'substrate bottom surface, µm relative to the best-fit plane over the BGA zone; + toward the package top (away from the PWB); dots: ball sites'));
   const right = h('div');
-  right.append(h('div', { class: 'card' }, h('div', { class: 'kv' }, h('span', { class: 'k' }, 'Signed warpage'), h('b', null, um(w.signed) + ' µm (' + (w.sign > 0 ? 'convex' : w.sign < 0 ? 'concave' : 'flat') + ')'), h('span', { class: 'k' }, 'Magnitude |C|'), h('span', null, um(w.mag) + ' µm'), h('span', { class: 'k' }, 'JEITA max at elevated T'), h('span', null, (w.limitHot * 1000) + ' µm for ' + cfg.bga.pitch + ' mm pitch'), h('span', { class: 'k' }, 'RT coplanarity reference'), h('span', null, (w.limitRT * 1000) + ' µm'), h('span', { class: 'k' }, 'Diagonal AB max / min'), h('span', null, um(w.diagAB.max) + ' / ' + um(w.diagAB.min) + ' µm'), h('span', { class: 'k' }, 'Diagonal CD max / min'), h('span', null, um(w.diagCD.max) + ' / ' + um(w.diagCD.min) + ' µm'), h('span', { class: 'k' }, 'Substrate top warpage'), h('span', null, um(f.substrateTop.mag) + ' µm'), ...f.substrateTop.dies.flatMap(d => [h('span', { class: 'k' }, d.die + ' die-to-substrate relative curvature'), h('span', null, fmtE(d.relKxx, 2) + ' (xx), ' + fmtE(d.relKyy, 2) + ' (yy) 1/mm')])), whatThisMeans('warpage', res)));
+  right.append(h('div', { class: 'card' }, h('div', { class: 'kv' }, h('span', { class: 'k' }, 'Signed warpage'), h('b', null, um(w.signed) + ' µm (' + (w.sign > 0 ? 'convex' : w.sign < 0 ? 'concave' : 'flat') + ')', w.marginal ? h('span', { class: 'badge Handbook' }, 'marginal sign') : null), h('span', { class: 'k' }, 'Shape, sign confidence'), h('span', null, w.shape + ', ' + fmt(100 * (w.signConf || 0), 0) + ' % (|AB_max + AB_min + CD_max + CD_min| / |C|; orange ticks on the sweep mark marginal states)'), h('span', { class: 'k' }, 'Magnitude |C|'), h('span', null, um(w.mag) + ' µm'), h('span', { class: 'k' }, 'JEITA max at elevated T'), h('span', null, (w.limitHot * 1000) + ' µm for ' + cfg.bga.pitch + ' mm pitch'), h('span', { class: 'k' }, 'RT coplanarity reference'), h('span', null, (w.limitRT * 1000) + ' µm'), h('span', { class: 'k' }, 'Diagonal AB max / min'), h('span', null, um(w.diagAB.max) + ' / ' + um(w.diagAB.min) + ' µm'), h('span', { class: 'k' }, 'Diagonal CD max / min'), h('span', null, um(w.diagCD.max) + ' / ' + um(w.diagCD.min) + ' µm'), h('span', { class: 'k' }, 'Substrate top warpage'), h('span', null, um(f.substrateTop.mag) + ' µm'), ...f.substrateTop.dies.flatMap(d => [h('span', { class: 'k' }, d.die + ' die-to-substrate relative curvature'), h('span', null, fmtE(d.relKxx, 2) + ' (xx), ' + fmtE(d.relKyy, 2) + ' (yy) 1/mm')])), whatThisMeans('warpage', res)));
   const c1 = h('canvas', { class: 'plot' }), c2 = h('canvas', { class: 'plot' }), c3 = h('canvas', { class: 'plot' });
   right.append(c1, c2, c3);
   root.append(h('div', { class: 'grid2' }, left, right));
@@ -176,7 +215,7 @@ function renderWarpageView(root, res, f, Tsel) {
     const upWarp = res.sweep.filter(r => r.T >= 25);
     const peakT = cfg.reflow.peak;
     const down = upWarp.map(r => ({ x: 2 * peakT - r.T, y: r.signed * 1000 })).reverse();
-    linePlot(c2, [{ x: upWarp.map(r => r.T), y: upWarp.map(r => r.signed * 1000), label: 'heating', points: true }, { x: down.map(p => p.x), y: down.map(p => p.y), label: 'cooling (mirrored, same states)', dash: [4, 3] }], { title: 'Signed warpage over the reflow sweep (x axis: heating to peak, then mirrored cooling)', xlabel: '°C (then mirrored)', ylabel: 'µm', band: [-w.limitHot * 1000, w.limitHot * 1000], hlines: [{ y: 0 }], vlines: [{ x: 217, label: 'solidus' }, { x: 2 * peakT - 217 }] });
+    linePlot(c2, [{ x: upWarp.map(r => r.T), y: upWarp.map(r => r.signed * 1000), label: 'heating', points: true }, { x: down.map(p => p.x), y: down.map(p => p.y), label: 'cooling (mirrored, same states)', dash: [4, 3] }, { x: upWarp.map(r => r.T), y: upWarp.map(r => r.mag * 1000), label: 'magnitude |C|', dash: [2, 3], color: cssVar('--muted') }], { title: 'Signed warpage over the reflow sweep (x axis: heating to peak, then mirrored cooling)', xlabel: '°C (then mirrored)', ylabel: 'µm', band: [-w.limitHot * 1000, w.limitHot * 1000], hlines: [{ y: 0 }], vlines: [{ x: 217, label: 'solidus' }, { x: 2 * peakT - 217 }].concat(upWarp.filter(r => r.marginal).map(r => ({ x: r.T, color: cssVar('--warn') }))) });
     const bl = app.baseline ? [{ x: app.baseline.sweep.map(r => r.T), y: app.baseline.sweep.map(r => r.signed * 1000), label: 'baseline', dash: [2, 2] }] : [];
     linePlot(c3, [{ x: up, y: ws, label: 'current', points: true }].concat(bl, res.cycling ? [{ x: res.cycling.map(r => r.T), y: res.cycling.map(r => r.signed * 1000), label: 'cycling range', dash: [6, 3] }] : []), { title: 'Signed warpage versus temperature (all evaluated states)', xlabel: '°C', ylabel: 'µm', hlines: [{ y: w.limitHot * 1000, label: 'JEITA limit', color: cssVar('--warn') }, { y: -w.limitHot * 1000, color: cssVar('--warn') }] });
   });
@@ -273,14 +312,12 @@ function runSubmodels(res) {
   const keys = Array.from(app.submodelSelection);
   if (!keys.length) { toast('Select at least one site.', 'warn'); return; }
   const cfg = app.cfg;
-  const runOne = i => {
-    if (i >= keys.length) { renderCenter(); return; }
-    const [die, q] = keys[i].split(':').map(Number);
-    const s = res.screening[die];
-    const site = { x: s.x[q], y: s.y[q], ix: s.ix[q], iy: s.iy[q] };
-    startRun({ type: 'submodel', die, site, nxy: cfg.submodel.nxy, nz: cfg.submodel.nz }, 'Bump submodel ' + (i + 1) + '/' + keys.length).then(r => { r.dieIdx = die; app.submodels = app.submodels.filter(x => !(x.dieIdx === die && x.site.ix === site.ix && x.site.iy === site.iy)); app.submodels.push(r); renderCenter(); runOne(i + 1); }).catch(e => { if (e.message !== 'cancelled') toast('Submodel failed: ' + e.message, 'error', 9000); });
-  };
-  runOne(0);
+  const jobs = keys.map(k => { const [die, q] = k.split(':').map(Number); const s = res.screening[die]; return { die, site: { x: s.x[q], y: s.y[q], ix: s.ix[q], iy: s.iy[q] } }; });
+  const onPartial = r => { app.submodels = app.submodels.filter(x => !(x.dieIdx === r.dieIdx && x.site.ix === r.site.ix && x.site.iy === r.site.iy)); app.submodels.push(r); renderCenter(); };
+  const p = startRun({ type: 'submodels', jobs, nxy: cfg.submodel.nxy, nz: cfg.submodel.nz, workers: app.workers }, 'Bump submodels (' + jobs.length + ' sites)');
+  const pend = worker.pending.get(worker.nextId - 1);
+  if (pend) pend.onPartial = onPartial;
+  p.then(() => renderCenter()).catch(e => { if (e.message !== 'cancelled') toast('Submodel failed: ' + e.message, 'error', 9000); });
 }
 function renderSubmodelCard(sm) {
   const c1 = h('canvas', { class: 'plot' });
@@ -296,7 +333,12 @@ function renderSubmodelCard(sm) {
 
 // ---- 3D view ----
 function renderView3D(root, res, f, Tsel) {
-  if (window.__threeFailed || typeof THREE === 'undefined') { root.append(h('div', { class: 'msg warning' }, 'three.js could not be loaded (offline?). The 3D view is unavailable; every other feature works.')); return; }
+  if (typeof THREE === 'undefined') {
+    if (window.__threeFailed) { root.append(h('div', { class: 'msg warning' }, 'three.js could not be loaded from cdnjs, jsdelivr or unpkg (offline or blocked). The 3D view is unavailable; every other feature works.')); return; }
+    root.append(h('div', { class: 'msg info' }, 'Loading three.js…'));
+    if (window.__threeReady) window.__threeReady.then(() => { if (app.resultsView === 'view3d' || app.centerTab === 'view3d') renderCenter(); });
+    return;
+  }
   if (!res.view3d) { root.append(h('div', { class: 'msg info' }, 'The 3D view needs the full analysis.')); return; }
   const v = app.view3dOpts || (app.view3dOpts = { scale: 20, color: 'warpage', hidden: new Set() });
   const ctl = h('div', { class: 'row' }, h('b', null, '3D deformed shape'), ' at ', Tsel, h('label', null, ' exaggeration ', h('input', { type: 'range', min: 1, max: 200, value: v.scale, oninput: e => { v.scale = +e.target.value; update3D(); } })), h('label', null, ' color by ', h('select', { onchange: e => { v.color = e.target.value; update3D(); } }, h('option', { value: 'warpage', selected: v.color === 'warpage' ? '' : null }, 'out-of-plane displacement'), h('option', { value: 'stress', selected: v.color === 'stress' ? '' : null }, 'max principal stress (per part)'), h('option', { value: 'part', selected: v.color === 'part' ? '' : null }, 'part'))), ...C.PART_NAMES.map((n, i) => (res.view3d.part.includes(i) ? h('label', { class: 'small' }, h('input', { type: 'checkbox', checked: v.hidden.has(i) ? null : '', onchange: e => { if (e.target.checked) v.hidden.delete(i); else v.hidden.add(i); update3D(); } }), ' ' + n) : null)));
@@ -385,7 +427,7 @@ function renderSensitivityView(root) {
   const inputs = C.sensitivityInputs(cfg);
   if (!app.sensInputs) app.sensInputs = new Set(inputs.map(i => i.id));
   root.append(h('div', { class: 'row' }, h('b', null, 'Sensitivity (tornado), Draft preset'), h('span', { class: 'muted small' }, 'Each input is set to the low and high end of its range (datasheet range where given, else ±10 %, ±10 °C for temperatures). Results are cached by configuration hash.')));
-  root.append(h('div', { class: 'row small' }, ...inputs.map(i => h('label', { class: 'pill' }, h('input', { type: 'checkbox', checked: app.sensInputs.has(i.id) ? '' : null, onchange: e => { if (e.target.checked) app.sensInputs.add(i.id); else app.sensInputs.delete(i.id); } }), ' ' + i.label))));
+  root.append(h('div', { class: 'row small' }, ...inputs.map(i => h('label', { class: 'pill', title: i.estimated ? 'Estimated (placeholder) value in the database' : '' }, h('input', { type: 'checkbox', checked: app.sensInputs.has(i.id) ? '' : null, onchange: e => { if (e.target.checked) app.sensInputs.add(i.id); else app.sensInputs.delete(i.id); } }), ' ' + i.label, i.estimated ? h('span', { class: 'badge Estimated' }, 'est.') : null))));
   const nw = Math.max(1, Math.min(8, (navigator.hardwareConcurrency || 4) - 1));
   root.append(h('div', { class: 'row' }, h('button', { class: 'primary', disabled: app.validation.errors.length ? '' : null, onclick: () => runSensitivity(inputs.filter(i => app.sensInputs.has(i.id)), nw) }, '▶ Run sensitivity (' + (2 * app.sensInputs.size + 1) + ' Draft analyses on ' + nw + ' workers)')));
   const S = app.sensitivity;
@@ -481,6 +523,8 @@ function reportBody(res) {
   for (const sm of app.submodels) add('Submodel ' + sm.die + ' (' + fmt(sm.site.x, 1) + ', ' + fmt(sm.site.y, 1) + ') ΔW / Syed life', fmtE(sm.dW, 3) + ' MPa, ' + fmt(sm.life.syedEnergy, 0) + ' cycles', CONFIDENCE.fatigue);
   div.append(tbl);
   if (app.sensitivity && app.sensitivity.warpRT) div.append(h('p', { class: 'small' }, 'Sensitivity (RT warpage), top drivers: ' + app.sensitivity.warpRT.rows.slice(0, 5).map(r => r.label).join(', ') + '.'));
+  const estList = estimatedInputsInUse(cfg);
+  div.append(h('h3', null, 'Estimated inputs in use (' + estList.length + ')'), h('p', { class: 'small' }, estList.map(e => e.material + ': ' + e.label + ' = ' + (typeof e.value === 'number' ? fmtInput(e.value) : e.value) + ' ' + e.unit).join('; ') || 'none'));
   div.append(h('h3', null, 'Assumptions and limitations'), h('ul', { class: 'small' }, ...limitationsList(res).map(t => h('li', null, t))));
   div.append(h('h3', null, 'Verification'));
   if (app.verification && app.verification.length) div.append(h('table', { class: 'small' }, h('tr', null, h('th', null, 'ID'), h('th', null, 'Result'), h('th', null, 'Measured')), ...app.verification.map(r => h('tr', null, h('td', null, r.id), h('td', { class: r.pass ? 'ok' : 'bad' }, r.pass ? 'PASS' : 'FAIL'), h('td', null, r.measured)))));
@@ -531,6 +575,7 @@ function limitationsList(res) {
     'Silicon elastic constants are temperature independent; Cu and metals are elastic.',
     'Poisson ratios are clamped to 0.45 in the global hexahedral elements (B-bar elements in the submodel accept up to 0.49).',
     'Layered substrate bands use the continuum-shell form of each sub-layer stiffness (plane-stress in-plane block, uncoupled thickness modulus), because one thickness strain shared by all sub-layers of a band over-constrains the Poisson expansion (0.7 % warpage bias against lamination theory).',
+    'Parallel workers: the temperature sweep and the bump submodels can be split over several Web Workers; each holds its own copy of the model, so peak memory grows with the worker count (shown in the run panel).',
     'Build decisions: the multigrid coarse space uses per-column shell aggregates (rigid-body plus thickness modes of each stiff stack) because plain nodal interpolation stalls on thin layered structures; the full symmetric block matrix is stored (instead of the upper triangle) for faster smoothing; single-material elements use a closed-form 12-point rule that reproduces 2×2×2 Gauss exactly; the drag preview solves to a looser tolerance (1e-5) and skips the chip-join state.',
   ];
   if (res && res.notes) L.push(...res.notes);

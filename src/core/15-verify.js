@@ -225,7 +225,11 @@ const VERIFICATION_TESTS = [
   {
     id: 'V7', name: 'Submodel consistency with homogenized bump-layer properties', slow: true,
     run(ctx) {
+      // The submodel is a perturbation from the as-assembled 25 degC state with sigma = D(T)(eps - [F(T) - F(25)]).
+      // With temperature-dependent moduli this coincides with the global total formulation only when the global
+      // 25 degC state is stress-free, so the consistency case uses 25 degC for every process temperature.
       const cfg = presetConfig(ctx.db, 'bare');
+      cfg.process.Tsub = cfg.process.Tjoin = cfg.process.Tuf = cfg.process.Tattach = 25;
       const an = new Analysis(cfg, { preset: 'draft', evaluations: 'preview' });
       an.build();
       an.evaluationTemperatures = () => ({ all: [25, 125], cycling: [25, 125], reflow: [25, 125] });
@@ -233,45 +237,47 @@ const VERIFICATION_TESTS = [
       const g = an.mesh.geom, d = g.dies[0];
       const sites = dieBumpSites(d);
       // a bump well inside the field, nearest to the centre of a global bump-layer element (where the
-      // incompatible modes do not contribute to the strain, so nodal interpolation of the boundary data is exact)
-      const mesh0 = an.mesh, zm0 = g.zt + 0.5 * g.so, kb0 = findInterval(mesh0.zs, zm0);
+      // incompatible modes do not contribute to the strain, so the trilinear boundary data are exact)
+      const mesh = an.mesh, model = an.model, zmid = g.zt + 0.5 * g.so, kb = findInterval(mesh.zs, zmid);
       let q = 0, best = Infinity;
       for (let s = 0; s < sites.x.length; s++) {
         if (Math.abs(sites.x[s] - d.cx) > d.w / 3 || Math.abs(sites.y[s] - d.cy) > d.h / 3) continue;
-        const i = findInterval(mesh0.xs, sites.x[s]), j = findInterval(mesh0.ys, sites.y[s]);
-        const dd = Math.hypot(sites.x[s] - 0.5 * (mesh0.xs[i] + mesh0.xs[i + 1]), sites.y[s] - 0.5 * (mesh0.ys[j] + mesh0.ys[j + 1]));
+        const i = findInterval(mesh.xs, sites.x[s]), j = findInterval(mesh.ys, sites.y[s]);
+        const dd = Math.hypot(sites.x[s] - 0.5 * (mesh.xs[i] + mesh.xs[i + 1]), sites.y[s] - 0.5 * (mesh.ys[j] + mesh.ys[j + 1]));
         if (dd < best) { best = dd; q = s; }
       }
       const site = { x: sites.x[q], y: sites.y[q], ix: sites.ix[q], iy: sites.iy[q] };
-      // consistent mode: solder elastic, solder and underfill voxels both carry the homogenized bump-layer
-      // phases, substrate and Si slices keep their global properties
-      const sm = new BumpSubmodel(an, 0, site, { nxy: 8, nz: 8, elasticSolder: true, uniformMaterial: true });
-      // global strain change at the site (25 -> 125)
-      const mesh = an.mesh, model = an.model, zmid = g.zt + 0.5 * g.so, kb = findInterval(mesh.zs, zmid);
+      // global strain change 25 -> 125 degC at the site (nodal plus incompatible-mode contributions)
       const e = elementInCell(mesh, findInterval(mesh.xs, site.x), findInterval(mesh.ys, site.y), kb, PART.SOLDER);
-      // global strain change (nodal plus incompatible-mode contributions, as the cut-boundary data uses)
       const qv = new Float64Array(33), eA = new Float64Array(6), eB = new Float64Array(6);
       const [hx, hy, hz] = model.elementDims(e);
       const [xi, eta, zeta] = naturalCoords(mesh, e, site.x, site.y, zmid);
       model.elementState(e, 25, an.finalStage, an.fields.get(25), qv); boxStrainAt(hx, hy, hz, qv, qv.subarray(24), xi, eta, zeta, eA);
       model.elementState(e, 125, an.finalStage, an.fields.get(125), qv); boxStrainAt(hx, hy, hz, qv, qv.subarray(24), xi, eta, zeta, eB);
-      const dEps = eB.map((v, c) => v - eA[c]);
-      // submodel: one elastic step to 125 degC
-      const res = sm.stepTo(125, 1);
-      // strain at the submodel centre element
-      const m = sm.mesh;
-      const ec = elementInCell(m, Math.floor((m.nx - 1) / 2), Math.floor((m.ny - 1) / 2), findInterval(m.zs, zmid), null);
-      const Bb = new Float64Array(144), ue = new Float64Array(24), es = new Float64Array(6);
-      const i = m.eIJK[3 * ec], j = m.eIJK[3 * ec + 1], k = m.eIJK[3 * ec + 2];
-      bbarMatrix(m.xs[i + 1] - m.xs[i], m.ys[j + 1] - m.ys[j], m.zs[k + 1] - m.zs[k], 0, 0, 0, Bb);
-      for (let a = 0; a < 8; a++) { const n = m.conn[8 * ec + a]; for (let c = 0; c < 3; c++) ue[3 * a + c] = sm.u[3 * n + c]; }
-      for (let r = 0; r < 6; r++) { let s = 0; for (let c = 0; c < 24; c++) s += Bb[r * 24 + c] * ue[c]; es[r] = s; }
+      const dEps = Array.from(eB, (v, c) => v - eA[c]);
       const scale = Math.max(...dEps.map(Math.abs));
-      let err = 0;
-      for (let c = 0; c < 3; c++) err = Math.max(err, Math.abs(es[c] - dEps[c]) / scale);
-      let errAll = 0;
-      for (let c = 0; c < 6; c++) errAll = Math.max(errAll, Math.abs(es[c] - dEps[c]) / scale);
-      return { pass: err < 0.02, measured: 'normal strains: global ' + Array.from(dEps.slice(0, 3)).map(v => v.toExponential(3)).join(', ') + '; submodel ' + Array.from(es.slice(0, 3)).map(v => v.toExponential(3)).join(', ') + '; max normal error ' + (100 * err).toFixed(2) + ' % of the largest strain (all components ' + (100 * errAll).toFixed(2) + ' %); Newton converged: ' + res.converged, criterion: 'within 2 %' };
+      // submodel strain at the voxel nearest the site centre, mid-height of the bump layer
+      const subStrain = sm => {
+        const m = sm.mesh;
+        const ec = elementInCell(m, Math.floor((m.nx - 1) / 2), Math.floor((m.ny - 1) / 2), findInterval(m.zs, zmid), null);
+        const Bb = new Float64Array(144), ue = new Float64Array(24), es = new Float64Array(6);
+        const i = m.eIJK[3 * ec], j = m.eIJK[3 * ec + 1], k = m.eIJK[3 * ec + 2];
+        bbarMatrix(m.xs[i + 1] - m.xs[i], m.ys[j + 1] - m.ys[j], m.zs[k + 1] - m.zs[k], 0, 0, 0, Bb);
+        for (let a = 0; a < 8; a++) { const n = m.conn[8 * ec + a]; for (let c = 0; c < 3; c++) ue[3 * a + c] = sm.u[3 * n + c]; }
+        for (let r = 0; r < 6; r++) { let s2 = 0; for (let c = 0; c < 24; c++) s2 += Bb[r * 24 + c] * ue[c]; es[r] = s2; }
+        return es;
+      };
+      const errOf = es => { let err = 0; for (let c = 0; c < 6; c++) err = Math.max(err, Math.abs(es[c] - dEps[c]) / scale); return err; };
+      // (a) the consistency case: domain = the bump layer, every voxel = the homogenized bump-layer phases, solder elastic
+      const smA = new BumpSubmodel(an, 0, site, { nxy: 8, nz: 8, elasticSolder: true, uniformMaterial: true, layerOnly: true });
+      const resA = smA.stepTo(125, 1);
+      const esA = subStrain(smA), errA = errOf(esA);
+      // (b) information: the production domain (50 um into Si and substrate) with materially consistent slices
+      const smB = new BumpSubmodel(an, 0, site, { nxy: 8, nz: 8, elasticSolder: true, uniformMaterial: true });
+      smB.stepTo(125, 1);
+      const errB = errOf(subStrain(smB));
+      const f = v => v.toExponential(3);
+      return { pass: errA < 0.02 && resA.converged, measured: 'global strain change [xx, yy, zz, xy, yz, zx] ' + dEps.map(f).join(', ') + '; submodel (bump-layer domain, uniform homogenized phases) ' + Array.from(esA).map(f).join(', ') + ': max error ' + (100 * errA).toFixed(2) + ' % of the largest component; with the production domain and materially consistent Si / substrate slices the difference is ' + (100 * errB).toFixed(2) + ' % (coarse single-element layers versus the refined submodel)', criterion: 'within 2 %' };
     },
   },
   {

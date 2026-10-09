@@ -87,11 +87,46 @@ function warpageJEITA(mesh, geom, u, cfg, sampler) {
   const AB = diag(z.x0, z.y0, z.x1, z.y1), CD = diag(z.x0, z.y1, z.x1, z.y0);
   const sum = AB.max + AB.min + CD.max + CD.min;
   const sign = sum > 0 ? 1 : (sum < 0 ? -1 : 0);
+  // sign robustness: |sum| relative to the magnitude; small values mean a saddle or ring shape whose
+  // JEITA sign can flip between neighbouring states while the magnitude barely changes
+  const signConf = mag > 0 ? Math.abs(sum) / mag : 0;
+  const shape = classifyWarpageShape(res, b, pl, mag, AB, CD);
   const lim = (cfg.limits.jeita || JEITA_TABLE).find(r => Math.abs(r.pitch - cfg.bga.pitch) < 1e-6) || null;
   // residual grid over the whole bottom plane for contours
   const grid = planeGrid(mesh, u, 0, 2);
   for (let i = 0; i < mesh.nx; i++) for (let j = 0; j < mesh.ny; j++) grid[i * mesh.ny + j] -= pl.c0 + pl.c1 * mesh.xs[i] + pl.c2 * mesh.ys[j];
-  return { signed: sign * mag, mag, sign, plane: pl, ballW: w, ballRes: res, diagAB: AB, diagCD: CD, limitHot: lim ? lim.hot : null, limitRT: lim ? lim.rt : null, grid, rmin, rmax };
+  return { signed: sign * mag, mag, sign, signConf, marginal: signConf < CONST.SIGN_MARGINAL, shape, plane: pl, ballW: w, ballRes: res, diagAB: AB, diagCD: CD, limitHot: lim ? lim.hot : null, limitRT: lim ? lim.rt : null, grid, rmin, rmax };
+}
+
+/**
+ * Shape class of the warpage surface from the two diagonal profiles relative
+ * to their corner-to-corner lines (the JEITA sign data):
+ *  'dome' / 'bowl': both diagonals have their dominant extremum at the centre,
+ *  above / below the corner line;
+ *  'ring': the centre is on one side of the corner line but an intermediate
+ *  ring of comparable depth lies on the other (W or M profile), which is where
+ *  the JEITA sign stops describing the centre;
+ *  'saddle': the two diagonals disagree about the centre; 'flat': no warpage.
+ */
+function classifyWarpageShape(res, b, pl, mag, AB, CD) {
+  if (!(mag > 0)) return 'flat';
+  const prof = D => {
+    const m = D.rel.length, ic = (m - 1) >> 1;
+    const rc = D.rel[ic];
+    let imax = 0, imin = 0;
+    for (let q = 0; q < m; q++) { if (D.rel[q] > D.rel[imax]) imax = q; if (D.rel[q] < D.rel[imin]) imin = q; }
+    const interior = i => { const t = i / (m - 1); return (t > 0.08 && t < 0.4) || (t > 0.6 && t < 0.92); };
+    return { rc, max: D.rel[imax], min: D.rel[imin], maxInterior: interior(imax), minInterior: interior(imin) };
+  };
+  const a = prof(AB), c = prof(CD);
+  const up = a.rc > 0.1 * mag && c.rc > 0.1 * mag, down = a.rc < -0.1 * mag && c.rc < -0.1 * mag;
+  if (!up && !down) return 'saddle';
+  if (up && (a.min < -0.2 * mag && a.minInterior || c.min < -0.2 * mag && c.minInterior)) return 'ring';
+  if (down && (a.max > 0.2 * mag && a.maxInterior || c.max > 0.2 * mag && c.maxInterior)) return 'ring';
+  // M or W profile on the same side of the corner line: the dominant extremum sits on an intermediate ring
+  if (up && a.maxInterior && c.maxInterior && a.rc < 0.5 * a.max && c.rc < 0.5 * c.max) return 'ring';
+  if (down && a.minInterior && c.minInterior && a.rc > 0.5 * a.min && c.rc > 0.5 * c.min) return 'ring';
+  return up ? 'dome' : 'bowl';
 }
 
 /** Least-squares quadratic w = c0 + c1 x + c2 y + c3 x^2 + c4 y^2 + c5 xy over samples; returns curvatures. */

@@ -51,6 +51,7 @@ const CONST = Object.freeze({
   REBUILD_MIN_ITERS: 30,     // never rebuild before this many iterations of a stale preconditioner
   MG_COARSEST_COLS: 9,       // stop semi-coarsening at <= 3 x 3 columns
   MG_COARSEST_DOF: 900,
+  MG_MIN_COARSENING: 0.7,    // stop coarsening when a level would keep more than this fraction of the columns
   CHOL_JITTER: 1e-12,
   IC_SHIFT0: 1e-3,
   IC_SHIFT_MAX: 1,
@@ -61,6 +62,7 @@ const CONST = Object.freeze({
   TRACTION_PATCH: 0.05,      // mm, 50 um x 50 um underfill traction patch
   TRACTION_SAMPLES: 3,
   DIAG_SAMPLES: 201,
+  SIGN_MARGINAL: 0.25,       // |AB_max + AB_min + CD_max + CD_min| / |C| below this flags a marginal JEITA sign
   GF_PER_N: 101.97162,
   // ---- solder fatigue -------------------------------------------------------
   R_GAS: 8.314,
@@ -80,6 +82,7 @@ const CONST = Object.freeze({
   SUB_NEWTON_MAXIT: 25,
   SUB_RES_TOL: 1e-6,
   SUB_DU_TOL: 1e-8,
+  SUB_INNER_TOL: 1e-8,       // floor of the inexact-Newton inner PCG tolerance
   STABILIZATION_WARN: 0.05,
   ANAND_NEWTON_MAXIT: 60,
   ANAND_TOL: 1e-11,

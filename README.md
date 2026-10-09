@@ -17,7 +17,7 @@ Workflow (left stepper):
 3. **Underfill, lid, stiffener** geometry.
 4. **Materials**: the cited database with confidence badges, datasheet ranges, source tooltips, E(T) and CTE(T) plots, duplicate / reset.
 5. **Process and loads**: stress-free temperatures, reflow sweep, JESD22-A104 cycling, limits and fatigue constants.
-6. **Run and results**: fidelity preset, estimated DOF / memory / runtime, run controls, baseline pinning, mesh sensitivity check, CSV export and printable report. Results views (center area): warpage (JEITA ED-7306 sign convention), die stress, bump loading, underfill interface tractions, solder fatigue screening and bump submodels, 3D view, sensitivity tornado charts, verification suite.
+6. **Run and results**: fidelity preset, parallel worker count with the memory estimate, estimated DOF / memory / runtime, run controls, baseline pinning, mesh sensitivity check, the list of Estimated inputs in use, CSV export and printable report. Results views (center area): warpage (JEITA ED-7306 sign convention), die stress, bump loading, underfill interface tractions, solder fatigue screening and bump submodels, 3D view, sensitivity tornado charts, verification suite.
 
 Configurations are saved and loaded as JSON files. `localStorage` holds only the theme and the last step.
 
@@ -27,7 +27,7 @@ Configurations are saved and loaded as JSON files. `localStorage` holds only the
 node tools/build.mjs          # writes dist/fcbga_thermomech_tool.html
 node tools/verify.mjs         # runs the verification suite headless in Node (V1 to V15)
 node tools/verify.mjs V1,V2,V13   # selected tests
-node tools/smoke.mjs --full   # Playwright / Chromium smoke test with screenshots
+node tools/smoke.mjs --full [--standard] [--workers 3] [--submodels]   # Playwright / Chromium smoke test (three.js served from a local API stub)
 ```
 
 `src/core/*.js` is the physics core (materials, homogenization, mesher, elements, assembly, solvers, post-processing, Anand model, screening, submodel, sensitivity, verification). It has no DOM dependencies and is embedded in the HTML as a `text/plain` script block that the UI thread, the Web Worker and the headless runner all load. `src/worker.js` is the worker driver, `src/ui/*.js` the interface, `src/materials-db.json` the materials database with citations.
@@ -36,8 +36,9 @@ node tools/smoke.mjs --full   # Playwright / Chromium smoke test with screenshot
 
 - Structured, extruded hexahedral mesh with void cells; 8-node hexahedra with Wilson-Taylor incompatible modes (statically condensed); layered integration through the substrate sub-layers; superposed solder / underfill phases in the bump layer.
 - Total thermoelastic formulation with element birth (substrate, chip join, underfill cure, lid or stiffener attach), one linear solve per evaluation temperature.
-- Jacobi-scaled PCG with a multigrid preconditioner (column block Gauss-Seidel smoother on the 3D level, shell-type coarse levels built from per-column rigid-body-plus-thickness aggregates with Hermite deflection interpolation) and an IC(0) fallback; warm starts by Galerkin projection on previous solutions.
-- Post-processing per JEITA ED-7306 / JESD22-B112 (warpage), fixed-patch corner metrics, per-bump forces from the solder phase, interface tractions.
+- Jacobi-scaled PCG with a multigrid preconditioner (column block Gauss-Seidel smoother on the 3D level, shell-type coarse levels built from per-column rigid-body-plus-thickness aggregates with Hermite deflection interpolation, feature lines kept at every coarse level, banded Cholesky on the coarsest level) and an IC(0) fallback; warm starts by Galerkin projection on previous solutions.
+- The temperature sweep and the bump submodels run in parallel on nested helper workers (birth states, respectively cycling fields, are transferred); the worker count is a run setting.
+- Post-processing per JEITA ED-7306 / JESD22-B112 (warpage, with a shape class and a sign-confidence metric from the diagonals), fixed-patch corner metrics, per-bump forces from the solder phase, interface tractions.
 - Anand viscoplastic SAC305 with backward-Euler radial return and consistent tangent; bump screening across all sites; one-pitch bump submodel with B-bar hexahedra, cut-boundary displacements and Newton-Raphson; Syed and Darveaux life models.
 
 See the in-app "Assumptions and limitations" panel for every modeling assumption and build decision.

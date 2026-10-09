@@ -339,6 +339,10 @@ function buildPackageMesh(cfg, override) {
     hmin *= f; hmax *= f; scaled = true;
   }
   mesh.layerBand = Int32Array.from(zp.layerBand);
+  // indices of the in-plane feature lines (kept at every multigrid coarse level)
+  // (structural lines only: die edges and lid foot or stiffener ring edges)
+  const featIdx = (lines, labels, grid) => { const out = []; lines.forEach((v, q) => { if (!/ edge$|outer$|inner$/.test(labels[q]) || /substrate/.test(labels[q])) return; let best = -1, bd = Infinity; for (let i = 0; i < grid.length; i++) { const d = Math.abs(grid[i] - v); if (d < bd) { bd = d; best = i; } } if (bd < 1e-9) out.push(best); }); return Int32Array.from(out); };
+  mesh.featureX = featIdx(mx.lines, mx.labels, mesh.xs); mesh.featureY = featIdx(my.lines, my.labels, mesh.ys);
   mesh.subBand = new Int32Array(zp.zs.length - 1).fill(-1);
   for (let k = 0; k + 1 < zp.zs.length; k++) {
     const zc = 0.5 * (zp.zs[k] + zp.zs[k + 1]);

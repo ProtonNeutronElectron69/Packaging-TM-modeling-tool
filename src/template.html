@@ -38,7 +38,24 @@
 <script type="text/plain" id="worker-driver">
 /*__WORKER__*/
 </script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" crossorigin="anonymous" onerror="window.__threeFailed = true"></script>
+<script>
+// three.js is used for the 3D view only; try the allowed CDNs in turn and keep every other feature working without it
+(function () {
+  var urls = ['https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js', 'https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js', 'https://unpkg.com/three@0.128.0/build/three.min.js'];
+  window.__threeReady = new Promise(function (resolve) {
+    var i = 0;
+    function next() {
+      if (typeof THREE !== 'undefined') { window.__threeFailed = false; resolve(true); return; }
+      if (i >= urls.length) { window.__threeFailed = true; resolve(false); return; }
+      var s = document.createElement('script'); s.src = urls[i++]; s.crossOrigin = 'anonymous';
+      s.onload = function () { window.__threeFailed = typeof THREE === 'undefined'; if (window.__threeFailed) next(); else resolve(true); };
+      s.onerror = function () { next(); };
+      document.head.appendChild(s);
+    }
+    next();
+  });
+})();
+</script>
 <script>
 /*__UI__*/
 </script>

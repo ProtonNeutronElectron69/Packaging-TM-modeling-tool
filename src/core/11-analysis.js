@@ -129,28 +129,41 @@ class Analysis {
   }
 
   /** Run everything: stages, evaluations, CPI state. */
-  run() {
-    const tAll = nowMs();
+  /** Stages, then the evaluation list in warm-start order (25 first, up, then down). */
+  prepareSweep() {
+    this.tAll = nowMs();
     if (!this.mesh) this.build();
     this.runStages();
     const temps = this.evaluationTemperatures();
     this.temps = temps;
     this.fields = new Map(); // T -> displacement field (as-assembled stage)
-    const n = temps.all.length;
-    // evaluate 25 first (best warm start for the rest), then ascending from 25 up, then descending below 25
-    const order = [25].concat(temps.all.filter(T => T > 25), temps.all.filter(T => T < 25).reverse());
-    order.forEach((T, i) => {
-      this.progress(0.18 + 0.7 * i / n, 'As-assembled state at ' + T + ' °C (' + (i + 1) + '/' + n + ')');
-      const r = this.solveAt(T, this.finalStage, 'as-assembled ' + T + ' °C');
-      this.fields.set(T, r.u);
-    });
+    return [25].concat(temps.all.filter(T => T > 25), temps.all.filter(T => T < 25).reverse());
+  }
+
+  /** One as-assembled evaluation; the field is stored. */
+  evaluateAt(T) {
+    const r = this.solveAt(T, this.finalStage, 'as-assembled ' + T + ' °C');
+    this.fields.set(T, r.u);
+    return r;
+  }
+
+  /** CPI state and bookkeeping after the sweep. */
+  finishSweep() {
     if (!this.opts.quick) {
       this.progress(0.9, 'Chip-join state at 25 °C (CPI proxy)');
       this.uCPI = this.solveAt(25, 1, 'chip join only, 25 °C').u;
     }
-    this.timings.total = nowMs() - tAll;
+    this.timings.total = nowMs() - this.tAll;
     this.progress(0.92, 'Post-processing');
     return this;
+  }
+
+  /** Run everything in this thread: stages, evaluations, CPI state. */
+  run() {
+    const order = this.prepareSweep();
+    const n = order.length;
+    order.forEach((T, i) => { this.progress(0.18 + 0.7 * i / n, 'As-assembled state at ' + T + ' °C (' + (i + 1) + '/' + n + ')'); this.evaluateAt(T); });
+    return this.finishSweep();
   }
 
   /** Displacement field at any T of the cycle by piecewise-linear interpolation in T. */

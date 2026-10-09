@@ -39,6 +39,7 @@ const app = {
   cfg: null, results: null, baseline: null, fieldsCache: new Map(), screening: null, submodels: [], sensitivity: null, verification: null,
   step: 1, centerTab: 'floorplan', selectedDie: 0, resultsView: 'warpage', selectedT: 25, exaggeration: 5, cutLine: { axis: 'x', pos: 0 },
   autoSolve: true, previewPending: null, running: null, mesh: null, validation: { errors: [], warnings: [] }, geom: null, dirty: true,
+  workers: Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1)), nestedWorkers: true,
   decisions: [], showOverlay: 'warpage', cutDirty: true,
 };
 
@@ -156,7 +157,7 @@ class WorkerClient {
     this.worker.onmessage = ev => this._onMessage(ev.data);
     this.worker.onerror = ev => { for (const p of this.pending.values()) p.reject(new Error(ev.message || 'worker error')); this.pending.clear(); this.busy = false; };
     this.pending.clear();
-    this.send({ type: 'init', db: MATERIALS_DB }).catch(() => {});
+    this.send({ type: 'init', db: MATERIALS_DB, src: CORE_SRC + '\n' + WORKER_SRC }).then(r => { if (r && r.nested === false) app.nestedWorkers = false; }).catch(() => {});
   }
   _onMessage(m) {
     const p = this.pending.get(m.id);
@@ -194,10 +195,12 @@ function estimateRun(cfg, preset) {
   try {
     const mesh = C.buildPackageMesh(cfg, { preset });
     const inf = mesh.info;
-    const memMB = inf.nDof * 27 * 9 * 8 / 3 / 1e6 * 1.6 + inf.nDof * 8 * 60 / 1e6 + 30;
-    const perSolve = inf.nDof / 28000 * 1.2; // s, measured scaling
-    const nEval = 45;
-    return { info: inf, warnings: C.meshWarnings(mesh), memMB, previewS: 3 * perSolve, fullS: (4 + nEval * 0.6) * perSolve };
+    const perWorkerMB = inf.nDof * 27 * 9 * 8 / 3 / 1e6 * 1.6 + inf.nDof * 8 * 40 / 1e6 + 30;
+    const nw = Math.max(1, app.workers || 1);
+    const memMB = perWorkerMB + (nw - 1) * (perWorkerMB * 0.7);
+    const perSolve = inf.nDof / 28000 * 0.9; // s per solve, measured scaling (Node, this container)
+    const nEval = 41;
+    return { info: inf, warnings: C.meshWarnings(mesh), memMB, perWorkerMB, previewS: 3 * perSolve, fullS: (3 + nEval / nw + 1) * perSolve + 8 };
   } catch (e) { return { error: e.message }; }
 }
 

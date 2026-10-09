@@ -72,7 +72,7 @@ document.addEventListener('configchange', ev => {
   renderStepper();
 });
 function runFullAfterRelease() {
-  startRun({ type: 'run', cfg: app.cfg, preset: app.cfg.mesh.preset, evaluations: 'full' }, 'Auto-solve (' + app.cfg.mesh.preset + ')').then(res => { app.results = res; app.currentFields = res.at25; app.selectedT = 25; app.dirty = false; app.screening = res.screening || null; app.submodels = []; renderAll(); }).catch(err => { if (err.message !== 'cancelled') toast('Auto-solve failed: ' + err.message, 'error'); });
+  startRun({ type: 'run', cfg: app.cfg, preset: app.cfg.mesh.preset, evaluations: 'full', workers: app.workers }, 'Auto-solve (' + app.cfg.mesh.preset + ')').then(res => { app.results = res; app.currentFields = res.at25; app.selectedT = 25; app.dirty = false; app.screening = res.screening || null; app.submodels = []; renderAll(); }).catch(err => { if (err.message !== 'cancelled') toast('Auto-solve failed: ' + err.message, 'error'); });
 }
 document.addEventListener('dieselect', () => { if (app.step === 2) renderContext(); floorplan.draw(); });
 document.addEventListener('themechange', () => { if (app.centerTab === 'floorplan') { floorplan.draw(); xsection.draw(); } else renderCenter(); });

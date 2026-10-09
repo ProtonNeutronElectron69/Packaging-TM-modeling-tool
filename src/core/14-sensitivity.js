@@ -16,6 +16,7 @@ function sensitivityInputs(cfg) {
   const ufId = cfg.underfill.mat;
   const list = [];
   const add = (id, label, path, rule, extra) => list.push(Object.assign({ id, label, path, rule }, extra || {}));
+  const isEst = (id, path) => { try { const par = getPath(mat(id), path); return !!par && (par.c || 'Estimated') === 'Estimated'; } catch (e) { return false; } };
   // paths: 'mat:<id>:<param path>' or 'cfg:<path>' or special
   add('coreCTE', 'Core CTE x,y', 'mat:' + coreId + ':cteXY.a', 'range');
   add('coreE', 'Core modulus', 'mat:' + coreId + ':elastic.Ex', 'range', { also: ['mat:' + coreId + ':elastic.Ey'] });
@@ -48,6 +49,19 @@ function sensitivityInputs(cfg) {
   }
   add('srA1', 'Solder resist α1', 'mat:' + srId + ':cte.a1', 'rel');
   if (srRow) add('srT', 'Solder resist thickness', 'special:srT', 'rel');
+  // the remaining Estimated (placeholder) properties, so their influence is always quantified
+  add('ufEr', 'Underfill rubbery modulus', 'mat:' + ufId + ':elastic.E.Er', 'rel');
+  add('srE', 'Solder resist modulus (glassy)', 'mat:' + srId + ':elastic.E.Eg', 'rel');
+  add('coreEz', 'Core through-thickness modulus', 'mat:' + coreId + ':elastic.Ez', 'rel');
+  add('coreGxz', 'Core transverse shear modulus', 'mat:' + coreId + ':elastic.Gxz', 'rel', { also: ['mat:' + coreId + ':elastic.Gyz'] });
+  if (cfg.packageType === 'lid') add('timE', 'TIM1 modulus', 'special:matE:' + cfg.lid.timMat, 'rel');
+  // flag inputs whose database value is Estimated
+  for (const inp of list) {
+    const p = inp.path.split(':');
+    if (p[0] === 'mat') inp.estimated = isEst(p[1], p[2]);
+    else if (p[1] === 'matE') { const m = mat(p[2]); const E = m.elastic.E; inp.estimated = E.type === 'const' ? (E.E.c || 'Estimated') === 'Estimated' : (E.type === 'sigmoid' ? (E.Eg.c || 'Estimated') === 'Estimated' : (E.c || '') === 'Estimated'); }
+    else inp.estimated = false;
+  }
   return list;
 }
 

@@ -23,13 +23,14 @@ Configurations are saved and loaded as JSON files. `localStorage` holds only the
 
 ## Project status
 
-The specification in `CLAUDE.md` is implemented in full. Three pull requests are merged on `main`:
+The specification in `CLAUDE.md` is implemented in full. Four pull requests are merged on `main`:
 
 | PR | Merged | Content |
 |---|---|---|
 | [#1](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/1) | 2026-10-08 | Complete tool: physics core, worker, single-file UI, verification suite, build and test tooling |
 | [#2](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/2) | 2026-10-09 | Feature-preserving multigrid, parallel sweep and submodels on nested workers, faster submodel, JEITA shape class and sign confidence, three.js fallback chain and 3D smoke test, "Estimated inputs in use" card, V7 consistency (suite 15/15) |
 | [#3](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/3) | 2026-10-09 | Tooltips on every control, dropdown, results tab and result quantity |
+| [#4](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/4) | 2026-10-09 | Documentation: project status, repository layout, workflow, verification, performance, deviations, known issues |
 
 Open items are listed under "Known issues and next steps" below. The largest is performance against the Section 13 targets.
 

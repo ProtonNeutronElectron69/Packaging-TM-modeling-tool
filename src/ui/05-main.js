@@ -3,26 +3,26 @@
 function renderStepper() {
   const nav = $('#stepper'); nav.innerHTML = '';
   for (const s of STEPS) {
-    nav.append(h('div', { class: 'step' + (app.step === s.n ? ' active' : '') + (s.n < app.step ? ' done' : ''), onclick: () => { app.step = s.n; prefs.set('step', s.n); renderAll(); } }, h('span', { class: 'num' }, s.n), h('span', { class: 'lbl' }, s.label)));
+    nav.append(h('div', { class: 'step' + (app.step === s.n ? ' active' : '') + (s.n < app.step ? ' done' : ''), 'data-tip': TIPS['step' + s.n], onclick: () => { app.step = s.n; prefs.set('step', s.n); renderAll(); } }, h('span', { class: 'num' }, s.n), h('span', { class: 'lbl' }, s.label)));
   }
   nav.append(h('hr'), h('div', { class: 'small muted', style: 'padding:6px' }, 'Configuration: ', h('b', null, app.cfg.name || '(unnamed)'), app.results ? h('div', null, 'Results: ' + app.results.preset + (app.results.preview ? ' preview' : '') + (app.dirty ? ' (configuration changed since)' : '')) : null, app.baseline ? h('div', null, 'Baseline pinned') : null));
-  nav.append(h('div', { style: 'padding:6px' }, h('button', { class: 'small', onclick: showLimitations }, 'Assumptions and limitations')));
+  nav.append(h('div', { style: 'padding:6px' }, h('button', tip('limitations', { class: 'small', onclick: showLimitations }), 'Assumptions and limitations')));
 }
 
-const CENTER_TABS = [['floorplan', 'Floorplan and section'], ['results', 'Results'], ['view3d', '3D view']];
+const CENTER_TABS = [['floorplan', 'Floorplan and section', 'tabFloorplan'], ['results', 'Results', 'tabResults'], ['view3d', '3D view', 'tab3d']];
 function setCenterTab(t) { app.centerTab = t; prefs.set('tab', t); renderCenter(); }
 function renderCenterTabs() {
   const el = $('#center-tabs'); el.innerHTML = '';
-  for (const [k, l] of CENTER_TABS) el.append(h('div', { class: 'tab' + (app.centerTab === k ? ' active' : ''), onclick: () => setCenterTab(k) }, l));
+  for (const [k, l, t] of CENTER_TABS) el.append(h('div', tip(t, { class: 'tab' + (app.centerTab === k ? ' active' : ''), onclick: () => setCenterTab(k) }), l));
 }
 function renderCenter() {
   renderCenterTabs();
   const body = $('#center-body'); body.innerHTML = '';
   if (three) { try { three.renderer.dispose(); } catch (e) { /* ignore */ } three = null; }
   if (app.centerTab === 'floorplan') {
-    const overlaySel = h('select', { onchange: e => { app.showOverlay = e.target.value; floorplan.draw(); } }, ...[['none', 'no overlay'], ['warpage', 'warpage, substrate bottom'], ['subtop', 'warpage, substrate top'], ['dieTop', 'die backside stress'], ['dieBottom', 'die active-face stress'], ['cpiV', 'bump shear, chip join'], ['cpiN', 'bump axial, chip join'], ['bumpV', 'bump shear, as-assembled'], ['bumpN', 'bump axial, as-assembled'], ['screening', 'fatigue screening ΔW']].map(([v, l]) => h('option', { value: v, selected: app.showOverlay === v ? '' : null }, l)));
+    const overlaySel = h('select', tip('overlay', { onchange: e => { app.showOverlay = e.target.value; floorplan.draw(); } }), ...[['none', 'no overlay'], ['warpage', 'warpage, substrate bottom'], ['subtop', 'warpage, substrate top'], ['dieTop', 'die backside stress'], ['dieBottom', 'die active-face stress'], ['cpiV', 'bump shear, chip join'], ['cpiN', 'bump axial, chip join'], ['bumpV', 'bump shear, as-assembled'], ['bumpN', 'bump axial, as-assembled'], ['screening', 'fatigue screening ΔW']].map(([v, l]) => h('option', { value: v, selected: app.showOverlay === v ? '' : null }, l)));
     const cut = h('div', { class: 'fp-toolbar' }, h('b', null, 'Floorplan'), h('span', null, 'overlay ', overlaySel), app.results ? h('span', { class: 'small muted' }, '(' + (app.currentFields ? app.currentFields.T : 25) + ' °C, ' + app.results.preset + (app.results.preview ? ' preview' : '') + ')') : null,
-      h('span', null, ' cut A-A\' '), h('select', { onchange: e => { app.cutLine.axis = e.target.value; floorplan.draw(); xsection.draw(); } }, h('option', { value: 'x', selected: app.cutLine.axis === 'x' ? '' : null }, 'along x at y ='), h('option', { value: 'y', selected: app.cutLine.axis === 'y' ? '' : null }, 'along y at x =')), h('input', { type: 'number', step: 0.5, value: app.cutLine.pos, style: 'width:70px', onchange: e => { app.cutLine.pos = +e.target.value; floorplan.draw(); xsection.draw(); } }), h('span', null, ' mm; vertical exaggeration '), h('select', { onchange: e => { app.exaggeration = +e.target.value; xsection.draw(); } }, ...[1, 5, 20].map(v => h('option', { value: v, selected: app.exaggeration === v ? '' : null }, v + '×'))), h('button', { class: 'small', onclick: () => { floorplan.zoomFit(); floorplan.draw(); } }, 'Fit'));
+      h('span', null, ' cut A-A\' '), h('select', tip('cutAxis', { onchange: e => { app.cutLine.axis = e.target.value; floorplan.draw(); xsection.draw(); } }), h('option', { value: 'x', selected: app.cutLine.axis === 'x' ? '' : null }, 'along x at y ='), h('option', { value: 'y', selected: app.cutLine.axis === 'y' ? '' : null }, 'along y at x =')), h('input', tip('cutPos', { type: 'number', step: 0.5, value: app.cutLine.pos, style: 'width:70px', onchange: e => { app.cutLine.pos = +e.target.value; floorplan.draw(); xsection.draw(); } })), h('span', null, ' mm; vertical exaggeration '), h('select', tip('exagg', { onchange: e => { app.exaggeration = +e.target.value; xsection.draw(); } }), ...[1, 5, 20].map(v => h('option', { value: v, selected: app.exaggeration === v ? '' : null }, v + '×'))), h('button', tip('fit', { class: 'small', onclick: () => { floorplan.zoomFit(); floorplan.draw(); } }), 'Fit'));
     const wrap = h('div', { id: 'floorplan-wrap' }, h('canvas', { id: 'floorplan' }), h('div', { id: 'fp-readout', class: 'readout' }), app.results && app.results.preview ? h('div', { class: 'preview-badge' }, 'Preview (Draft)') : null);
     body.append(cut, wrap, h('div', { id: 'fp-legend', class: 'legend' }), h('canvas', { id: 'xsection' }));
     floorplan.init($('#floorplan')); xsection.init($('#xsection'));
@@ -87,6 +87,7 @@ function init() {
   app.step = prefs.get('step', 1);
   app.centerTab = prefs.get('tab', 'floorplan');
   onConfigChanged('geometry', {});
+  $('#btn-theme').setAttribute('data-tip', TIPS.theme); $('#btn-help').setAttribute('data-tip', TIPS.helpBtn); $('#btn-cancel').setAttribute('data-tip', TIPS.cancel);
   $('#btn-theme').addEventListener('click', () => { const order = ['auto', 'light', 'dark']; applyTheme(order[(order.indexOf(app.theme) + 1) % 3]); toast('Theme: ' + app.theme, '', 1500); });
   $('#btn-help').addEventListener('click', showLimitations);
   $('#modal-close').addEventListener('click', closeModal);

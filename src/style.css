@@ -55,6 +55,9 @@ h4 { font-size: 12px; margin: 10px 0 4px; }
 .field.warn input { border-color: var(--warn); }
 .field.err input { border-color: var(--err); }
 .help { display: inline-flex; width: 15px; height: 15px; border-radius: 50%; border: 1px solid var(--muted); color: var(--muted); font-size: 10px; align-items: center; justify-content: center; cursor: help; margin-left: 4px; vertical-align: middle; }
+.help:hover, .help:focus { border-color: var(--accent); color: var(--accent); outline: none; }
+#tooltip { position: fixed; z-index: 100; display: none; max-width: 340px; padding: 7px 10px; border-radius: 6px; background: var(--text); color: var(--bg); font-size: 12px; line-height: 1.4; box-shadow: 0 2px 8px rgba(0,0,0,.25); pointer-events: none; white-space: normal; }
+[data-tip] { cursor: inherit; }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 4px 0; }
 button { font: inherit; padding: 5px 10px; border-radius: 5px; border: 1px solid var(--border); background: var(--panel2); color: var(--text); cursor: pointer; }
 button:hover { border-color: var(--accent); }

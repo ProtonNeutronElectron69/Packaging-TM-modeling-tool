@@ -54,9 +54,11 @@ if (args.includes('--full')) {
   }
   const v3 = await page.evaluate(() => ({ threeLoaded: typeof THREE !== 'undefined', stub: !!(window.THREE && window.THREE.__stub), renders: window.__stubRenders || 0, faces: app.results.view3d ? app.results.view3d.part.length : 0, hasView: !!document.getElementById('view3d') }));
   console.log('3D view:', JSON.stringify(v3));
-  // exercise the 3D controls: colour modes, exaggeration, part toggles, temperature change
+  // exercise the 3D controls while the view is active: colour modes, exaggeration, part toggles
+  await page.evaluate(() => { app.resultsView = 'view3d'; setCenterTab('results'); });
+  await page.waitForTimeout(500);
   await page.evaluate(() => { app.view3dOpts.color = 'stress'; update3D(); app.view3dOpts.color = 'part'; update3D(); app.view3dOpts.scale = 50; app.view3dOpts.hidden.add(4); update3D(); });
-  const v3b = await page.evaluate(() => ({ renders: window.__stubRenders || 0 }));
+  const v3b = await page.evaluate(() => ({ renders: window.__stubRenders || 0, hasView: !!document.getElementById('view3d'), active: !!three }));
   console.log('3D view after control changes:', JSON.stringify(v3b));
   await page.evaluate(() => setCenterTab('floorplan'));
   await page.waitForTimeout(300);

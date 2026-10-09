@@ -361,10 +361,10 @@ function bbarMatrix(hx, hy, hz, xi, eta, zeta, Bb) {
 }
 
 /** Submodel z planes: resolve the substrate / die slices and the two 25 um averaging layers. */
-function submodelZPlanes(g, nz) {
-  const m = CONST.SUB_MARGIN, ta = CONST.SUB_T_AVG;
+function submodelZPlanes(g, nz, layerOnly) {
+  const m = layerOnly ? 0 : CONST.SUB_MARGIN, ta = CONST.SUB_T_AVG;
   const zt = g.zt, za = g.zaf;
-  const bands = [[zt - m, zt, 2], [zt, zt + ta, 3], [zt + ta, za - ta, 2], [za - ta, za, 3], [za, za + m, 2]];
+  const bands = [m > 0 ? [zt - m, zt, 2] : null, [zt, zt + ta, 3], [zt + ta, za - ta, 2], [za - ta, za, 3], m > 0 ? [za, za + m, 2] : null];
   if (za - ta <= zt + ta + 1e-9) { bands[1][1] = 0.5 * (zt + za); bands[2] = null; bands[3][0] = 0.5 * (zt + za); }
   const active = bands.filter(b => b);
   let total = active.reduce((s, b) => s + b[2], 0);
@@ -383,13 +383,13 @@ function submodelZPlanes(g, nz) {
  */
 class BumpSubmodel {
   constructor(an, dieIdx, site, opts) {
-    this.an = an; this.cfg = an.cfg; this.opts = Object.assign({ nxy: 16, nz: 14, elasticSolder: false, uniformMaterial: false, progress: null, cancelled: null }, opts || {});
+    this.an = an; this.cfg = an.cfg; this.opts = Object.assign({ nxy: 16, nz: 14, elasticSolder: false, uniformMaterial: false, layerOnly: false, progress: null, cancelled: null }, opts || {});
     const g = an.mesh.geom, d = g.dies[dieIdx];
     this.die = d; this.site = site;
     const n = this.opts.nxy, nz = this.opts.nz;
     const xs = [], ys = [];
     for (let i = 0; i <= n; i++) { xs.push(site.x - d.px / 2 + d.px * i / n); ys.push(site.y - d.py / 2 + d.py * i / n); }
-    const zs = submodelZPlanes(g, nz);
+    const zs = submodelZPlanes(g, nz, this.opts.layerOnly);
     const prof = d.profile;
     const MAT = { SUB: 0, SOLDER: 1, UF: 2, SI: 3 };
     this.MAT = MAT;
@@ -671,12 +671,51 @@ class BumpSubmodel {
       const isAnand = this.anand[e * 8] !== null;
       let kind = null;
       if (!isAnand) {
+        // elastic element: K_e and the thermal load depend on T only; cache them per temperature and
+        // reuse across the Newton iterations of a step (internal force = K_e u_e - f_th)
+        const cacheOk = this.eCacheT === T;
+        if (cacheOk && !wantK) {
+          const Kc = this.eK.subarray(576 * e, 576 * e + 576), fc = this.eF.subarray(24 * e, 24 * e + 24);
+          for (let a = 0; a < 24; a++) { let sum = -fc[a]; const ro = a * 24; for (let b = 0; b < 24; b++) sum += Kc[ro + b] * ue[b]; fe[a] = sum; }
+          for (let a = 0; a < 8; a++) { const n = m.conn[8 * e + a]; rint[3 * n] += fe[3 * a]; rint[3 * n + 1] += fe[3 * a + 1]; rint[3 * n + 2] += fe[3 * a + 2]; }
+          continue;
+        }
+        if (cacheOk && wantK) {
+          const Kc = this.eK.subarray(576 * e, 576 * e + 576), fc = this.eF.subarray(24 * e, 24 * e + 24);
+          for (let a = 0; a < 24; a++) { let sum = -fc[a]; const ro = a * 24; for (let b = 0; b < 24; b++) sum += Kc[ro + b] * ue[b]; fe[a] = sum; }
+          for (let a = 0; a < 8; a++) { const n = m.conn[8 * e + a]; rint[3 * n] += fe[3 * a]; rint[3 * n + 1] += fe[3 * a + 1]; rint[3 * n + 2] += fe[3 * a + 2]; }
+          for (let a = 0; a < 8; a++) for (let b = 0; b < 8; b++) {
+            const kk = this.bmap[(e * 8 + a) * 8 + b], v = 9 * kk;
+            for (let p = 0; p < 3; p++) for (let q = 0; q < 3; q++) val[v + 3 * p + q] += Kc[(3 * a + p) * 24 + 3 * b + q];
+          }
+          continue;
+        }
         const k = m.eIJK[3 * e + 2];
         const perElement = this.opts.uniformMaterial && mat === MAT.SUB;
         const key = perElement ? 'sub' + k : mat;
         let rec = elas.get(key);
         if (!rec) { rec = { D: new Float64Array(36), eth: new Float64Array(6) }; this._subZ = perElement ? 0.5 * (m.zs[k] + m.zs[k + 1]) : undefined; rec.kind = this._elastic(mat, T, rec.D, rec.eth); this._subZ = undefined; elas.set(key, rec); }
         D.set(rec.D); eth.set(rec.eth); kind = rec.kind;
+        // build K_e and f_th once for this T (independent of u), then the internal force from them
+        if (!this.eK) { this.eK = new Float64Array(576 * m.ne); this.eF = new Float64Array(24 * m.ne); }
+        const Kc = this.eK.subarray(576 * e, 576 * e + 576), fc = this.eF.subarray(24 * e, 24 * e + 24);
+        Kc.fill(0); fc.fill(0);
+        for (let gq = 0; gq < 8; gq++) {
+          const Bb = Ball.subarray(144 * gq, 144 * gq + 144);
+          // thermal stress s_th = D eth (strain form) or eth itself (stress form)
+          for (let r = 0; r < 6; r++) { let sum = 0; if (kind === 'stress') sum = eth[r]; else for (let c = 0; c < 3; c++) sum += D[r * 6 + c] * eth[c]; sig[r] = sum; }
+          for (let c = 0; c < 24; c++) { let sum = 0; for (let r = 0; r < 6; r++) sum += Bb[r * 24 + c] * sig[r]; fc[c] += w * sum; }
+          for (let r = 0; r < 6; r++) for (let c = 0; c < 24; c++) { let sum = 0; for (let t = 0; t < 6; t++) sum += D[r * 6 + t] * Bb[t * 24 + c]; DB[r * 24 + c] = sum; }
+          for (let a = 0; a < 24; a++) for (let b = a; b < 24; b++) { let sum = 0; for (let r = 0; r < 6; r++) sum += Bb[r * 24 + a] * DB[r * 24 + b]; Kc[a * 24 + b] += w * sum; }
+        }
+        for (let a = 0; a < 24; a++) for (let b = 0; b < a; b++) Kc[a * 24 + b] = Kc[b * 24 + a];
+        for (let a = 0; a < 24; a++) { let sum = -fc[a]; const ro = a * 24; for (let b = 0; b < 24; b++) sum += Kc[ro + b] * ue[b]; fe[a] = sum; }
+        for (let a = 0; a < 8; a++) { const n = m.conn[8 * e + a]; rint[3 * n] += fe[3 * a]; rint[3 * n + 1] += fe[3 * a + 1]; rint[3 * n + 2] += fe[3 * a + 2]; }
+        if (wantK) for (let a = 0; a < 8; a++) for (let b = 0; b < 8; b++) {
+          const kk = this.bmap[(e * 8 + a) * 8 + b], v = 9 * kk;
+          for (let p = 0; p < 3; p++) for (let q = 0; q < 3; q++) val[v + 3 * p + q] += Kc[(3 * a + p) * 24 + 3 * b + q];
+        }
+        continue;
       }
       for (let gq = 0; gq < 8; gq++) {
         const Bb = Ball.subarray(144 * gq, 144 * gq + 144);
@@ -716,6 +755,7 @@ class BumpSubmodel {
         }
       }
     }
+    this.eCacheT = T;
     return dMax;
   }
 
@@ -731,7 +771,8 @@ class BumpSubmodel {
   }
 
   /** PCG with IC(0) on the Jacobi-scaled tangent. */
-  _solve(rhs, x) {
+  _solve(rhs, x, tol) {
+    tol = tol || CONST.SUB_INNER_TOL;
     const P = this.pattern, n = this.ndof;
     // scaled working copy (the assembled tangent may be reused by later iterations)
     const val = this._vals || (this._vals = new Float64Array(this.val.length));
@@ -753,7 +794,7 @@ class BumpSubmodel {
       fullMatVec(P, val, p, q);
       const alpha = rz / dot(p, q);
       axpy(alpha, p, x); axpy(-alpha, q, r);
-      if (norm2(r) / bn < 1e-10) break;
+      if (norm2(r) / bn < tol) break;
       this.pc.apply(r, z);
       const rz2 = dot(r, z); const beta = rz2 / rz; rz = rz2;
       for (let i = 0; i < n; i++) p[i] = z[i] + beta * p[i];
@@ -787,7 +828,8 @@ class BumpSubmodel {
       }
       rPrev = rn;
       for (let q = 0; q < n; q++) rhs[q] = this.isC[q] ? 0 : -rint[q];
-      this._solve(rhs, du);
+      // inexact Newton: the inner solve only needs to beat the current Newton residual ratio by a margin
+      this._solve(rhs, du, Math.max(CONST.SUB_INNER_TOL, Math.min(1e-3, 0.01 * CONST.SUB_RES_TOL * ref / Math.max(rn, 1e-300))));
       let dun = 0, un = 0;
       for (let q = 0; q < n; q++) { if (!this.isC[q]) { u[q] += du[q]; dun += du[q] * du[q]; } un += u[q] * u[q]; }
       if (Math.sqrt(dun) < CONST.SUB_DU_TOL * Math.max(Math.sqrt(un), 1e-30)) { converged = true; it++; break; }

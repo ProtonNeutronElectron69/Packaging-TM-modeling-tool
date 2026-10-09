@@ -163,12 +163,17 @@ function makeFineLevel(mesh, P, val, planeSeg) {
   return level;
 }
 
-/** Coarse index set: every other line plus the last one. */
-function coarseLines(n) {
-  const c = [];
-  for (let i = 0; i < n; i += 2) c.push(i);
-  if (c[c.length - 1] !== n - 1) c.push(n - 1);
-  return c;
+/**
+ * Coarse index set: every other line plus the last one, always keeping the
+ * feature lines (die, fillet, lid foot and stiffener edges) so that every
+ * coarse level still resolves the stacks that change across those lines.
+ */
+function coarseLines(n, keep) {
+  const set = new Set();
+  for (let i = 0; i < n; i += 2) set.add(i);
+  set.add(n - 1);
+  if (keep) for (const k of keep) if (k >= 0 && k < n) set.add(k);
+  return Array.from(set).sort((a, b) => a - b);
 }
 
 /** Children (transpose) lists of a prolongation. */
@@ -308,6 +313,7 @@ function buildShellLevel(level, s, mesh) {
   const coarse = {
     kind: 'shell', b: 6, nx, ny, xs: level.xs, ys: level.ys, nn: na, colStart: colStartC,
     zref: Float64Array.from(zref), zlo: Float64Array.from(zlo), zhi: Float64Array.from(zhi),
+    keepX: level.keepX, keepY: level.keepY,
   };
   level.coarse = coarse;
   level.nodeAgg = nodeAgg;
@@ -374,7 +380,7 @@ function matchAggregate(coarse, C, zlo, zhi, zref) {
  * is interpolated with cubic Hermite polynomials from (t_z, theta).
  */
 function buildCoarseShellLevel(level) {
-  const cx = coarseLines(level.nx), cy = coarseLines(level.ny);
+  const cx = coarseLines(level.nx, level.keepX), cy = coarseLines(level.ny, level.keepY);
   const nxc = cx.length, nyc = cy.length;
   const xs = level.xs, ys = level.ys;
   const xsc = Float64Array.from(cx.map(i => xs[i])), ysc = Float64Array.from(cy.map(j => ys[j]));
@@ -388,6 +394,9 @@ function buildCoarseShellLevel(level) {
   }
   colStartC[nxc * nyc] = na;
   const coarse = { kind: 'shell', b: 6, nx: nxc, ny: nyc, xs: xsc, ys: ysc, nn: na, colStart: colStartC, zref: Float64Array.from(zref), zlo: Float64Array.from(zlo), zhi: Float64Array.from(zhi) };
+  // feature lines carried to the coarse index space
+  if (level.keepX) coarse.keepX = level.keepX.map(i => cx.indexOf(i)).filter(i => i >= 0);
+  if (level.keepY) coarse.keepY = level.keepY.map(j => cy.indexOf(j)).filter(j => j >= 0);
   const locate = (lines, coords, i, x) => {
     let I0 = 0;
     while (I0 + 1 < lines.length && lines[I0 + 1] <= i) I0++;
@@ -416,8 +425,8 @@ function buildCoarseShellLevel(level) {
           cands.push([a, Float64Array.from(mul66(W, sh, tmp2))]);
         };
         if (complete) {
-          if (px.I1 >= 0) hermitePair(px.t, px.h, false, WL, WR);
-          if (py.I1 >= 0) hermitePair(py.t, py.h, true, WB, WT);
+          if (px.I1 >= 0) hermitePair(px.t, level.noHermite ? 0 : px.h, false, WL, WR);
+          if (py.I1 >= 0) hermitePair(py.t, level.noHermite ? 0 : py.h, true, WB, WT);
           if (px.I1 < 0 && py.I1 < 0) { const W = new Float64Array(36); for (let d = 0; d < 6; d++) W[d * 7] = 1; push(px.I0, py.I0, W); }
           else if (py.I1 < 0) { push(px.I0, py.I0, WL); push(px.I1, py.I0, WR); }
           else if (px.I1 < 0) { push(px.I0, py.I0, WB); push(px.I0, py.I1, WT); }
@@ -531,17 +540,66 @@ function columnSweep(level, bvec, x, backward) {
   }
 }
 
-/** Dense Cholesky of the coarsest operator. */
+/**
+ * Banded Cholesky of the coarsest operator (aggregates are numbered column by
+ * column, so the half-bandwidth is a few column widths of the coarse grid).
+ * Storage: L[i][j] for i - bw <= j <= i at band[i * (bw + 1) + (j - i + bw)].
+ */
 function factorCoarsest(level) {
   const b = level.b, n = b * level.nn, P = level.P, val = level.val, bb = b * b;
-  const A = new Float64Array(n * n);
+  let bw = 0;
+  for (let i = 0; i < level.nn; i++) for (let k = P.rowPtr[i]; k < P.rowPtr[i + 1]; k++) bw = Math.max(bw, Math.abs(P.col[k] - i));
+  bw = (bw + 1) * b - 1;
+  const w = bw + 1;
+  const A = new Float64Array(n * w);
   for (let i = 0; i < level.nn; i++) for (let k = P.rowPtr[i]; k < P.rowPtr[i + 1]; k++) {
     const j = P.col[k], v = bb * k;
-    for (let p = 0; p < b; p++) for (let q = 0; q < b; q++) A[(b * i + p) * n + b * j + q] = val[v + p * b + q];
+    if (j > i) continue;
+    for (let p = 0; p < b; p++) for (let q = 0; q < b; q++) {
+      const r = b * i + p, c = b * j + q;
+      if (c <= r) A[r * w + (c - r + bw)] = val[v + p * b + q];
+    }
   }
-  level.denseFixes = cholDense(A, n, 1e-12);
-  level.dense = A;
+  let dmax = 0;
+  for (let i = 0; i < n; i++) dmax = Math.max(dmax, Math.abs(A[i * w + bw]));
+  const jitter = 1e-12 * (dmax || 1);
+  let fixes = 0;
+  for (let j = 0; j < n; j++) {
+    let d = A[j * w + bw];
+    const k0 = Math.max(0, j - bw);
+    for (let k = k0; k < j; k++) { const l = A[j * w + (k - j + bw)]; d -= l * l; }
+    if (!(d > jitter)) { d = Math.max(Math.abs(d), jitter); fixes++; }
+    const ljj = Math.sqrt(d);
+    A[j * w + bw] = ljj;
+    const inv = 1 / ljj;
+    const iend = Math.min(n, j + bw + 1);
+    for (let i = j + 1; i < iend; i++) {
+      let sum = A[i * w + (j - i + bw)];
+      const kk0 = Math.max(k0, i - bw);
+      for (let k = kk0; k < j; k++) sum -= A[i * w + (k - i + bw)] * A[j * w + (k - j + bw)];
+      A[i * w + (j - i + bw)] = sum * inv;
+    }
+  }
+  level.denseFixes = fixes;
+  level.band = A; level.bandW = w; level.bandBw = bw;
   level.denseN = n;
+}
+
+/** Solve with the banded factor in place. */
+function solveCoarsest(level, x) {
+  const A = level.band, w = level.bandW, bw = level.bandBw, n = level.denseN;
+  for (let i = 0; i < n; i++) {
+    let sum = x[i];
+    const k0 = Math.max(0, i - bw);
+    for (let k = k0; k < i; k++) sum -= A[i * w + (k - i + bw)] * x[k];
+    x[i] = sum / A[i * w + bw];
+  }
+  for (let i = n - 1; i >= 0; i--) {
+    let sum = x[i];
+    const kend = Math.min(n, i + bw + 1);
+    for (let k = i + 1; k < kend; k++) sum -= A[k * w + (i - k + bw)] * x[k];
+    x[i] = sum / A[i * w + bw];
+  }
 }
 
 /** Multigrid preconditioner: solid level, shell levels, dense coarsest. */
@@ -552,6 +610,7 @@ class MultigridPC {
     this.s = s;
     const fine = makeFineLevel(mesh, P, val, this.opts.planeSeg);
     fine.mergeSingles = this.opts.mergeSingles || 'below';
+    if (this.opts.keepFeatures !== false && mesh.featureX) { fine.keepX = Array.from(mesh.featureX); fine.keepY = Array.from(mesh.featureY); }
     this.levels = [fine];
     factorColumns(fine);
     let lv = buildShellLevel(fine, s, mesh.cellElems ? mesh : null);
@@ -560,6 +619,12 @@ class MultigridPC {
       factorShellColumns(lv);
       const ncol = lv.nx * lv.ny, ndof = lv.b * lv.nn;
       if (ncol <= CONST.MG_COARSEST_COLS || ndof <= CONST.MG_COARSEST_DOF || (lv.nx <= 2 && lv.ny <= 2)) break;
+      if (this.opts.maxShellLevels && this.levels.length >= this.opts.maxShellLevels + 1) break;
+      if (ndof <= (this.opts.coarsestDof || 0)) break;
+      // stop when the kept feature lines leave too little to coarsen
+      const ncx = coarseLines(lv.nx, lv.keepX).length, ncy = coarseLines(lv.ny, lv.keepY).length;
+      if (ncx * ncy > CONST.MG_MIN_COARSENING * ncol) break;
+      lv.noHermite = this.opts.noHermite;
       lv = buildCoarseShellLevel(lv);
       this.levels.push(lv);
     }
@@ -567,7 +632,7 @@ class MultigridPC {
     for (const l of this.levels) { l._b = new Float64Array(l.b * l.nn); l._x = new Float64Array(l.b * l.nn); l._res = new Float64Array(l.b * l.nn); l._r = l._r || new Float64Array(l.b * l.nn); l._dx = l._dx || new Float64Array(l.b * l.nn); }
     this.setupMs = nowMs() - t0;
     this.name = 'MG';
-    this.info = { levels: this.levels.map(l => ({ kind: l.kind, nx: l.nx, ny: l.ny, nn: l.nn, dof: l.b * l.nn })), setupMs: this.setupMs, coarsestDof: lv.denseN };
+    this.info = { levels: this.levels.map(l => ({ kind: l.kind, nx: l.nx, ny: l.ny, nn: l.nn, dof: l.b * l.nn })), setupMs: this.setupMs, coarsestDof: lv.denseN, coarsestBand: lv.bandBw };
   }
 
   /** New fine values (same mesh): rebuild factors and coarse operators. */
@@ -590,7 +655,25 @@ class MultigridPC {
   _cycle(li, bvec, x) {
     const lv = this.levels[li];
     x.fill(0);
-    if (li === this.levels.length - 1) { x.set(bvec); cholSolveDense(lv.dense, lv.denseN, x, 0); return; }
+    if (li === this.levels.length - 1) { x.set(bvec); solveCoarsest(lv, x); return; }
+    if (li === (this.opts.iterLevel || 1) && (this.opts.coarseIters || 1) > 1) {
+      // experimental: iterate the shell hierarchy (x <- x + cycle(b - A x))
+      const n = this.opts.coarseIters;
+      const res = lv._res2 || (lv._res2 = new Float64Array(lv.b * lv.nn)), dx = lv._dx2 || (lv._dx2 = new Float64Array(lv.b * lv.nn));
+      for (let it = 0; it < n; it++) {
+        if (it === 0) res.set(bvec); else { blockMatVec(lv.P, lv.val, lv.b, x, res); for (let i = 0; i < res.length; i++) res[i] = bvec[i] - res[i]; }
+        this._cycleOnce(li, res, dx);
+        for (let i = 0; i < x.length; i++) x[i] += dx[i];
+      }
+      return;
+    }
+    this._cycleOnce(li, bvec, x);
+  }
+
+  _cycleOnce(li, bvec, x) {
+    const lv = this.levels[li];
+    x.fill(0);
+    if (li === this.levels.length - 1) { x.set(bvec); solveCoarsest(lv, x); return; }
     for (let s = 0; s < this.opts.pre; s++) { columnSweep(lv, bvec, x, false); if (this.opts.symmetric) columnSweep(lv, bvec, x, true); }
     const res = lv._res;
     blockMatVec(lv.P, lv.val, lv.b, x, res);
@@ -817,7 +900,7 @@ class LinearSolver {
     let rebuilt = false, pcMs = 0;
     if (bnorm === 0) {
       const u = new Float64Array(n);
-      const rec = { label, iters: 0, relres: 0, ms: nowMs() - t0, precond: this.pcKind || this.opts.precond, rebuilt: false, warm: this.basis.length, note: 'zero load' };
+      const rec = { label, iters: 0, relres: 0, converged: true, ms: nowMs() - t0, precond: this.pcKind || this.opts.precond, rebuilt: false, warm: this.basis.length, note: 'zero load' };
       this.log.push(rec); this.lastResult = rec;
       return Object.assign({ u }, rec);
     }

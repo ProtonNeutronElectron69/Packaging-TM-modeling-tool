@@ -142,7 +142,7 @@ hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
 <body>
 <div id="app">
   <header id="topbar">
-    <div class="brand"><span class="logo">FCBGA</span> Thermomechanical Screening Tool <span class="build">build 2026-10-08</span></div>
+    <div class="brand"><span class="logo">FCBGA</span> Thermomechanical Screening Tool <span class="build">build 2026-10-09</span></div>
     <div class="banner" role="note">Screening tool. Results are approximate and intended for design comparison and trend studies, not sign-off.</div>
     <div class="topbtns">
       <button id="btn-theme" class="icon" title="Toggle light / dark theme">◐</button>
@@ -216,6 +216,7 @@ const CONST = Object.freeze({
   REBUILD_MIN_ITERS: 30,     // never rebuild before this many iterations of a stale preconditioner
   MG_COARSEST_COLS: 9,       // stop semi-coarsening at <= 3 x 3 columns
   MG_COARSEST_DOF: 900,
+  MG_MIN_COARSENING: 0.7,    // stop coarsening when a level would keep more than this fraction of the columns
   CHOL_JITTER: 1e-12,
   IC_SHIFT0: 1e-3,
   IC_SHIFT_MAX: 1,
@@ -226,6 +227,7 @@ const CONST = Object.freeze({
   TRACTION_PATCH: 0.05,      // mm, 50 um x 50 um underfill traction patch
   TRACTION_SAMPLES: 3,
   DIAG_SAMPLES: 201,
+  SIGN_MARGINAL: 0.25,       // |AB_max + AB_min + CD_max + CD_min| / |C| below this flags a marginal JEITA sign
   GF_PER_N: 101.97162,
   // ---- solder fatigue -------------------------------------------------------
   R_GAS: 8.314,
@@ -245,6 +247,7 @@ const CONST = Object.freeze({
   SUB_NEWTON_MAXIT: 25,
   SUB_RES_TOL: 1e-6,
   SUB_DU_TOL: 1e-8,
+  SUB_INNER_TOL: 1e-8,       // floor of the inexact-Newton inner PCG tolerance
   STABILIZATION_WARN: 0.05,
   ANAND_NEWTON_MAXIT: 60,
   ANAND_TOL: 1e-11,
@@ -1905,6 +1908,10 @@ function buildPackageMesh(cfg, override) {
     hmin *= f; hmax *= f; scaled = true;
   }
   mesh.layerBand = Int32Array.from(zp.layerBand);
+  // indices of the in-plane feature lines (kept at every multigrid coarse level)
+  // (structural lines only: die edges and lid foot or stiffener ring edges)
+  const featIdx = (lines, labels, grid) => { const out = []; lines.forEach((v, q) => { if (!/ edge$|outer$|inner$/.test(labels[q]) || /substrate/.test(labels[q])) return; let best = -1, bd = Infinity; for (let i = 0; i < grid.length; i++) { const d = Math.abs(grid[i] - v); if (d < bd) { bd = d; best = i; } } if (bd < 1e-9) out.push(best); }); return Int32Array.from(out); };
+  mesh.featureX = featIdx(mx.lines, mx.labels, mesh.xs); mesh.featureY = featIdx(my.lines, my.labels, mesh.ys);
   mesh.subBand = new Int32Array(zp.zs.length - 1).fill(-1);
   for (let k = 0; k + 1 < zp.zs.length; k++) {
     const zc = 0.5 * (zp.zs[k] + zp.zs[k + 1]);
@@ -3058,12 +3065,17 @@ function makeFineLevel(mesh, P, val, planeSeg) {
   return level;
 }
 
-/** Coarse index set: every other line plus the last one. */
-function coarseLines(n) {
-  const c = [];
-  for (let i = 0; i < n; i += 2) c.push(i);
-  if (c[c.length - 1] !== n - 1) c.push(n - 1);
-  return c;
+/**
+ * Coarse index set: every other line plus the last one, always keeping the
+ * feature lines (die, fillet, lid foot and stiffener edges) so that every
+ * coarse level still resolves the stacks that change across those lines.
+ */
+function coarseLines(n, keep) {
+  const set = new Set();
+  for (let i = 0; i < n; i += 2) set.add(i);
+  set.add(n - 1);
+  if (keep) for (const k of keep) if (k >= 0 && k < n) set.add(k);
+  return Array.from(set).sort((a, b) => a - b);
 }
 
 /** Children (transpose) lists of a prolongation. */
@@ -3203,6 +3215,7 @@ function buildShellLevel(level, s, mesh) {
   const coarse = {
     kind: 'shell', b: 6, nx, ny, xs: level.xs, ys: level.ys, nn: na, colStart: colStartC,
     zref: Float64Array.from(zref), zlo: Float64Array.from(zlo), zhi: Float64Array.from(zhi),
+    keepX: level.keepX, keepY: level.keepY,
   };
   level.coarse = coarse;
   level.nodeAgg = nodeAgg;
@@ -3269,7 +3282,7 @@ function matchAggregate(coarse, C, zlo, zhi, zref) {
  * is interpolated with cubic Hermite polynomials from (t_z, theta).
  */
 function buildCoarseShellLevel(level) {
-  const cx = coarseLines(level.nx), cy = coarseLines(level.ny);
+  const cx = coarseLines(level.nx, level.keepX), cy = coarseLines(level.ny, level.keepY);
   const nxc = cx.length, nyc = cy.length;
   const xs = level.xs, ys = level.ys;
   const xsc = Float64Array.from(cx.map(i => xs[i])), ysc = Float64Array.from(cy.map(j => ys[j]));
@@ -3283,6 +3296,9 @@ function buildCoarseShellLevel(level) {
   }
   colStartC[nxc * nyc] = na;
   const coarse = { kind: 'shell', b: 6, nx: nxc, ny: nyc, xs: xsc, ys: ysc, nn: na, colStart: colStartC, zref: Float64Array.from(zref), zlo: Float64Array.from(zlo), zhi: Float64Array.from(zhi) };
+  // feature lines carried to the coarse index space
+  if (level.keepX) coarse.keepX = level.keepX.map(i => cx.indexOf(i)).filter(i => i >= 0);
+  if (level.keepY) coarse.keepY = level.keepY.map(j => cy.indexOf(j)).filter(j => j >= 0);
   const locate = (lines, coords, i, x) => {
     let I0 = 0;
     while (I0 + 1 < lines.length && lines[I0 + 1] <= i) I0++;
@@ -3311,8 +3327,8 @@ function buildCoarseShellLevel(level) {
           cands.push([a, Float64Array.from(mul66(W, sh, tmp2))]);
         };
         if (complete) {
-          if (px.I1 >= 0) hermitePair(px.t, px.h, false, WL, WR);
-          if (py.I1 >= 0) hermitePair(py.t, py.h, true, WB, WT);
+          if (px.I1 >= 0) hermitePair(px.t, level.noHermite ? 0 : px.h, false, WL, WR);
+          if (py.I1 >= 0) hermitePair(py.t, level.noHermite ? 0 : py.h, true, WB, WT);
           if (px.I1 < 0 && py.I1 < 0) { const W = new Float64Array(36); for (let d = 0; d < 6; d++) W[d * 7] = 1; push(px.I0, py.I0, W); }
           else if (py.I1 < 0) { push(px.I0, py.I0, WL); push(px.I1, py.I0, WR); }
           else if (px.I1 < 0) { push(px.I0, py.I0, WB); push(px.I0, py.I1, WT); }
@@ -3426,17 +3442,66 @@ function columnSweep(level, bvec, x, backward) {
   }
 }
 
-/** Dense Cholesky of the coarsest operator. */
+/**
+ * Banded Cholesky of the coarsest operator (aggregates are numbered column by
+ * column, so the half-bandwidth is a few column widths of the coarse grid).
+ * Storage: L[i][j] for i - bw <= j <= i at band[i * (bw + 1) + (j - i + bw)].
+ */
 function factorCoarsest(level) {
   const b = level.b, n = b * level.nn, P = level.P, val = level.val, bb = b * b;
-  const A = new Float64Array(n * n);
+  let bw = 0;
+  for (let i = 0; i < level.nn; i++) for (let k = P.rowPtr[i]; k < P.rowPtr[i + 1]; k++) bw = Math.max(bw, Math.abs(P.col[k] - i));
+  bw = (bw + 1) * b - 1;
+  const w = bw + 1;
+  const A = new Float64Array(n * w);
   for (let i = 0; i < level.nn; i++) for (let k = P.rowPtr[i]; k < P.rowPtr[i + 1]; k++) {
     const j = P.col[k], v = bb * k;
-    for (let p = 0; p < b; p++) for (let q = 0; q < b; q++) A[(b * i + p) * n + b * j + q] = val[v + p * b + q];
+    if (j > i) continue;
+    for (let p = 0; p < b; p++) for (let q = 0; q < b; q++) {
+      const r = b * i + p, c = b * j + q;
+      if (c <= r) A[r * w + (c - r + bw)] = val[v + p * b + q];
+    }
   }
-  level.denseFixes = cholDense(A, n, 1e-12);
-  level.dense = A;
+  let dmax = 0;
+  for (let i = 0; i < n; i++) dmax = Math.max(dmax, Math.abs(A[i * w + bw]));
+  const jitter = 1e-12 * (dmax || 1);
+  let fixes = 0;
+  for (let j = 0; j < n; j++) {
+    let d = A[j * w + bw];
+    const k0 = Math.max(0, j - bw);
+    for (let k = k0; k < j; k++) { const l = A[j * w + (k - j + bw)]; d -= l * l; }
+    if (!(d > jitter)) { d = Math.max(Math.abs(d), jitter); fixes++; }
+    const ljj = Math.sqrt(d);
+    A[j * w + bw] = ljj;
+    const inv = 1 / ljj;
+    const iend = Math.min(n, j + bw + 1);
+    for (let i = j + 1; i < iend; i++) {
+      let sum = A[i * w + (j - i + bw)];
+      const kk0 = Math.max(k0, i - bw);
+      for (let k = kk0; k < j; k++) sum -= A[i * w + (k - i + bw)] * A[j * w + (k - j + bw)];
+      A[i * w + (j - i + bw)] = sum * inv;
+    }
+  }
+  level.denseFixes = fixes;
+  level.band = A; level.bandW = w; level.bandBw = bw;
   level.denseN = n;
+}
+
+/** Solve with the banded factor in place. */
+function solveCoarsest(level, x) {
+  const A = level.band, w = level.bandW, bw = level.bandBw, n = level.denseN;
+  for (let i = 0; i < n; i++) {
+    let sum = x[i];
+    const k0 = Math.max(0, i - bw);
+    for (let k = k0; k < i; k++) sum -= A[i * w + (k - i + bw)] * x[k];
+    x[i] = sum / A[i * w + bw];
+  }
+  for (let i = n - 1; i >= 0; i--) {
+    let sum = x[i];
+    const kend = Math.min(n, i + bw + 1);
+    for (let k = i + 1; k < kend; k++) sum -= A[k * w + (i - k + bw)] * x[k];
+    x[i] = sum / A[i * w + bw];
+  }
 }
 
 /** Multigrid preconditioner: solid level, shell levels, dense coarsest. */
@@ -3447,6 +3512,7 @@ class MultigridPC {
     this.s = s;
     const fine = makeFineLevel(mesh, P, val, this.opts.planeSeg);
     fine.mergeSingles = this.opts.mergeSingles || 'below';
+    if (this.opts.keepFeatures !== false && mesh.featureX) { fine.keepX = Array.from(mesh.featureX); fine.keepY = Array.from(mesh.featureY); }
     this.levels = [fine];
     factorColumns(fine);
     let lv = buildShellLevel(fine, s, mesh.cellElems ? mesh : null);
@@ -3455,6 +3521,12 @@ class MultigridPC {
       factorShellColumns(lv);
       const ncol = lv.nx * lv.ny, ndof = lv.b * lv.nn;
       if (ncol <= CONST.MG_COARSEST_COLS || ndof <= CONST.MG_COARSEST_DOF || (lv.nx <= 2 && lv.ny <= 2)) break;
+      if (this.opts.maxShellLevels && this.levels.length >= this.opts.maxShellLevels + 1) break;
+      if (ndof <= (this.opts.coarsestDof || 0)) break;
+      // stop when the kept feature lines leave too little to coarsen
+      const ncx = coarseLines(lv.nx, lv.keepX).length, ncy = coarseLines(lv.ny, lv.keepY).length;
+      if (ncx * ncy > CONST.MG_MIN_COARSENING * ncol) break;
+      lv.noHermite = this.opts.noHermite;
       lv = buildCoarseShellLevel(lv);
       this.levels.push(lv);
     }
@@ -3462,7 +3534,7 @@ class MultigridPC {
     for (const l of this.levels) { l._b = new Float64Array(l.b * l.nn); l._x = new Float64Array(l.b * l.nn); l._res = new Float64Array(l.b * l.nn); l._r = l._r || new Float64Array(l.b * l.nn); l._dx = l._dx || new Float64Array(l.b * l.nn); }
     this.setupMs = nowMs() - t0;
     this.name = 'MG';
-    this.info = { levels: this.levels.map(l => ({ kind: l.kind, nx: l.nx, ny: l.ny, nn: l.nn, dof: l.b * l.nn })), setupMs: this.setupMs, coarsestDof: lv.denseN };
+    this.info = { levels: this.levels.map(l => ({ kind: l.kind, nx: l.nx, ny: l.ny, nn: l.nn, dof: l.b * l.nn })), setupMs: this.setupMs, coarsestDof: lv.denseN, coarsestBand: lv.bandBw };
   }
 
   /** New fine values (same mesh): rebuild factors and coarse operators. */
@@ -3485,7 +3557,25 @@ class MultigridPC {
   _cycle(li, bvec, x) {
     const lv = this.levels[li];
     x.fill(0);
-    if (li === this.levels.length - 1) { x.set(bvec); cholSolveDense(lv.dense, lv.denseN, x, 0); return; }
+    if (li === this.levels.length - 1) { x.set(bvec); solveCoarsest(lv, x); return; }
+    if (li === (this.opts.iterLevel || 1) && (this.opts.coarseIters || 1) > 1) {
+      // experimental: iterate the shell hierarchy (x <- x + cycle(b - A x))
+      const n = this.opts.coarseIters;
+      const res = lv._res2 || (lv._res2 = new Float64Array(lv.b * lv.nn)), dx = lv._dx2 || (lv._dx2 = new Float64Array(lv.b * lv.nn));
+      for (let it = 0; it < n; it++) {
+        if (it === 0) res.set(bvec); else { blockMatVec(lv.P, lv.val, lv.b, x, res); for (let i = 0; i < res.length; i++) res[i] = bvec[i] - res[i]; }
+        this._cycleOnce(li, res, dx);
+        for (let i = 0; i < x.length; i++) x[i] += dx[i];
+      }
+      return;
+    }
+    this._cycleOnce(li, bvec, x);
+  }
+
+  _cycleOnce(li, bvec, x) {
+    const lv = this.levels[li];
+    x.fill(0);
+    if (li === this.levels.length - 1) { x.set(bvec); solveCoarsest(lv, x); return; }
     for (let s = 0; s < this.opts.pre; s++) { columnSweep(lv, bvec, x, false); if (this.opts.symmetric) columnSweep(lv, bvec, x, true); }
     const res = lv._res;
     blockMatVec(lv.P, lv.val, lv.b, x, res);
@@ -3712,7 +3802,7 @@ class LinearSolver {
     let rebuilt = false, pcMs = 0;
     if (bnorm === 0) {
       const u = new Float64Array(n);
-      const rec = { label, iters: 0, relres: 0, ms: nowMs() - t0, precond: this.pcKind || this.opts.precond, rebuilt: false, warm: this.basis.length, note: 'zero load' };
+      const rec = { label, iters: 0, relres: 0, converged: true, ms: nowMs() - t0, precond: this.pcKind || this.opts.precond, rebuilt: false, warm: this.basis.length, note: 'zero load' };
       this.log.push(rec); this.lastResult = rec;
       return Object.assign({ u }, rec);
     }
@@ -3915,28 +4005,41 @@ class Analysis {
   }
 
   /** Run everything: stages, evaluations, CPI state. */
-  run() {
-    const tAll = nowMs();
+  /** Stages, then the evaluation list in warm-start order (25 first, up, then down). */
+  prepareSweep() {
+    this.tAll = nowMs();
     if (!this.mesh) this.build();
     this.runStages();
     const temps = this.evaluationTemperatures();
     this.temps = temps;
     this.fields = new Map(); // T -> displacement field (as-assembled stage)
-    const n = temps.all.length;
-    // evaluate 25 first (best warm start for the rest), then ascending from 25 up, then descending below 25
-    const order = [25].concat(temps.all.filter(T => T > 25), temps.all.filter(T => T < 25).reverse());
-    order.forEach((T, i) => {
-      this.progress(0.18 + 0.7 * i / n, 'As-assembled state at ' + T + ' °C (' + (i + 1) + '/' + n + ')');
-      const r = this.solveAt(T, this.finalStage, 'as-assembled ' + T + ' °C');
-      this.fields.set(T, r.u);
-    });
+    return [25].concat(temps.all.filter(T => T > 25), temps.all.filter(T => T < 25).reverse());
+  }
+
+  /** One as-assembled evaluation; the field is stored. */
+  evaluateAt(T) {
+    const r = this.solveAt(T, this.finalStage, 'as-assembled ' + T + ' °C');
+    this.fields.set(T, r.u);
+    return r;
+  }
+
+  /** CPI state and bookkeeping after the sweep. */
+  finishSweep() {
     if (!this.opts.quick) {
       this.progress(0.9, 'Chip-join state at 25 °C (CPI proxy)');
       this.uCPI = this.solveAt(25, 1, 'chip join only, 25 °C').u;
     }
-    this.timings.total = nowMs() - tAll;
+    this.timings.total = nowMs() - this.tAll;
     this.progress(0.92, 'Post-processing');
     return this;
+  }
+
+  /** Run everything in this thread: stages, evaluations, CPI state. */
+  run() {
+    const order = this.prepareSweep();
+    const n = order.length;
+    order.forEach((T, i) => { this.progress(0.18 + 0.7 * i / n, 'As-assembled state at ' + T + ' °C (' + (i + 1) + '/' + n + ')'); this.evaluateAt(T); });
+    return this.finishSweep();
   }
 
   /** Displacement field at any T of the cycle by piecewise-linear interpolation in T. */
@@ -4040,11 +4143,46 @@ function warpageJEITA(mesh, geom, u, cfg, sampler) {
   const AB = diag(z.x0, z.y0, z.x1, z.y1), CD = diag(z.x0, z.y1, z.x1, z.y0);
   const sum = AB.max + AB.min + CD.max + CD.min;
   const sign = sum > 0 ? 1 : (sum < 0 ? -1 : 0);
+  // sign robustness: |sum| relative to the magnitude; small values mean a saddle or ring shape whose
+  // JEITA sign can flip between neighbouring states while the magnitude barely changes
+  const signConf = mag > 0 ? Math.abs(sum) / mag : 0;
+  const shape = classifyWarpageShape(res, b, pl, mag, AB, CD);
   const lim = (cfg.limits.jeita || JEITA_TABLE).find(r => Math.abs(r.pitch - cfg.bga.pitch) < 1e-6) || null;
   // residual grid over the whole bottom plane for contours
   const grid = planeGrid(mesh, u, 0, 2);
   for (let i = 0; i < mesh.nx; i++) for (let j = 0; j < mesh.ny; j++) grid[i * mesh.ny + j] -= pl.c0 + pl.c1 * mesh.xs[i] + pl.c2 * mesh.ys[j];
-  return { signed: sign * mag, mag, sign, plane: pl, ballW: w, ballRes: res, diagAB: AB, diagCD: CD, limitHot: lim ? lim.hot : null, limitRT: lim ? lim.rt : null, grid, rmin, rmax };
+  return { signed: sign * mag, mag, sign, signConf, marginal: signConf < CONST.SIGN_MARGINAL, shape, plane: pl, ballW: w, ballRes: res, diagAB: AB, diagCD: CD, limitHot: lim ? lim.hot : null, limitRT: lim ? lim.rt : null, grid, rmin, rmax };
+}
+
+/**
+ * Shape class of the warpage surface from the two diagonal profiles relative
+ * to their corner-to-corner lines (the JEITA sign data):
+ *  'dome' / 'bowl': both diagonals have their dominant extremum at the centre,
+ *  above / below the corner line;
+ *  'ring': the centre is on one side of the corner line but an intermediate
+ *  ring of comparable depth lies on the other (W or M profile), which is where
+ *  the JEITA sign stops describing the centre;
+ *  'saddle': the two diagonals disagree about the centre; 'flat': no warpage.
+ */
+function classifyWarpageShape(res, b, pl, mag, AB, CD) {
+  if (!(mag > 0)) return 'flat';
+  const prof = D => {
+    const m = D.rel.length, ic = (m - 1) >> 1;
+    const rc = D.rel[ic];
+    let imax = 0, imin = 0;
+    for (let q = 0; q < m; q++) { if (D.rel[q] > D.rel[imax]) imax = q; if (D.rel[q] < D.rel[imin]) imin = q; }
+    const interior = i => { const t = i / (m - 1); return (t > 0.08 && t < 0.4) || (t > 0.6 && t < 0.92); };
+    return { rc, max: D.rel[imax], min: D.rel[imin], maxInterior: interior(imax), minInterior: interior(imin) };
+  };
+  const a = prof(AB), c = prof(CD);
+  const up = a.rc > 0.1 * mag && c.rc > 0.1 * mag, down = a.rc < -0.1 * mag && c.rc < -0.1 * mag;
+  if (!up && !down) return 'saddle';
+  if (up && (a.min < -0.2 * mag && a.minInterior || c.min < -0.2 * mag && c.minInterior)) return 'ring';
+  if (down && (a.max > 0.2 * mag && a.maxInterior || c.max > 0.2 * mag && c.maxInterior)) return 'ring';
+  // M or W profile on the same side of the corner line: the dominant extremum sits on an intermediate ring
+  if (up && a.maxInterior && c.maxInterior && a.rc < 0.5 * a.max && c.rc < 0.5 * c.max) return 'ring';
+  if (down && a.minInterior && c.minInterior && a.rc > 0.5 * a.min && c.rc > 0.5 * c.min) return 'ring';
+  return up ? 'dome' : 'bowl';
 }
 
 /** Least-squares quadratic w = c0 + c1 x + c2 y + c3 x^2 + c4 y^2 + c5 xy over samples; returns curvatures. */
@@ -4705,10 +4843,10 @@ function bbarMatrix(hx, hy, hz, xi, eta, zeta, Bb) {
 }
 
 /** Submodel z planes: resolve the substrate / die slices and the two 25 um averaging layers. */
-function submodelZPlanes(g, nz) {
-  const m = CONST.SUB_MARGIN, ta = CONST.SUB_T_AVG;
+function submodelZPlanes(g, nz, layerOnly) {
+  const m = layerOnly ? 0 : CONST.SUB_MARGIN, ta = CONST.SUB_T_AVG;
   const zt = g.zt, za = g.zaf;
-  const bands = [[zt - m, zt, 2], [zt, zt + ta, 3], [zt + ta, za - ta, 2], [za - ta, za, 3], [za, za + m, 2]];
+  const bands = [m > 0 ? [zt - m, zt, 2] : null, [zt, zt + ta, 3], [zt + ta, za - ta, 2], [za - ta, za, 3], m > 0 ? [za, za + m, 2] : null];
   if (za - ta <= zt + ta + 1e-9) { bands[1][1] = 0.5 * (zt + za); bands[2] = null; bands[3][0] = 0.5 * (zt + za); }
   const active = bands.filter(b => b);
   let total = active.reduce((s, b) => s + b[2], 0);
@@ -4727,13 +4865,13 @@ function submodelZPlanes(g, nz) {
  */
 class BumpSubmodel {
   constructor(an, dieIdx, site, opts) {
-    this.an = an; this.cfg = an.cfg; this.opts = Object.assign({ nxy: 16, nz: 14, elasticSolder: false, uniformMaterial: false, progress: null, cancelled: null }, opts || {});
+    this.an = an; this.cfg = an.cfg; this.opts = Object.assign({ nxy: 16, nz: 14, elasticSolder: false, uniformMaterial: false, layerOnly: false, progress: null, cancelled: null }, opts || {});
     const g = an.mesh.geom, d = g.dies[dieIdx];
     this.die = d; this.site = site;
     const n = this.opts.nxy, nz = this.opts.nz;
     const xs = [], ys = [];
     for (let i = 0; i <= n; i++) { xs.push(site.x - d.px / 2 + d.px * i / n); ys.push(site.y - d.py / 2 + d.py * i / n); }
-    const zs = submodelZPlanes(g, nz);
+    const zs = submodelZPlanes(g, nz, this.opts.layerOnly);
     const prof = d.profile;
     const MAT = { SUB: 0, SOLDER: 1, UF: 2, SI: 3 };
     this.MAT = MAT;
@@ -5015,12 +5153,51 @@ class BumpSubmodel {
       const isAnand = this.anand[e * 8] !== null;
       let kind = null;
       if (!isAnand) {
+        // elastic element: K_e and the thermal load depend on T only; cache them per temperature and
+        // reuse across the Newton iterations of a step (internal force = K_e u_e - f_th)
+        const cacheOk = this.eCacheT === T;
+        if (cacheOk && !wantK) {
+          const Kc = this.eK.subarray(576 * e, 576 * e + 576), fc = this.eF.subarray(24 * e, 24 * e + 24);
+          for (let a = 0; a < 24; a++) { let sum = -fc[a]; const ro = a * 24; for (let b = 0; b < 24; b++) sum += Kc[ro + b] * ue[b]; fe[a] = sum; }
+          for (let a = 0; a < 8; a++) { const n = m.conn[8 * e + a]; rint[3 * n] += fe[3 * a]; rint[3 * n + 1] += fe[3 * a + 1]; rint[3 * n + 2] += fe[3 * a + 2]; }
+          continue;
+        }
+        if (cacheOk && wantK) {
+          const Kc = this.eK.subarray(576 * e, 576 * e + 576), fc = this.eF.subarray(24 * e, 24 * e + 24);
+          for (let a = 0; a < 24; a++) { let sum = -fc[a]; const ro = a * 24; for (let b = 0; b < 24; b++) sum += Kc[ro + b] * ue[b]; fe[a] = sum; }
+          for (let a = 0; a < 8; a++) { const n = m.conn[8 * e + a]; rint[3 * n] += fe[3 * a]; rint[3 * n + 1] += fe[3 * a + 1]; rint[3 * n + 2] += fe[3 * a + 2]; }
+          for (let a = 0; a < 8; a++) for (let b = 0; b < 8; b++) {
+            const kk = this.bmap[(e * 8 + a) * 8 + b], v = 9 * kk;
+            for (let p = 0; p < 3; p++) for (let q = 0; q < 3; q++) val[v + 3 * p + q] += Kc[(3 * a + p) * 24 + 3 * b + q];
+          }
+          continue;
+        }
         const k = m.eIJK[3 * e + 2];
         const perElement = this.opts.uniformMaterial && mat === MAT.SUB;
         const key = perElement ? 'sub' + k : mat;
         let rec = elas.get(key);
         if (!rec) { rec = { D: new Float64Array(36), eth: new Float64Array(6) }; this._subZ = perElement ? 0.5 * (m.zs[k] + m.zs[k + 1]) : undefined; rec.kind = this._elastic(mat, T, rec.D, rec.eth); this._subZ = undefined; elas.set(key, rec); }
         D.set(rec.D); eth.set(rec.eth); kind = rec.kind;
+        // build K_e and f_th once for this T (independent of u), then the internal force from them
+        if (!this.eK) { this.eK = new Float64Array(576 * m.ne); this.eF = new Float64Array(24 * m.ne); }
+        const Kc = this.eK.subarray(576 * e, 576 * e + 576), fc = this.eF.subarray(24 * e, 24 * e + 24);
+        Kc.fill(0); fc.fill(0);
+        for (let gq = 0; gq < 8; gq++) {
+          const Bb = Ball.subarray(144 * gq, 144 * gq + 144);
+          // thermal stress s_th = D eth (strain form) or eth itself (stress form)
+          for (let r = 0; r < 6; r++) { let sum = 0; if (kind === 'stress') sum = eth[r]; else for (let c = 0; c < 3; c++) sum += D[r * 6 + c] * eth[c]; sig[r] = sum; }
+          for (let c = 0; c < 24; c++) { let sum = 0; for (let r = 0; r < 6; r++) sum += Bb[r * 24 + c] * sig[r]; fc[c] += w * sum; }
+          for (let r = 0; r < 6; r++) for (let c = 0; c < 24; c++) { let sum = 0; for (let t = 0; t < 6; t++) sum += D[r * 6 + t] * Bb[t * 24 + c]; DB[r * 24 + c] = sum; }
+          for (let a = 0; a < 24; a++) for (let b = a; b < 24; b++) { let sum = 0; for (let r = 0; r < 6; r++) sum += Bb[r * 24 + a] * DB[r * 24 + b]; Kc[a * 24 + b] += w * sum; }
+        }
+        for (let a = 0; a < 24; a++) for (let b = 0; b < a; b++) Kc[a * 24 + b] = Kc[b * 24 + a];
+        for (let a = 0; a < 24; a++) { let sum = -fc[a]; const ro = a * 24; for (let b = 0; b < 24; b++) sum += Kc[ro + b] * ue[b]; fe[a] = sum; }
+        for (let a = 0; a < 8; a++) { const n = m.conn[8 * e + a]; rint[3 * n] += fe[3 * a]; rint[3 * n + 1] += fe[3 * a + 1]; rint[3 * n + 2] += fe[3 * a + 2]; }
+        if (wantK) for (let a = 0; a < 8; a++) for (let b = 0; b < 8; b++) {
+          const kk = this.bmap[(e * 8 + a) * 8 + b], v = 9 * kk;
+          for (let p = 0; p < 3; p++) for (let q = 0; q < 3; q++) val[v + 3 * p + q] += Kc[(3 * a + p) * 24 + 3 * b + q];
+        }
+        continue;
       }
       for (let gq = 0; gq < 8; gq++) {
         const Bb = Ball.subarray(144 * gq, 144 * gq + 144);
@@ -5060,6 +5237,7 @@ class BumpSubmodel {
         }
       }
     }
+    this.eCacheT = T;
     return dMax;
   }
 
@@ -5075,7 +5253,8 @@ class BumpSubmodel {
   }
 
   /** PCG with IC(0) on the Jacobi-scaled tangent. */
-  _solve(rhs, x) {
+  _solve(rhs, x, tol) {
+    tol = tol || CONST.SUB_INNER_TOL;
     const P = this.pattern, n = this.ndof;
     // scaled working copy (the assembled tangent may be reused by later iterations)
     const val = this._vals || (this._vals = new Float64Array(this.val.length));
@@ -5097,7 +5276,7 @@ class BumpSubmodel {
       fullMatVec(P, val, p, q);
       const alpha = rz / dot(p, q);
       axpy(alpha, p, x); axpy(-alpha, q, r);
-      if (norm2(r) / bn < 1e-10) break;
+      if (norm2(r) / bn < tol) break;
       this.pc.apply(r, z);
       const rz2 = dot(r, z); const beta = rz2 / rz; rz = rz2;
       for (let i = 0; i < n; i++) p[i] = z[i] + beta * p[i];
@@ -5131,7 +5310,8 @@ class BumpSubmodel {
       }
       rPrev = rn;
       for (let q = 0; q < n; q++) rhs[q] = this.isC[q] ? 0 : -rint[q];
-      this._solve(rhs, du);
+      // inexact Newton: the inner solve only needs to beat the current Newton residual ratio by a margin
+      this._solve(rhs, du, Math.max(CONST.SUB_INNER_TOL, Math.min(1e-3, 0.01 * CONST.SUB_RES_TOL * ref / Math.max(rn, 1e-300))));
       let dun = 0, un = 0;
       for (let q = 0; q < n; q++) { if (!this.isC[q]) { u[q] += du[q]; dun += du[q] * du[q]; } un += u[q] * u[q]; }
       if (Math.sqrt(dun) < CONST.SUB_DU_TOL * Math.max(Math.sqrt(un), 1e-30)) { converged = true; it++; break; }
@@ -5259,6 +5439,7 @@ function sensitivityInputs(cfg) {
   const ufId = cfg.underfill.mat;
   const list = [];
   const add = (id, label, path, rule, extra) => list.push(Object.assign({ id, label, path, rule }, extra || {}));
+  const isEst = (id, path) => { try { const par = getPath(mat(id), path); return !!par && (par.c || 'Estimated') === 'Estimated'; } catch (e) { return false; } };
   // paths: 'mat:<id>:<param path>' or 'cfg:<path>' or special
   add('coreCTE', 'Core CTE x,y', 'mat:' + coreId + ':cteXY.a', 'range');
   add('coreE', 'Core modulus', 'mat:' + coreId + ':elastic.Ex', 'range', { also: ['mat:' + coreId + ':elastic.Ey'] });
@@ -5291,6 +5472,19 @@ function sensitivityInputs(cfg) {
   }
   add('srA1', 'Solder resist α1', 'mat:' + srId + ':cte.a1', 'rel');
   if (srRow) add('srT', 'Solder resist thickness', 'special:srT', 'rel');
+  // the remaining Estimated (placeholder) properties, so their influence is always quantified
+  add('ufEr', 'Underfill rubbery modulus', 'mat:' + ufId + ':elastic.E.Er', 'rel');
+  add('srE', 'Solder resist modulus (glassy)', 'mat:' + srId + ':elastic.E.Eg', 'rel');
+  add('coreEz', 'Core through-thickness modulus', 'mat:' + coreId + ':elastic.Ez', 'rel');
+  add('coreGxz', 'Core transverse shear modulus', 'mat:' + coreId + ':elastic.Gxz', 'rel', { also: ['mat:' + coreId + ':elastic.Gyz'] });
+  if (cfg.packageType === 'lid') add('timE', 'TIM1 modulus', 'special:matE:' + cfg.lid.timMat, 'rel');
+  // flag inputs whose database value is Estimated
+  for (const inp of list) {
+    const p = inp.path.split(':');
+    if (p[0] === 'mat') inp.estimated = isEst(p[1], p[2]);
+    else if (p[1] === 'matE') { const m = mat(p[2]); const E = m.elastic.E; inp.estimated = E.type === 'const' ? (E.E.c || 'Estimated') === 'Estimated' : (E.type === 'sigmoid' ? (E.Eg.c || 'Estimated') === 'Estimated' : (E.c || '') === 'Estimated'); }
+    else inp.estimated = false;
+  }
   return list;
 }
 
@@ -5626,7 +5820,11 @@ const VERIFICATION_TESTS = [
   {
     id: 'V7', name: 'Submodel consistency with homogenized bump-layer properties', slow: true,
     run(ctx) {
+      // The submodel is a perturbation from the as-assembled 25 degC state with sigma = D(T)(eps - [F(T) - F(25)]).
+      // With temperature-dependent moduli this coincides with the global total formulation only when the global
+      // 25 degC state is stress-free, so the consistency case uses 25 degC for every process temperature.
       const cfg = presetConfig(ctx.db, 'bare');
+      cfg.process.Tsub = cfg.process.Tjoin = cfg.process.Tuf = cfg.process.Tattach = 25;
       const an = new Analysis(cfg, { preset: 'draft', evaluations: 'preview' });
       an.build();
       an.evaluationTemperatures = () => ({ all: [25, 125], cycling: [25, 125], reflow: [25, 125] });
@@ -5634,45 +5832,47 @@ const VERIFICATION_TESTS = [
       const g = an.mesh.geom, d = g.dies[0];
       const sites = dieBumpSites(d);
       // a bump well inside the field, nearest to the centre of a global bump-layer element (where the
-      // incompatible modes do not contribute to the strain, so nodal interpolation of the boundary data is exact)
-      const mesh0 = an.mesh, zm0 = g.zt + 0.5 * g.so, kb0 = findInterval(mesh0.zs, zm0);
+      // incompatible modes do not contribute to the strain, so the trilinear boundary data are exact)
+      const mesh = an.mesh, model = an.model, zmid = g.zt + 0.5 * g.so, kb = findInterval(mesh.zs, zmid);
       let q = 0, best = Infinity;
       for (let s = 0; s < sites.x.length; s++) {
         if (Math.abs(sites.x[s] - d.cx) > d.w / 3 || Math.abs(sites.y[s] - d.cy) > d.h / 3) continue;
-        const i = findInterval(mesh0.xs, sites.x[s]), j = findInterval(mesh0.ys, sites.y[s]);
-        const dd = Math.hypot(sites.x[s] - 0.5 * (mesh0.xs[i] + mesh0.xs[i + 1]), sites.y[s] - 0.5 * (mesh0.ys[j] + mesh0.ys[j + 1]));
+        const i = findInterval(mesh.xs, sites.x[s]), j = findInterval(mesh.ys, sites.y[s]);
+        const dd = Math.hypot(sites.x[s] - 0.5 * (mesh.xs[i] + mesh.xs[i + 1]), sites.y[s] - 0.5 * (mesh.ys[j] + mesh.ys[j + 1]));
         if (dd < best) { best = dd; q = s; }
       }
       const site = { x: sites.x[q], y: sites.y[q], ix: sites.ix[q], iy: sites.iy[q] };
-      // consistent mode: solder elastic, solder and underfill voxels both carry the homogenized bump-layer
-      // phases, substrate and Si slices keep their global properties
-      const sm = new BumpSubmodel(an, 0, site, { nxy: 8, nz: 8, elasticSolder: true, uniformMaterial: true });
-      // global strain change at the site (25 -> 125)
-      const mesh = an.mesh, model = an.model, zmid = g.zt + 0.5 * g.so, kb = findInterval(mesh.zs, zmid);
+      // global strain change 25 -> 125 degC at the site (nodal plus incompatible-mode contributions)
       const e = elementInCell(mesh, findInterval(mesh.xs, site.x), findInterval(mesh.ys, site.y), kb, PART.SOLDER);
-      // global strain change (nodal plus incompatible-mode contributions, as the cut-boundary data uses)
       const qv = new Float64Array(33), eA = new Float64Array(6), eB = new Float64Array(6);
       const [hx, hy, hz] = model.elementDims(e);
       const [xi, eta, zeta] = naturalCoords(mesh, e, site.x, site.y, zmid);
       model.elementState(e, 25, an.finalStage, an.fields.get(25), qv); boxStrainAt(hx, hy, hz, qv, qv.subarray(24), xi, eta, zeta, eA);
       model.elementState(e, 125, an.finalStage, an.fields.get(125), qv); boxStrainAt(hx, hy, hz, qv, qv.subarray(24), xi, eta, zeta, eB);
-      const dEps = eB.map((v, c) => v - eA[c]);
-      // submodel: one elastic step to 125 degC
-      const res = sm.stepTo(125, 1);
-      // strain at the submodel centre element
-      const m = sm.mesh;
-      const ec = elementInCell(m, Math.floor((m.nx - 1) / 2), Math.floor((m.ny - 1) / 2), findInterval(m.zs, zmid), null);
-      const Bb = new Float64Array(144), ue = new Float64Array(24), es = new Float64Array(6);
-      const i = m.eIJK[3 * ec], j = m.eIJK[3 * ec + 1], k = m.eIJK[3 * ec + 2];
-      bbarMatrix(m.xs[i + 1] - m.xs[i], m.ys[j + 1] - m.ys[j], m.zs[k + 1] - m.zs[k], 0, 0, 0, Bb);
-      for (let a = 0; a < 8; a++) { const n = m.conn[8 * ec + a]; for (let c = 0; c < 3; c++) ue[3 * a + c] = sm.u[3 * n + c]; }
-      for (let r = 0; r < 6; r++) { let s = 0; for (let c = 0; c < 24; c++) s += Bb[r * 24 + c] * ue[c]; es[r] = s; }
+      const dEps = Array.from(eB, (v, c) => v - eA[c]);
       const scale = Math.max(...dEps.map(Math.abs));
-      let err = 0;
-      for (let c = 0; c < 3; c++) err = Math.max(err, Math.abs(es[c] - dEps[c]) / scale);
-      let errAll = 0;
-      for (let c = 0; c < 6; c++) errAll = Math.max(errAll, Math.abs(es[c] - dEps[c]) / scale);
-      return { pass: err < 0.02, measured: 'normal strains: global ' + Array.from(dEps.slice(0, 3)).map(v => v.toExponential(3)).join(', ') + '; submodel ' + Array.from(es.slice(0, 3)).map(v => v.toExponential(3)).join(', ') + '; max normal error ' + (100 * err).toFixed(2) + ' % of the largest strain (all components ' + (100 * errAll).toFixed(2) + ' %); Newton converged: ' + res.converged, criterion: 'within 2 %' };
+      // submodel strain at the voxel nearest the site centre, mid-height of the bump layer
+      const subStrain = sm => {
+        const m = sm.mesh;
+        const ec = elementInCell(m, Math.floor((m.nx - 1) / 2), Math.floor((m.ny - 1) / 2), findInterval(m.zs, zmid), null);
+        const Bb = new Float64Array(144), ue = new Float64Array(24), es = new Float64Array(6);
+        const i = m.eIJK[3 * ec], j = m.eIJK[3 * ec + 1], k = m.eIJK[3 * ec + 2];
+        bbarMatrix(m.xs[i + 1] - m.xs[i], m.ys[j + 1] - m.ys[j], m.zs[k + 1] - m.zs[k], 0, 0, 0, Bb);
+        for (let a = 0; a < 8; a++) { const n = m.conn[8 * ec + a]; for (let c = 0; c < 3; c++) ue[3 * a + c] = sm.u[3 * n + c]; }
+        for (let r = 0; r < 6; r++) { let s2 = 0; for (let c = 0; c < 24; c++) s2 += Bb[r * 24 + c] * ue[c]; es[r] = s2; }
+        return es;
+      };
+      const errOf = es => { let err = 0; for (let c = 0; c < 6; c++) err = Math.max(err, Math.abs(es[c] - dEps[c]) / scale); return err; };
+      // (a) the consistency case: domain = the bump layer, every voxel = the homogenized bump-layer phases, solder elastic
+      const smA = new BumpSubmodel(an, 0, site, { nxy: 8, nz: 8, elasticSolder: true, uniformMaterial: true, layerOnly: true });
+      const resA = smA.stepTo(125, 1);
+      const esA = subStrain(smA), errA = errOf(esA);
+      // (b) information: the production domain (50 um into Si and substrate) with materially consistent slices
+      const smB = new BumpSubmodel(an, 0, site, { nxy: 8, nz: 8, elasticSolder: true, uniformMaterial: true });
+      smB.stepTo(125, 1);
+      const errB = errOf(subStrain(smB));
+      const f = v => v.toExponential(3);
+      return { pass: errA < 0.02 && resA.converged, measured: 'global strain change [xx, yy, zz, xy, yz, zx] ' + dEps.map(f).join(', ') + '; submodel (bump-layer domain, uniform homogenized phases) ' + Array.from(esA).map(f).join(', ') + ': max error ' + (100 * errA).toFixed(2) + ' % of the largest component; with the production domain and materially consistent Si / substrate slices the difference is ' + (100 * errB).toFixed(2) + ' % (coarse single-element layers versus the refined submodel)', criterion: 'within 2 %' };
     },
   },
   {
@@ -5847,11 +6047,103 @@ function runVerification(ids, ctx) {
 // Messages in: {type, id, ...}; out: {type: 'progress'|'result'|'error', id, ...}
 
 (function () {
-  const state = { an: null, hashes: null, db: null, screening: null };
+  const state = { an: null, hashes: null, db: null, screening: null, src: null };
   const post = m => self.postMessage(m);
   const progress = (id, frac, msg) => post({ type: 'progress', id, frac, msg });
 
   function toF32(a) { return a instanceof Float32Array ? a : Float32Array.from(a); }
+
+  // ---- helper workers (nested) for the temperature sweep and the submodels ----
+  const canNest = () => typeof Worker !== 'undefined' && typeof URL !== 'undefined' && !!state.src;
+  function spawnHelper() {
+    const w = new Worker(URL.createObjectURL(new Blob([state.src], { type: 'text/javascript' })));
+    w.postMessage({ type: 'init', db: state.db, id: 0 });
+    return w;
+  }
+  /** Run jobs on n helpers; onPartial(payload) per partial / result message; resolves with the result payloads. */
+  function runOnHelpers(n, jobs, onPartial, onProgress) {
+    return new Promise((resolve, reject) => {
+      const helpers = [];
+      const results = new Array(jobs.length);
+      let next = 0, done = 0, failed = false;
+      const finish = () => { for (const w of helpers) w.terminate(); };
+      const launch = w => {
+        if (next >= jobs.length) return;
+        const j = next++;
+        const job = jobs[j];
+        w.onmessage = ev => {
+          const m = ev.data;
+          if (m.id !== j + 1) return; // init acknowledgement or a stale message
+          if (m.type === 'progress') { if (onProgress) onProgress(j, m.frac, m.msg); return; }
+          if (m.type === 'partial') { if (onPartial) onPartial(j, m.payload); return; }
+          if (m.type === 'error') { if (!failed) { failed = true; finish(); reject(new Error(m.message)); } return; }
+          results[j] = m.payload; done++;
+          if (done === jobs.length) { finish(); resolve(results); } else launch(w);
+        };
+        w.onerror = ev => { if (!failed) { failed = true; finish(); reject(new Error(ev.message || 'helper worker error')); } };
+        w.postMessage(Object.assign({ id: j + 1 }, job.msg), job.transfer || []);
+      };
+      for (let i = 0; i < Math.min(n, jobs.length); i++) helpers.push(spawnHelper());
+      for (const w of helpers) launch(w);
+    });
+  }
+
+  /** Helper: evaluate a subset of temperatures from the birth states of the main analysis. */
+  function evalSubset(msg) {
+    const id = msg.id;
+    const an = new Analysis(msg.cfg, { preset: msg.preset, evaluations: msg.evaluations, precond: msg.precond || 'mg', progress: (f, m) => progress(id, f, m) });
+    an.build();
+    an.model.qb.set(msg.qb);
+    an.temps = msg.tempsAll; an.fields = new Map();
+    const out = [];
+    msg.temps.forEach((T, i) => {
+      progress(id, i / msg.temps.length, 'As-assembled state at ' + T + ' °C');
+      const r = an.evaluateAt(T);
+      post({ type: 'partial', id, payload: { T, u: r.u } }, [r.u.buffer]);
+      an.fields.delete(T);
+      out.push({ T, iters: r.iters, ms: r.ms, relres: r.relres, precond: r.precond, rebuilt: r.rebuilt, label: r.label, pcMs: r.pcMs, warm: r.warm });
+    });
+    return { log: out };
+  }
+
+  /** Helper: run one bump submodel from transferred cycling fields. */
+  function submodelRemote(msg) {
+    const id = msg.id;
+    const mesh = buildPackageMesh(msg.cfg, { preset: msg.preset });
+    const fields = new Map();
+    msg.temps.forEach((T, i) => fields.set(T, msg.fields[i]));
+    const an = { cfg: msg.cfg, mesh, temps: { all: msg.temps, cycling: msg.temps }, fields, finalStage: msg.finalStage, model: null, fieldAt: Analysis.prototype.fieldAt };
+    const sm = new BumpSubmodel(an, msg.die, msg.site, { nxy: msg.nxy, nz: msg.nz, progress: (f, m) => progress(id, f, m) });
+    return sm.run();
+  }
+
+  /** The sweep: in this worker, or split over helpers when asked and possible. */
+  async function runSweep(an, msg, id) {
+    const order = an.prepareSweep();
+    const n = order.length;
+    const nw = Math.max(1, Math.min(msg.workers || 1, n));
+    if (nw <= 1 || !canNest()) {
+      order.forEach((T, i) => { progress(id, 0.18 + 0.7 * i / n, 'As-assembled state at ' + T + ' °C (' + (i + 1) + '/' + n + ')'); an.evaluateAt(T); });
+      an.finishSweep();
+      return;
+    }
+    // chunk the ordered list round-robin so every helper gets a similar mix of temperatures
+    const chunks = Array.from({ length: nw }, () => []);
+    order.forEach((T, i) => chunks[i % nw].push(T));
+    const mine = chunks[0], jobs = [];
+    for (let w = 1; w < nw; w++) {
+      const qb = Float64Array.from(an.model.qb);
+      jobs.push({ msg: { type: 'evalSubset', cfg: msg.cfg, preset: msg.preset, evaluations: msg.evaluations || 'full', precond: msg.precond || 'mg', qb, temps: chunks[w], tempsAll: an.temps }, transfer: [qb.buffer] });
+    }
+    let doneCount = 0;
+    const tick = T => { doneCount++; progress(id, 0.18 + 0.7 * doneCount / n, 'As-assembled state at ' + T + ' °C (' + doneCount + '/' + n + ', ' + nw + ' workers)'); };
+    const helperP = runOnHelpers(nw - 1, jobs, (j, p) => { an.fields.set(p.T, p.u); tick(p.T); }, null);
+    // this worker takes its own chunk meanwhile (solves are synchronous; helper messages are handled between them)
+    for (const T of mine) { an.evaluateAt(T); tick(T); await new Promise(r => setTimeout(r, 0)); }
+    const res = await helperP;
+    for (const r of res) for (const l of r.log) an.log.push(Object.assign({ helper: true }, l));
+    an.finishSweep();
+  }
 
   /** Result payload of a global analysis at temperature T (fields for the views). */
   function fieldsAt(an, T) {
@@ -5869,7 +6161,7 @@ function runVerification(ids, ctx) {
     const solidus = pv(findMaterial(cfg.materials, cfg.bump.solder).solidus || { v: 217 });
     return {
       T, molten: T > solidus,
-      warpage: { signed: w.signed, mag: w.mag, sign: w.sign, limitHot: w.limitHot, limitRT: w.limitRT, grid: toF32(w.grid), rmin: w.rmin, rmax: w.rmax, ballX: toF32(g.bga.x), ballY: toF32(g.bga.y), ballRes: toF32(w.ballRes), ballW: toF32(w.ballW),
+      warpage: { signed: w.signed, mag: w.mag, sign: w.sign, signConf: w.signConf, marginal: w.marginal, shape: w.shape, limitHot: w.limitHot, limitRT: w.limitRT, grid: toF32(w.grid), rmin: w.rmin, rmax: w.rmax, ballX: toF32(g.bga.x), ballY: toF32(g.bga.y), ballRes: toF32(w.ballRes), ballW: toF32(w.ballW),
         diagAB: { s: toF32(w.diagAB.s), rel: toF32(w.diagAB.rel), w: toF32(w.diagAB.w), max: w.diagAB.max, min: w.diagAB.min }, diagCD: { s: toF32(w.diagCD.s), rel: toF32(w.diagCD.rel), w: toF32(w.diagCD.w), max: w.diagCD.max, min: w.diagCD.min }, plane: w.plane },
       substrateTop: { grid: toF32(top.grid), mag: top.mag, dies: top.dies },
       dies,
@@ -5877,7 +6169,7 @@ function runVerification(ids, ctx) {
     };
   }
 
-  function runAnalysis(msg) {
+  async function runAnalysis(msg) {
     const id = msg.id;
     const cfg = msg.cfg;
     const t0 = nowMs();
@@ -5888,7 +6180,7 @@ function runVerification(ids, ctx) {
     an.build();
     const meshInfo = an.mesh.info;
     progress(id, 0.01, 'Mesh: ' + meshInfo.nDof + ' DOF, ' + meshInfo.nElem + ' elements');
-    an.run();
+    await runSweep(an, msg, id);
     state.an = an;
     state.hashes = configHashes(cfg);
     const g = an.mesh.geom;
@@ -5898,9 +6190,9 @@ function runVerification(ids, ctx) {
       xs: toF32(an.mesh.xs), ys: toF32(an.mesh.ys), zs: toF32(an.mesh.zs), nx: an.mesh.nx, ny: an.mesh.ny, nz: an.mesh.nz,
       geometry: { substrate: g.substrate, dies: g.dies.map(d => ({ name: d.name, rect: d.rect, cx: d.cx, cy: d.cy, w: d.w, h: d.h, t: d.t, deff: d.deff, abump: d.abump, nbx: d.nbx, nby: d.nby, px: d.px, py: d.py })), bga: { zone: g.bga.zone, x: toF32(g.bga.x), y: toF32(g.bga.y) }, zt: g.zt, zaf: g.zaf, lid: g.lid ? { outer: g.lid.outer, inner: g.lid.inner, footH: g.lid.footH, blt: g.lid.blt } : null, stiff: g.stiff ? { outer: g.stiff.outer, inner: g.stiff.inner } : null },
       at25: fieldsAt(an, 25),
-      sweep: an.temps.reflow.map(T => { const w = warpageJEITA(an.mesh, g, an.fields.get(T), cfg); return { T, signed: w.signed, mag: w.mag, sign: w.sign }; }),
+      sweep: an.temps.reflow.map(T => { const w = warpageJEITA(an.mesh, g, an.fields.get(T), cfg); return { T, signed: w.signed, mag: w.mag, sign: w.sign, signConf: w.signConf, marginal: w.marginal, shape: w.shape }; }),
       cpi: an.uCPI ? g.dies.map((d, i) => bumpLoads(an.model, g, i, 25, 1, an.uCPI)) : null,
-      cycling: an.temps.cycling.map(T => { const w = warpageJEITA(an.mesh, g, an.fields.get(T), cfg); return { T, signed: w.signed }; }),
+      cycling: an.temps.cycling.map(T => { const w = warpageJEITA(an.mesh, g, an.fields.get(T), cfg); return { T, signed: w.signed, mag: w.mag, marginal: w.marginal, shape: w.shape }; }),
     };
     if (msg.evaluations !== 'preview') {
       progress(id, 0.94, 'Boundary faces and 3D fields');
@@ -5914,16 +6206,48 @@ function runVerification(ids, ctx) {
       }
     }
     result.totalMs = nowMs() - t0;
+    result.workers = Math.max(1, Math.min(msg.workers || 1, an.temps.all.length));
+    result.nested = canNest();
     return result;
   }
 
-  self.onmessage = function (ev) {
+  /** Submodels for several sites: on helpers when possible, else sequentially here. */
+  async function runSubmodels(msg, id) {
+    const an = state.an;
+    if (!an) throw new Error('No analysis in memory; run the analysis first.');
+    const jobs = msg.jobs;
+    const nw = Math.max(1, Math.min(msg.workers || 1, jobs.length));
+    const results = [];
+    if (nw <= 1 || !canNest()) {
+      for (let j = 0; j < jobs.length; j++) {
+        const sm = new BumpSubmodel(an, jobs[j].die, jobs[j].site, { nxy: msg.nxy, nz: msg.nz, progress: (f, m) => progress(id, (j + f) / jobs.length, 'Submodel ' + (j + 1) + '/' + jobs.length + ': ' + m) });
+        const r = sm.run(); r.dieIdx = jobs[j].die;
+        post({ type: 'partial', id, payload: r });
+        results.push(r);
+      }
+      return results;
+    }
+    const temps = an.temps.cycling;
+    const hjobs = jobs.map(job => {
+      const fields = temps.map(T => Float64Array.from(an.fields.get(T)));
+      return { msg: { type: 'submodelRemote', cfg: an.cfg, preset: an.mesh.info.preset.toLowerCase(), die: job.die, site: job.site, nxy: msg.nxy, nz: msg.nz, temps, fields, finalStage: an.finalStage }, transfer: fields.map(f => f.buffer) };
+    });
+    const fr = new Float64Array(jobs.length);
+    const res = await runOnHelpers(nw, hjobs, null, (j, f, m) => { fr[j] = f; let sum = 0; for (const v of fr) sum += v; progress(id, sum / jobs.length, 'Submodel ' + (j + 1) + '/' + jobs.length + ' (' + nw + ' workers): ' + m); });
+    res.forEach((r, j) => { r.dieIdx = jobs[j].die; post({ type: 'partial', id, payload: r }); results.push(r); });
+    return results;
+  }
+
+  self.onmessage = async function (ev) {
     const msg = ev.data;
     const id = msg.id;
     try {
       switch (msg.type) {
-        case 'init': state.db = msg.db; post({ type: 'result', id, payload: { ok: true } }); break;
-        case 'run': post({ type: 'result', id, payload: runAnalysis(msg) }); break;
+        case 'init': state.db = msg.db; if (msg.src) state.src = msg.src; post({ type: 'result', id, payload: { ok: true, nested: canNest() } }); break;
+        case 'run': post({ type: 'result', id, payload: await runAnalysis(msg) }); break;
+        case 'evalSubset': post({ type: 'result', id, payload: evalSubset(msg) }); break;
+        case 'submodelRemote': post({ type: 'result', id, payload: submodelRemote(msg) }); break;
+        case 'submodels': post({ type: 'result', id, payload: await runSubmodels(msg, id) }); break;
         case 'fieldsAt': {
           if (!state.an) throw new Error('No analysis in memory; run the analysis first.');
           const f = fieldsAt(state.an, msg.T);
@@ -5961,7 +6285,24 @@ function runVerification(ids, ctx) {
 })();
 
 </script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" crossorigin="anonymous" onerror="window.__threeFailed = true"></script>
+<script>
+// three.js is used for the 3D view only; try the allowed CDNs in turn and keep every other feature working without it
+(function () {
+  var urls = ['https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js', 'https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js', 'https://unpkg.com/three@0.128.0/build/three.min.js'];
+  window.__threeReady = new Promise(function (resolve) {
+    var i = 0;
+    function next() {
+      if (typeof THREE !== 'undefined') { window.__threeFailed = false; resolve(true); return; }
+      if (i >= urls.length) { window.__threeFailed = true; resolve(false); return; }
+      var s = document.createElement('script'); s.src = urls[i++]; s.crossOrigin = 'anonymous';
+      s.onload = function () { window.__threeFailed = typeof THREE === 'undefined'; if (window.__threeFailed) next(); else resolve(true); };
+      s.onerror = function () { next(); };
+      document.head.appendChild(s);
+    }
+    next();
+  });
+})();
+</script>
 <script>
 'use strict';
 // ===== UI: application state, worker management, helpers ====================
@@ -6004,6 +6345,7 @@ const app = {
   cfg: null, results: null, baseline: null, fieldsCache: new Map(), screening: null, submodels: [], sensitivity: null, verification: null,
   step: 1, centerTab: 'floorplan', selectedDie: 0, resultsView: 'warpage', selectedT: 25, exaggeration: 5, cutLine: { axis: 'x', pos: 0 },
   autoSolve: true, previewPending: null, running: null, mesh: null, validation: { errors: [], warnings: [] }, geom: null, dirty: true,
+  workers: Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1)), nestedWorkers: true,
   decisions: [], showOverlay: 'warpage', cutDirty: true,
 };
 
@@ -6121,7 +6463,7 @@ class WorkerClient {
     this.worker.onmessage = ev => this._onMessage(ev.data);
     this.worker.onerror = ev => { for (const p of this.pending.values()) p.reject(new Error(ev.message || 'worker error')); this.pending.clear(); this.busy = false; };
     this.pending.clear();
-    this.send({ type: 'init', db: MATERIALS_DB }).catch(() => {});
+    this.send({ type: 'init', db: MATERIALS_DB, src: CORE_SRC + '\n' + WORKER_SRC }).then(r => { if (r && r.nested === false) app.nestedWorkers = false; }).catch(() => {});
   }
   _onMessage(m) {
     const p = this.pending.get(m.id);
@@ -6159,10 +6501,12 @@ function estimateRun(cfg, preset) {
   try {
     const mesh = C.buildPackageMesh(cfg, { preset });
     const inf = mesh.info;
-    const memMB = inf.nDof * 27 * 9 * 8 / 3 / 1e6 * 1.6 + inf.nDof * 8 * 60 / 1e6 + 30;
-    const perSolve = inf.nDof / 28000 * 1.2; // s, measured scaling
-    const nEval = 45;
-    return { info: inf, warnings: C.meshWarnings(mesh), memMB, previewS: 3 * perSolve, fullS: (4 + nEval * 0.6) * perSolve };
+    const perWorkerMB = inf.nDof * 27 * 9 * 8 / 3 / 1e6 * 1.6 + inf.nDof * 8 * 40 / 1e6 + 30;
+    const nw = Math.max(1, app.workers || 1);
+    const memMB = perWorkerMB + (nw - 1) * (perWorkerMB * 0.7);
+    const perSolve = inf.nDof / 28000 * 0.9; // s per solve, measured scaling (Node, this container)
+    const nEval = 41;
+    return { info: inf, warnings: C.meshWarnings(mesh), memMB, perWorkerMB, previewS: 3 * perSolve, fullS: (3 + nEval / nw + 1) * perSolve + 8 };
   } catch (e) { return { error: e.message }; }
 }
 
@@ -7001,17 +7345,20 @@ function renderRunPanel(root) {
   const cfg = app.cfg;
   root.append(h('h2', null, '6. Run and results'));
   root.append(selectField('Mesh fidelity', () => cfg.mesh.preset, v => { cfg.mesh.preset = v; renderContext(); }, Object.entries(C.CONST.MESH_PRESETS).map(([k, p]) => ({ value: k, label: p.label + ' (h ' + p.hmin + ' to ' + p.hmax + ' mm, cap ' + p.cap.toLocaleString() + ' DOF)' })), { help: 'preset', section: 'mesh' }));
+  const hc = navigator.hardwareConcurrency || 2;
+  root.append(h('div', { class: 'field' }, h('label', null, 'Parallel workers', h('span', { class: 'help', title: 'The temperature sweep and the bump submodels are split over this many Web Workers (each holds its own copy of the model, so memory scales with the count). 1 keeps everything in one worker.' }, '?')), h('select', { onchange: e => { app.workers = +e.target.value; renderContext(); } }, ...Array.from({ length: Math.max(1, Math.min(8, hc)) }, (_, i) => i + 1).map(n => h('option', { value: n, selected: app.workers === n ? '' : null }, n + (n === 1 ? ' (single worker)' : ' workers')))), h('span', { class: 'unit' }, hc + ' cores' + (app.nestedWorkers === false ? '; nested workers unavailable in this browser' : ''))));
   const est = estimateRun(cfg, cfg.mesh.preset);
   if (est.error) root.append(h('div', { class: 'msg error' }, est.error));
   else {
     app.meshWarnings = est.warnings;
-    root.append(h('div', { class: 'kv' }, h('span', { class: 'k' }, 'Estimated mesh'), h('span', null, est.info.nx + ' × ' + est.info.ny + ' × ' + est.info.nz + ' grid, ' + est.info.nElem.toLocaleString() + ' elements, ' + est.info.nDof.toLocaleString() + ' DOF' + (est.info.scaled ? ' (sizes enlarged to meet the cap)' : '')), h('span', { class: 'k' }, 'Element sizes'), h('span', null, 'h_min ' + fmt(est.info.hmin, 3) + ', h_max ' + fmt(est.info.hmax, 3) + ' mm; max aspect ' + fmt(est.info.aspectMax, 0)), h('span', { class: 'k' }, 'Estimated memory'), h('span', null, fmt(est.memMB, 0) + ' MB'), h('span', { class: 'k' }, 'Estimated runtime'), h('span', null, 'preview ' + fmt(est.previewS, 0) + ' s, full analysis ' + fmt(est.fullS, 0) + ' s (single worker; scales with your CPU)')));
+    root.append(h('div', { class: 'kv' }, h('span', { class: 'k' }, 'Estimated mesh'), h('span', null, est.info.nx + ' × ' + est.info.ny + ' × ' + est.info.nz + ' grid, ' + est.info.nElem.toLocaleString() + ' elements, ' + est.info.nDof.toLocaleString() + ' DOF' + (est.info.scaled ? ' (sizes enlarged to meet the cap)' : '')), h('span', { class: 'k' }, 'Element sizes'), h('span', null, 'h_min ' + fmt(est.info.hmin, 3) + ', h_max ' + fmt(est.info.hmax, 3) + ' mm; max aspect ' + fmt(est.info.aspectMax, 0)), h('span', { class: 'k' }, 'Estimated memory'), h('span', { class: est.memMB > 600 ? 'warnc' : '' }, fmt(est.memMB, 0) + ' MB total (' + fmt(est.perWorkerMB, 0) + ' MB per worker' + (est.memMB > 600 ? '; above the 600 MB target, reduce the worker count if memory is tight' : '') + ')'), h('span', { class: 'k' }, 'Estimated runtime'), h('span', null, 'preview ' + fmt(est.previewS, 0) + ' s, full analysis ' + fmt(est.fullS, 0) + ' s with ' + app.workers + ' worker' + (app.workers > 1 ? 's' : '') + ' (scales with your CPU)')));
   }
   const canRun = !app.validation.errors.length;
   root.append(h('div', { class: 'row' }, h('button', { class: 'primary', disabled: canRun ? null : '', onclick: () => runFull() }, '▶ Run full global analysis'), h('button', { disabled: canRun ? null : '', onclick: () => runPreview(true) }, 'Quick preview (Draft, 25 °C)'), h('label', { class: 'small' }, h('input', { type: 'checkbox', checked: app.autoSolve ? '' : null, onchange: e => { app.autoSolve = e.target.checked; } }), ' auto-solve on die release')));
   root.append(h('div', { class: 'row' }, h('button', { disabled: app.results ? null : '', onclick: pinBaseline }, 'Pin as baseline'), h('button', { disabled: app.baseline ? null : '', onclick: () => { app.baseline = null; renderContext(); } }, 'Clear baseline'), h('button', { disabled: canRun ? null : '', onclick: checkMeshSensitivity }, 'Check mesh sensitivity'), h('button', { disabled: app.results ? null : '', onclick: exportCSV }, 'Export CSV'), h('button', { disabled: app.results ? null : '', onclick: openReport }, 'Report (print / PDF)')));
   if (cfg.name && cfg.name.startsWith('Core thickness study')) root.append(h('div', { class: 'row' }, h('button', { onclick: runCoreStudy }, 'Run both core variants and compare')));
   root.append(h('div', { class: 'small muted' }, 'Tip: pin a baseline, then compare variants. Ratios and deltas against the baseline are the most trustworthy outputs of a screening model.'));
+  root.append(estimatedInputsCard(cfg));
   renderValidation(root);
   if (!app.results) { root.append(h('div', { class: 'msg info' }, 'No results yet. Run the analysis to populate the results views in the center area.')); return; }
   const res = app.results;
@@ -7019,7 +7366,7 @@ function renderRunPanel(root) {
   const f = res.at25, w = f.warpage;
   const base = app.baseline;
   const delta = (v, bv, unit, dgt) => bv === undefined || bv === null || !isFinite(bv) ? '' : ' (Δ ' + (v - bv >= 0 ? '+' : '') + fmt(v - bv, dgt) + unit + ', ×' + fmt(v / bv, 2) + ' vs baseline)';
-  root.append(h('div', { class: 'card' }, h('h3', null, 'Signed warpage, JEITA, 25 °C'), h('div', { class: 'big' }, um(w.signed) + ' µm'), h('div', { class: 'sub' }, (w.sign > 0 ? 'convex (center farther from the PWB than the corners)' : (w.sign < 0 ? 'concave' : 'flat')) + '; magnitude ' + um(w.mag) + ' µm; RT reference ' + (w.limitRT * 1000) + ' µm' + (base ? delta(w.signed * 1000, base.at25.warpage.signed * 1000, ' µm', 1) : '')), whatThisMeans('warpage', res)));
+  root.append(h('div', { class: 'card' }, h('h3', null, 'Signed warpage, JEITA, 25 °C'), h('div', { class: 'big' }, um(w.signed) + ' µm', w.marginal ? h('span', { class: 'badge Handbook', title: 'The diagonal sum that sets the JEITA sign is only ' + fmt(100 * w.signConf, 0) + ' % of the magnitude (saddle or ring shape); the sign can flip between neighbouring states while the magnitude barely changes. Compare magnitudes.' }, 'marginal sign') : null), h('div', { class: 'sub' }, shapeText(w) + '; magnitude ' + um(w.mag) + ' µm; RT reference ' + (w.limitRT * 1000) + ' µm' + (base ? delta(w.signed * 1000, base.at25.warpage.signed * 1000, ' µm', 1) : '')), whatThisMeans('warpage', res)));
   const peak = res.sweep.reduce((m, r) => Math.abs(r.signed) > Math.abs(m.signed) ? r : m, res.sweep[0]);
   root.append(h('div', { class: 'card' }, h('h3', null, 'Reflow sweep peak'), h('div', { class: 'big' }, um(peak.signed) + ' µm at ' + peak.T + ' °C'), h('div', { class: 'sub' }, 'JEITA limit for ' + cfg.bga.pitch + ' mm pitch: ' + (w.limitHot * 1000) + ' µm → ' + (Math.abs(peak.signed) <= w.limitHot ? 'within limit' : 'exceeds limit') + (base ? delta(peak.signed * 1000, base.sweep.reduce((m, r) => Math.abs(r.signed) > Math.abs(m.signed) ? r : m, base.sweep[0]).signed * 1000, ' µm', 1) : ''))));
   f.dies.forEach((d, i) => {
@@ -7037,10 +7384,46 @@ function renderRunPanel(root) {
   root.append(h('details', null, h('summary', null, 'Solver log (' + res.solverLog.length + ' solves, ' + fmt(res.totalMs / 1000, 1) + ' s total)'), h('div', { class: 'mono small' }, 'Mesh ' + res.meshInfo.nDof + ' DOF, ' + res.meshInfo.nElem + ' elements, build ' + fmt(res.meshInfo.buildMs, 0) + ' ms; assembly ' + fmt(res.timings.assemble, 0) + ' ms; solves ' + fmt(res.timings.solve, 0) + ' ms'), h('table', { class: 'small' }, h('tr', null, h('th', null, 'Solve'), h('th', null, 'Iterations'), h('th', null, 'Residual'), h('th', null, 'Preconditioner'), h('th', null, 'ms')), ...res.solverLog.map(r => h('tr', null, h('td', null, r.label), h('td', null, String(r.iters) + (r.rebuilt ? ' (rebuilt)' : '') + (r.fallback ? ' (fallback from ' + r.fallback.first + ')' : '')), h('td', null, fmtE(r.relres, 1)), h('td', null, r.precond || ''), h('td', null, fmt(r.ms, 0)))))));
 }
 
+/** Every Estimated (placeholder) parameter the current configuration depends on. */
+function estimatedInputsInUse(cfg) {
+  const out = [];
+  for (const r of C.materialRoles(cfg)) {
+    const m = C.findMaterial(cfg.materials, r.id);
+    C.forEachParam({ elastic: m.elastic, cte: m.cte, cteXY: m.cteXY, cteZ: m.cteZ, cure: m.cure }, (p, path) => { if ((p.c || 'Estimated') === 'Estimated') out.push({ role: r.role, material: m.name, id: m.id, path, label: paramLabel(path), value: p.v, unit: p.u || '', note: p.n || '' }); });
+    if (m.elastic && m.elastic.E && m.elastic.E.type === 'table' && m.elastic.E.c === 'Estimated') out.push({ role: r.role, material: m.name, id: m.id, path: 'elastic.E', label: 'E(T) table', value: '', unit: '', note: m.elastic.E.n || '' });
+  }
+  return out;
+}
+function estimatedInputsCard(cfg) {
+  const list = estimatedInputsInUse(cfg);
+  const S = app.sensitivity;
+  const driven = new Set();
+  if (S) for (const k of ['warpRT', 'warpPeak', 'dieStress', 'dW']) if (S[k]) S[k].rows.slice(0, 5).forEach(r => driven.add(r.id));
+  const card = h('div', { class: 'card' }, h('h3', null, 'Estimated inputs in use ', h('span', { class: 'badge Estimated' }, String(list.length))),
+    h('div', { class: 'small' }, 'These placeholder values have no published source; replace them with measured or DMA data before trusting absolute numbers. Their influence is quantified by the sensitivity run (step 6 → Sensitivity), which includes them by default.'),
+    h('table', { class: 'small' }, h('tr', null, h('th', null, 'Role'), h('th', null, 'Material'), h('th', null, 'Parameter'), h('th', null, 'Value'), h('th')), ...list.map(e => h('tr', null, h('td', null, e.role), h('td', null, e.material), h('td', { title: e.note }, e.label), h('td', null, (typeof e.value === 'number' ? fmtInput(e.value) : e.value) + ' ' + e.unit), h('td', null, h('button', { class: 'small', onclick: () => { app.selectedMaterial = e.id; app.step = 4; renderAll(); } }, 'edit'))))),
+    S ? h('div', { class: 'small muted' }, 'In the last sensitivity run, ' + sensitivityEstimatedShare(S) + ' of the total top-5 swing came from Estimated inputs.') : null);
+  return card;
+}
+function sensitivityEstimatedShare(S) {
+  const estIds = new Set(C.sensitivityInputs(app.cfg).filter(i => i.estimated).map(i => i.id));
+  let tot = 0, est = 0;
+  for (const k of ['warpRT', 'warpPeak', 'dieStress', 'dW']) if (S[k]) for (const r of S[k].rows.slice(0, 5)) { const sw = r.swing / Math.max(Math.abs(S[k].base), 1e-30); tot += sw; if (estIds.has(r.id)) est += sw; }
+  return tot > 0 ? fmt(100 * est / tot, 0) + ' %' : 'none';
+}
+function shapeText(w) {
+  const base = w.sign > 0 ? 'convex (center farther from the PWB than the corners)' : (w.sign < 0 ? 'concave' : 'flat');
+  const sh = { dome: 'dome', bowl: 'bowl', saddle: 'saddle', ring: 'ring / W profile (the center sits on one side of the corner line, an intermediate ring on the other; the JEITA sign follows the deeper of the two, not the center)', flat: 'flat' }[w.shape] || w.shape;
+  return base + ', ' + sh + ' shape; sign confidence ' + fmt(100 * (w.signConf || 0), 0) + ' %';
+}
 function whatThisMeans(kind, res) {
   const f = res.at25, w = f.warpage, cfg = app.cfg;
   const lines = [];
   if (kind === 'warpage') {
+    if (w.shape === 'ring') lines.push('The surface has a ring (W or M) profile: the centre and an intermediate ring lie on opposite sides of the corner-to-corner line, so the JEITA sign describes the deeper feature rather than the centre. Lidded packages often show this at room temperature (the lid pulls the perimeter while the die holds the centre).');
+    if (w.marginal) lines.push('The sign is marginal here: the JEITA diagonal sum is only ' + fmt(100 * w.signConf, 0) + ' % of the magnitude, which happens for saddle and ring-shaped surfaces. Rank designs by the magnitude |C| and inspect the shape; a sign change between two nearby states does not mean the package flipped.');
+    const flips = res.sweep.filter((r, i) => i > 0 && r.sign !== res.sweep[i - 1].sign && r.sign !== 0 && res.sweep[i - 1].sign !== 0).map(r => r.T);
+    if (flips.length) lines.push('Over the reflow sweep the JEITA sign changes at about ' + flips.join(', ') + ' °C; the magnitude curve (dashed) shows whether the surface actually passes through flat there or only changes shape.');
     lines.push('Sign follows JEITA ED-7306 / JESD22-B112: positive means the package top surface arches and the center is farther from the board than the corners (convex); negative means concave. The magnitude is the peak-to-valley of the BGA-side surface after removing the best-fit plane over the ball field.');
     lines.push('The sign is determined by the two diagonals (AB: ' + um(w.diagAB.max) + ' / ' + um(w.diagAB.min) + ' µm, CD: ' + um(w.diagCD.max) + ' / ' + um(w.diagCD.min) + ' µm); saddle or ring-shaped surfaces can flip sign while the magnitude stays similar.');
     const peak = res.sweep.reduce((m, r) => Math.abs(r.signed) > Math.abs(m.signed) ? r : m, res.sweep[0]);
@@ -7054,11 +7437,11 @@ function whatThisMeans(kind, res) {
 // ---- running ----
 function runFull() {
   if (app.validation.errors.length) { toast('Fix the errors first.', 'error'); return; }
-  startRun({ type: 'run', cfg: app.cfg, preset: app.cfg.mesh.preset, evaluations: 'full' }, 'Full global analysis').then(res => {
+  startRun({ type: 'run', cfg: app.cfg, preset: app.cfg.mesh.preset, evaluations: 'full', workers: app.workers }, 'Full global analysis').then(res => {
     app.results = res; app.currentFields = res.at25; app.selectedT = 25; app.dirty = false;
     app.screening = res.screening || null; app.submodels = [];
     setCenterTab('results'); renderAll();
-    toast('Analysis complete in ' + fmt(res.totalMs / 1000, 1) + ' s (' + res.meshInfo.nDof + ' DOF).', 'ok');
+    toast('Analysis complete in ' + fmt(res.totalMs / 1000, 1) + ' s (' + res.meshInfo.nDof + ' DOF, ' + res.workers + ' worker' + (res.workers > 1 ? 's' : '') + ').', 'ok');
   }).catch(err => { if (err.message !== 'cancelled') toast('Analysis failed: ' + err.message, 'error', 9000); });
 }
 function runPreview(explicit) {
@@ -7085,7 +7468,7 @@ function checkMeshSensitivity() {
   const order = ['draft', 'standard', 'fine'];
   const cur = app.cfg.mesh.preset, next = order[Math.min(order.indexOf(cur) + 1, 2)];
   if (next === cur) { toast('Already at the finest preset.', 'warn'); return; }
-  const run = preset => startRun({ type: 'run', cfg: app.cfg, preset, evaluations: 'preview' }, 'Mesh check at ' + preset);
+  const run = preset => startRun({ type: 'run', cfg: app.cfg, preset, evaluations: 'preview', workers: app.workers }, 'Mesh check at ' + preset);
   run(cur).then(a => run(next).then(b => {
     const wa = a.at25.warpage.signed, wb = b.at25.warpage.signed;
     const sa = a.at25.dies[0].top.peakInterior, sb = b.at25.dies[0].top.peakInterior;
@@ -7155,7 +7538,7 @@ function renderWarpageView(root, res, f, Tsel) {
   left.append(mapCanvas(res, (ctx, X, Y, sc) => { drawGridField(ctx, res.xs, res.ys, grid, scale, X, Y, 0.95); drawContours(ctx, res.xs, res.ys, grid, ticks(scale.min, scale.max, 10), X, Y, 'rgba(0,0,0,0.3)'); drawPoints(ctx, w.ballX, w.ballY, Float32Array.from(w.ballRes, v => v * 1000), scale, X, Y, Math.max(1.5, 0.2 * cfg.bga.pitch * sc)); const z = res.geometry.bga.zone; ctx.setLineDash([6, 4]); ctx.strokeStyle = cssVar('--muted'); ctx.strokeRect(X(z.x0), Y(z.y1), (z.x1 - z.x0) * sc, (z.y1 - z.y0) * sc); ctx.setLineDash([]); ctx.strokeStyle = cssVar('--accent2'); ctx.beginPath(); ctx.moveTo(X(z.x0), Y(z.y0)); ctx.lineTo(X(z.x1), Y(z.y1)); ctx.moveTo(X(z.x0), Y(z.y1)); ctx.lineTo(X(z.x1), Y(z.y0)); ctx.stroke(); ctx.fillStyle = cssVar('--accent2'); ctx.font = '11px ' + cssVar('--font'); ctx.fillText('A', X(z.x0) - 10, Y(z.y0) + 4); ctx.fillText('B', X(z.x1) + 3, Y(z.y1)); ctx.fillText('C', X(z.x0) - 10, Y(z.y1)); ctx.fillText('D', X(z.x1) + 3, Y(z.y0) + 4); }));
   left.append(legendRow(scale, 'substrate bottom surface, µm relative to the best-fit plane over the BGA zone; + toward the package top (away from the PWB); dots: ball sites'));
   const right = h('div');
-  right.append(h('div', { class: 'card' }, h('div', { class: 'kv' }, h('span', { class: 'k' }, 'Signed warpage'), h('b', null, um(w.signed) + ' µm (' + (w.sign > 0 ? 'convex' : w.sign < 0 ? 'concave' : 'flat') + ')'), h('span', { class: 'k' }, 'Magnitude |C|'), h('span', null, um(w.mag) + ' µm'), h('span', { class: 'k' }, 'JEITA max at elevated T'), h('span', null, (w.limitHot * 1000) + ' µm for ' + cfg.bga.pitch + ' mm pitch'), h('span', { class: 'k' }, 'RT coplanarity reference'), h('span', null, (w.limitRT * 1000) + ' µm'), h('span', { class: 'k' }, 'Diagonal AB max / min'), h('span', null, um(w.diagAB.max) + ' / ' + um(w.diagAB.min) + ' µm'), h('span', { class: 'k' }, 'Diagonal CD max / min'), h('span', null, um(w.diagCD.max) + ' / ' + um(w.diagCD.min) + ' µm'), h('span', { class: 'k' }, 'Substrate top warpage'), h('span', null, um(f.substrateTop.mag) + ' µm'), ...f.substrateTop.dies.flatMap(d => [h('span', { class: 'k' }, d.die + ' die-to-substrate relative curvature'), h('span', null, fmtE(d.relKxx, 2) + ' (xx), ' + fmtE(d.relKyy, 2) + ' (yy) 1/mm')])), whatThisMeans('warpage', res)));
+  right.append(h('div', { class: 'card' }, h('div', { class: 'kv' }, h('span', { class: 'k' }, 'Signed warpage'), h('b', null, um(w.signed) + ' µm (' + (w.sign > 0 ? 'convex' : w.sign < 0 ? 'concave' : 'flat') + ')', w.marginal ? h('span', { class: 'badge Handbook' }, 'marginal sign') : null), h('span', { class: 'k' }, 'Shape, sign confidence'), h('span', null, w.shape + ', ' + fmt(100 * (w.signConf || 0), 0) + ' % (|AB_max + AB_min + CD_max + CD_min| / |C|; orange ticks on the sweep mark marginal states)'), h('span', { class: 'k' }, 'Magnitude |C|'), h('span', null, um(w.mag) + ' µm'), h('span', { class: 'k' }, 'JEITA max at elevated T'), h('span', null, (w.limitHot * 1000) + ' µm for ' + cfg.bga.pitch + ' mm pitch'), h('span', { class: 'k' }, 'RT coplanarity reference'), h('span', null, (w.limitRT * 1000) + ' µm'), h('span', { class: 'k' }, 'Diagonal AB max / min'), h('span', null, um(w.diagAB.max) + ' / ' + um(w.diagAB.min) + ' µm'), h('span', { class: 'k' }, 'Diagonal CD max / min'), h('span', null, um(w.diagCD.max) + ' / ' + um(w.diagCD.min) + ' µm'), h('span', { class: 'k' }, 'Substrate top warpage'), h('span', null, um(f.substrateTop.mag) + ' µm'), ...f.substrateTop.dies.flatMap(d => [h('span', { class: 'k' }, d.die + ' die-to-substrate relative curvature'), h('span', null, fmtE(d.relKxx, 2) + ' (xx), ' + fmtE(d.relKyy, 2) + ' (yy) 1/mm')])), whatThisMeans('warpage', res)));
   const c1 = h('canvas', { class: 'plot' }), c2 = h('canvas', { class: 'plot' }), c3 = h('canvas', { class: 'plot' });
   right.append(c1, c2, c3);
   root.append(h('div', { class: 'grid2' }, left, right));
@@ -7165,7 +7548,7 @@ function renderWarpageView(root, res, f, Tsel) {
     const upWarp = res.sweep.filter(r => r.T >= 25);
     const peakT = cfg.reflow.peak;
     const down = upWarp.map(r => ({ x: 2 * peakT - r.T, y: r.signed * 1000 })).reverse();
-    linePlot(c2, [{ x: upWarp.map(r => r.T), y: upWarp.map(r => r.signed * 1000), label: 'heating', points: true }, { x: down.map(p => p.x), y: down.map(p => p.y), label: 'cooling (mirrored, same states)', dash: [4, 3] }], { title: 'Signed warpage over the reflow sweep (x axis: heating to peak, then mirrored cooling)', xlabel: '°C (then mirrored)', ylabel: 'µm', band: [-w.limitHot * 1000, w.limitHot * 1000], hlines: [{ y: 0 }], vlines: [{ x: 217, label: 'solidus' }, { x: 2 * peakT - 217 }] });
+    linePlot(c2, [{ x: upWarp.map(r => r.T), y: upWarp.map(r => r.signed * 1000), label: 'heating', points: true }, { x: down.map(p => p.x), y: down.map(p => p.y), label: 'cooling (mirrored, same states)', dash: [4, 3] }, { x: upWarp.map(r => r.T), y: upWarp.map(r => r.mag * 1000), label: 'magnitude |C|', dash: [2, 3], color: cssVar('--muted') }], { title: 'Signed warpage over the reflow sweep (x axis: heating to peak, then mirrored cooling)', xlabel: '°C (then mirrored)', ylabel: 'µm', band: [-w.limitHot * 1000, w.limitHot * 1000], hlines: [{ y: 0 }], vlines: [{ x: 217, label: 'solidus' }, { x: 2 * peakT - 217 }].concat(upWarp.filter(r => r.marginal).map(r => ({ x: r.T, color: cssVar('--warn') }))) });
     const bl = app.baseline ? [{ x: app.baseline.sweep.map(r => r.T), y: app.baseline.sweep.map(r => r.signed * 1000), label: 'baseline', dash: [2, 2] }] : [];
     linePlot(c3, [{ x: up, y: ws, label: 'current', points: true }].concat(bl, res.cycling ? [{ x: res.cycling.map(r => r.T), y: res.cycling.map(r => r.signed * 1000), label: 'cycling range', dash: [6, 3] }] : []), { title: 'Signed warpage versus temperature (all evaluated states)', xlabel: '°C', ylabel: 'µm', hlines: [{ y: w.limitHot * 1000, label: 'JEITA limit', color: cssVar('--warn') }, { y: -w.limitHot * 1000, color: cssVar('--warn') }] });
   });
@@ -7262,14 +7645,12 @@ function runSubmodels(res) {
   const keys = Array.from(app.submodelSelection);
   if (!keys.length) { toast('Select at least one site.', 'warn'); return; }
   const cfg = app.cfg;
-  const runOne = i => {
-    if (i >= keys.length) { renderCenter(); return; }
-    const [die, q] = keys[i].split(':').map(Number);
-    const s = res.screening[die];
-    const site = { x: s.x[q], y: s.y[q], ix: s.ix[q], iy: s.iy[q] };
-    startRun({ type: 'submodel', die, site, nxy: cfg.submodel.nxy, nz: cfg.submodel.nz }, 'Bump submodel ' + (i + 1) + '/' + keys.length).then(r => { r.dieIdx = die; app.submodels = app.submodels.filter(x => !(x.dieIdx === die && x.site.ix === site.ix && x.site.iy === site.iy)); app.submodels.push(r); renderCenter(); runOne(i + 1); }).catch(e => { if (e.message !== 'cancelled') toast('Submodel failed: ' + e.message, 'error', 9000); });
-  };
-  runOne(0);
+  const jobs = keys.map(k => { const [die, q] = k.split(':').map(Number); const s = res.screening[die]; return { die, site: { x: s.x[q], y: s.y[q], ix: s.ix[q], iy: s.iy[q] } }; });
+  const onPartial = r => { app.submodels = app.submodels.filter(x => !(x.dieIdx === r.dieIdx && x.site.ix === r.site.ix && x.site.iy === r.site.iy)); app.submodels.push(r); renderCenter(); };
+  const p = startRun({ type: 'submodels', jobs, nxy: cfg.submodel.nxy, nz: cfg.submodel.nz, workers: app.workers }, 'Bump submodels (' + jobs.length + ' sites)');
+  const pend = worker.pending.get(worker.nextId - 1);
+  if (pend) pend.onPartial = onPartial;
+  p.then(() => renderCenter()).catch(e => { if (e.message !== 'cancelled') toast('Submodel failed: ' + e.message, 'error', 9000); });
 }
 function renderSubmodelCard(sm) {
   const c1 = h('canvas', { class: 'plot' });
@@ -7285,7 +7666,12 @@ function renderSubmodelCard(sm) {
 
 // ---- 3D view ----
 function renderView3D(root, res, f, Tsel) {
-  if (window.__threeFailed || typeof THREE === 'undefined') { root.append(h('div', { class: 'msg warning' }, 'three.js could not be loaded (offline?). The 3D view is unavailable; every other feature works.')); return; }
+  if (typeof THREE === 'undefined') {
+    if (window.__threeFailed) { root.append(h('div', { class: 'msg warning' }, 'three.js could not be loaded from cdnjs, jsdelivr or unpkg (offline or blocked). The 3D view is unavailable; every other feature works.')); return; }
+    root.append(h('div', { class: 'msg info' }, 'Loading three.js…'));
+    if (window.__threeReady) window.__threeReady.then(() => { if (app.resultsView === 'view3d' || app.centerTab === 'view3d') renderCenter(); });
+    return;
+  }
   if (!res.view3d) { root.append(h('div', { class: 'msg info' }, 'The 3D view needs the full analysis.')); return; }
   const v = app.view3dOpts || (app.view3dOpts = { scale: 20, color: 'warpage', hidden: new Set() });
   const ctl = h('div', { class: 'row' }, h('b', null, '3D deformed shape'), ' at ', Tsel, h('label', null, ' exaggeration ', h('input', { type: 'range', min: 1, max: 200, value: v.scale, oninput: e => { v.scale = +e.target.value; update3D(); } })), h('label', null, ' color by ', h('select', { onchange: e => { v.color = e.target.value; update3D(); } }, h('option', { value: 'warpage', selected: v.color === 'warpage' ? '' : null }, 'out-of-plane displacement'), h('option', { value: 'stress', selected: v.color === 'stress' ? '' : null }, 'max principal stress (per part)'), h('option', { value: 'part', selected: v.color === 'part' ? '' : null }, 'part'))), ...C.PART_NAMES.map((n, i) => (res.view3d.part.includes(i) ? h('label', { class: 'small' }, h('input', { type: 'checkbox', checked: v.hidden.has(i) ? null : '', onchange: e => { if (e.target.checked) v.hidden.delete(i); else v.hidden.add(i); update3D(); } }), ' ' + n) : null)));
@@ -7374,7 +7760,7 @@ function renderSensitivityView(root) {
   const inputs = C.sensitivityInputs(cfg);
   if (!app.sensInputs) app.sensInputs = new Set(inputs.map(i => i.id));
   root.append(h('div', { class: 'row' }, h('b', null, 'Sensitivity (tornado), Draft preset'), h('span', { class: 'muted small' }, 'Each input is set to the low and high end of its range (datasheet range where given, else ±10 %, ±10 °C for temperatures). Results are cached by configuration hash.')));
-  root.append(h('div', { class: 'row small' }, ...inputs.map(i => h('label', { class: 'pill' }, h('input', { type: 'checkbox', checked: app.sensInputs.has(i.id) ? '' : null, onchange: e => { if (e.target.checked) app.sensInputs.add(i.id); else app.sensInputs.delete(i.id); } }), ' ' + i.label))));
+  root.append(h('div', { class: 'row small' }, ...inputs.map(i => h('label', { class: 'pill', title: i.estimated ? 'Estimated (placeholder) value in the database' : '' }, h('input', { type: 'checkbox', checked: app.sensInputs.has(i.id) ? '' : null, onchange: e => { if (e.target.checked) app.sensInputs.add(i.id); else app.sensInputs.delete(i.id); } }), ' ' + i.label, i.estimated ? h('span', { class: 'badge Estimated' }, 'est.') : null))));
   const nw = Math.max(1, Math.min(8, (navigator.hardwareConcurrency || 4) - 1));
   root.append(h('div', { class: 'row' }, h('button', { class: 'primary', disabled: app.validation.errors.length ? '' : null, onclick: () => runSensitivity(inputs.filter(i => app.sensInputs.has(i.id)), nw) }, '▶ Run sensitivity (' + (2 * app.sensInputs.size + 1) + ' Draft analyses on ' + nw + ' workers)')));
   const S = app.sensitivity;
@@ -7470,6 +7856,8 @@ function reportBody(res) {
   for (const sm of app.submodels) add('Submodel ' + sm.die + ' (' + fmt(sm.site.x, 1) + ', ' + fmt(sm.site.y, 1) + ') ΔW / Syed life', fmtE(sm.dW, 3) + ' MPa, ' + fmt(sm.life.syedEnergy, 0) + ' cycles', CONFIDENCE.fatigue);
   div.append(tbl);
   if (app.sensitivity && app.sensitivity.warpRT) div.append(h('p', { class: 'small' }, 'Sensitivity (RT warpage), top drivers: ' + app.sensitivity.warpRT.rows.slice(0, 5).map(r => r.label).join(', ') + '.'));
+  const estList = estimatedInputsInUse(cfg);
+  div.append(h('h3', null, 'Estimated inputs in use (' + estList.length + ')'), h('p', { class: 'small' }, estList.map(e => e.material + ': ' + e.label + ' = ' + (typeof e.value === 'number' ? fmtInput(e.value) : e.value) + ' ' + e.unit).join('; ') || 'none'));
   div.append(h('h3', null, 'Assumptions and limitations'), h('ul', { class: 'small' }, ...limitationsList(res).map(t => h('li', null, t))));
   div.append(h('h3', null, 'Verification'));
   if (app.verification && app.verification.length) div.append(h('table', { class: 'small' }, h('tr', null, h('th', null, 'ID'), h('th', null, 'Result'), h('th', null, 'Measured')), ...app.verification.map(r => h('tr', null, h('td', null, r.id), h('td', { class: r.pass ? 'ok' : 'bad' }, r.pass ? 'PASS' : 'FAIL'), h('td', null, r.measured)))));
@@ -7520,6 +7908,7 @@ function limitationsList(res) {
     'Silicon elastic constants are temperature independent; Cu and metals are elastic.',
     'Poisson ratios are clamped to 0.45 in the global hexahedral elements (B-bar elements in the submodel accept up to 0.49).',
     'Layered substrate bands use the continuum-shell form of each sub-layer stiffness (plane-stress in-plane block, uncoupled thickness modulus), because one thickness strain shared by all sub-layers of a band over-constrains the Poisson expansion (0.7 % warpage bias against lamination theory).',
+    'Parallel workers: the temperature sweep and the bump submodels can be split over several Web Workers; each holds its own copy of the model, so peak memory grows with the worker count (shown in the run panel).',
     'Build decisions: the multigrid coarse space uses per-column shell aggregates (rigid-body plus thickness modes of each stiff stack) because plain nodal interpolation stalls on thin layered structures; the full symmetric block matrix is stored (instead of the upper triangle) for faster smoothing; single-material elements use a closed-form 12-point rule that reproduces 2×2×2 Gauss exactly; the drag preview solves to a looser tolerance (1e-5) and skips the chip-join state.',
   ];
   if (res && res.notes) L.push(...res.notes);
@@ -7600,7 +7989,7 @@ document.addEventListener('configchange', ev => {
   renderStepper();
 });
 function runFullAfterRelease() {
-  startRun({ type: 'run', cfg: app.cfg, preset: app.cfg.mesh.preset, evaluations: 'full' }, 'Auto-solve (' + app.cfg.mesh.preset + ')').then(res => { app.results = res; app.currentFields = res.at25; app.selectedT = 25; app.dirty = false; app.screening = res.screening || null; app.submodels = []; renderAll(); }).catch(err => { if (err.message !== 'cancelled') toast('Auto-solve failed: ' + err.message, 'error'); });
+  startRun({ type: 'run', cfg: app.cfg, preset: app.cfg.mesh.preset, evaluations: 'full', workers: app.workers }, 'Auto-solve (' + app.cfg.mesh.preset + ')').then(res => { app.results = res; app.currentFields = res.at25; app.selectedT = 25; app.dirty = false; app.screening = res.screening || null; app.submodels = []; renderAll(); }).catch(err => { if (err.message !== 'cancelled') toast('Auto-solve failed: ' + err.message, 'error'); });
 }
 document.addEventListener('dieselect', () => { if (app.step === 2) renderContext(); floorplan.draw(); });
 document.addEventListener('themechange', () => { if (app.centerTab === 'floorplan') { floorplan.draw(); xsection.draw(); } else renderCenter(); });

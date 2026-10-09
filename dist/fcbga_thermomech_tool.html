@@ -63,6 +63,9 @@ h4 { font-size: 12px; margin: 10px 0 4px; }
 .field.warn input { border-color: var(--warn); }
 .field.err input { border-color: var(--err); }
 .help { display: inline-flex; width: 15px; height: 15px; border-radius: 50%; border: 1px solid var(--muted); color: var(--muted); font-size: 10px; align-items: center; justify-content: center; cursor: help; margin-left: 4px; vertical-align: middle; }
+.help:hover, .help:focus { border-color: var(--accent); color: var(--accent); outline: none; }
+#tooltip { position: fixed; z-index: 100; display: none; max-width: 340px; padding: 7px 10px; border-radius: 6px; background: var(--text); color: var(--bg); font-size: 12px; line-height: 1.4; box-shadow: 0 2px 8px rgba(0,0,0,.25); pointer-events: none; white-space: normal; }
+[data-tip] { cursor: inherit; }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 4px 0; }
 button { font: inherit; padding: 5px 10px; border-radius: 5px; border: 1px solid var(--border); background: var(--panel2); color: var(--text); cursor: pointer; }
 button:hover { border-color: var(--accent); }
@@ -145,8 +148,8 @@ hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
     <div class="brand"><span class="logo">FCBGA</span> Thermomechanical Screening Tool <span class="build">build 2026-10-09</span></div>
     <div class="banner" role="note">Screening tool. Results are approximate and intended for design comparison and trend studies, not sign-off.</div>
     <div class="topbtns">
-      <button id="btn-theme" class="icon" title="Toggle light / dark theme">◐</button>
-      <button id="btn-help" class="icon" title="Assumptions and limitations">?</button>
+      <button id="btn-theme" class="icon" aria-label="Toggle theme">◐</button>
+      <button id="btn-help" class="icon" aria-label="Assumptions and limitations">?</button>
     </div>
   </header>
   <div id="layout">
@@ -6414,7 +6417,7 @@ const HELP = {
   pth: 'Plated through hole Cu area fraction of the core.',
   kind: 'Plane layers use the Voigt (parallel) rule in-plane; signal layers use the mean of Voigt and Reuss.',
 };
-function help(key) { return HELP[key] ? h('span', { class: 'help', title: HELP[key] }, '?') : null; }
+function help(key) { const text = key && (HELP[key] || (typeof TIPS !== 'undefined' && TIPS[key])); return text ? h('span', { class: 'help', 'data-tip': text, tabindex: '0', 'aria-label': text }, '?') : null; }
 
 /** Numeric input with hard bounds (error) and plausibility range (warning). */
 function numField(label, get, set, opts) {
@@ -6425,9 +6428,9 @@ function numField(label, get, set, opts) {
   const check = () => {
     const v = parseFloat(inp.value) / scale;
     wrap.classList.remove('warn', 'err');
-    if (!isFinite(v) || (opts.min !== undefined && v < opts.min) || (opts.max !== undefined && v > opts.max)) { wrap.classList.add('err'); inp.title = 'Allowed range: ' + (opts.min !== undefined ? opts.min * scale : '') + ' to ' + (opts.max !== undefined ? opts.max * scale : ''); return false; }
-    if ((opts.plo !== undefined && v < opts.plo) || (opts.phi !== undefined && v > opts.phi)) { wrap.classList.add('warn'); inp.title = 'Outside the usual range ' + opts.plo * scale + ' to ' + opts.phi * scale + '; check the value.'; }
-    else inp.title = '';
+    if (!isFinite(v) || (opts.min !== undefined && v < opts.min) || (opts.max !== undefined && v > opts.max)) { wrap.classList.add('err'); inp.setAttribute('data-tip', 'Allowed range: ' + (opts.min !== undefined ? opts.min * scale : '') + ' to ' + (opts.max !== undefined ? opts.max * scale : '')); return false; }
+    if ((opts.plo !== undefined && v < opts.plo) || (opts.phi !== undefined && v > opts.phi)) { wrap.classList.add('warn'); inp.setAttribute('data-tip', 'Outside the usual range ' + opts.plo * scale + ' to ' + opts.phi * scale + '; check the value.'); }
+    else inp.setAttribute('data-tip', (opts.min !== undefined || opts.max !== undefined) ? 'Allowed ' + (opts.min !== undefined ? opts.min * scale : '…') + ' to ' + (opts.max !== undefined ? opts.max * scale : '…') + (opts.plo !== undefined ? '; usual ' + opts.plo * scale + ' to ' + opts.phi * scale : '') : '');
     return true;
   };
   inp.addEventListener('change', () => { if (check()) { set(parseFloat(inp.value) / scale); onConfigChanged(opts.section || 'geometry'); } });
@@ -6519,6 +6522,243 @@ function onConfigChanged(section, opts) {
   app.validation = C.validateConfig(app.cfg, app.geom);
   document.dispatchEvent(new CustomEvent('configchange', { detail: { section, opts } }));
 }
+
+// ===== UI: tooltips =============================================================
+// One dictionary for every control and result quantity, rendered by a small
+// custom tooltip (fast, themed, keyboard reachable) instead of the native title.
+
+const TIPS = {
+  // ---- shell ----
+  step1: 'Substrate outline, layer stack, BGA field and the package configuration (bare, lid, stiffener).',
+  step2: 'Die list and properties, bump fields, and the drag-and-drop floorplan.',
+  step3: 'Underfill fillet, lid (plate, foot, adhesive, TIM) or stiffener ring geometry.',
+  step4: 'The cited materials database: edit values, duplicate materials, switch presets.',
+  step5: 'Process stress-free temperatures, reflow sweep, temperature cycling, limits and fatigue constants.',
+  step6: 'Mesh fidelity, run controls, baseline comparison, results, sensitivity, verification and report.',
+  tabFloorplan: 'Top-down floorplan with the warpage or stress overlay, plus the cross-section along the cut line A-A\'.',
+  tabResults: 'All results views: warpage, die stress, bump loading, underfill interface, solder fatigue, 3D, sensitivity, verification, report.',
+  tab3d: 'Exaggerated deformed shape of the package (three.js); needs a full analysis.',
+  theme: 'Cycle the colour theme: automatic (follows the system), light, dark.',
+  helpBtn: 'Every modeling assumption and build decision in plain language.',
+  cancel: 'Stop the running job. The worker is restarted; results already in memory are kept.',
+  limitations: 'Every modeling assumption and build decision in plain language.',
+  // ---- step 1 ----
+  presetPkg: 'Load one of the reference packages from the specification (Section 12). Replaces the current configuration.',
+  saveCfg: 'Download the whole configuration (geometry, materials, process, loads, limits) as a JSON file. Nothing is stored in the browser.',
+  loadCfg: 'Load a configuration JSON file saved by this tool.',
+  cfgName: 'A name for this configuration; used in file names and the report.',
+  genStack: 'Generate a symmetric N-2-N build-up stack from these parameters, then edit the rows below.',
+  genN: 'Build-up layers per side (N in N-2-N).',
+  genDiel: 'Dielectric (ABF) thickness per layer, µm.',
+  genCu: 'Cu thickness of every build-up pattern layer, µm.',
+  genCore: 'Core laminate thickness, µm. 0 generates a coreless stack.',
+  genSR: 'Solder resist thickness on both sides, µm.',
+  genPTH: 'Plated through hole Cu area fraction of the core, %.',
+  genRPlane: 'Residual Cu ratio applied to plane layers.',
+  genRSignal: 'Residual Cu ratio applied to signal layers.',
+  totalT: 'Sum of all row thicknesses. Updates live.',
+  rowType: 'Solder resist, Cu pattern layer, dielectric, or the core laminate. Changing the type resets the row\'s material to a matching default.',
+  rowMat: 'Material of this row (for a Cu layer: the dielectric filling the etched areas).',
+  rowT: 'Row thickness in µm.',
+  rowFrac: 'Cu layers: residual Cu ratio after etching. Dielectrics: via Cu area fraction. Core: PTH Cu area fraction.',
+  rowKind: 'Plane layers use the Voigt (parallel) mixture in-plane; signal layers the mean of Voigt and Reuss.',
+  rowAdd: 'Insert a dielectric row below this one.',
+  rowDel: 'Delete this row.',
+  depop: 'Leave a rectangular region of the BGA field without balls (the measuring zone is unchanged).',
+  depopSx: 'Width of the depopulated region, centred on the package.',
+  depopSy: 'Height of the depopulated region, centred on the package.',
+  pkgBare: 'Die on substrate with underfill only.',
+  pkgLid: 'Single-piece hat lid: plate over the die with TIM1, continuous foot ring bonded with adhesive.',
+  pkgStiff: 'Stiffener ring bonded to the substrate around the die; no plate over the die.',
+  // ---- step 2 ----
+  dieList: 'Click a die to select it; the floorplan highlights it. R rotates, Delete removes the selected die.',
+  rotate: 'Rotate the die by 90° (swaps x and y size and the bump pitches).',
+  duplicate: 'Copy this die next to itself.',
+  deleteDie: 'Remove this die (at least one die must remain).',
+  addDie: 'Add a new 10 × 10 mm die; then edit its size and position.',
+  snapEdges: 'Snap the dragged die to the edges of other dies.',
+  snapCenter: 'Snap the dragged die to the substrate centrelines.',
+  autoSolve: 'After a die is released, run the analysis at the selected fidelity automatically (Draft preview runs while dragging in any case).',
+  dieName: 'Label used in every result view and the report.',
+  dieX: 'Die centre x in package coordinates (origin at the substrate centre). Synchronised with dragging.',
+  dieY: 'Die centre y in package coordinates. Synchronised with dragging.',
+  rot: 'Rotation of the die about z (0 or 90°).',
+  arrayType: 'Full-area bump array, or peripheral rows only (N rows from the edge of the field).',
+  rows: 'Number of bump rows along the perimeter for a peripheral array.',
+  solder: 'Solder alloy of the bumps (package-global). Bundled data are SAC305; other alloys carry placeholders flagged Estimated.',
+  deff: 'Diameter of the cylinder with the same height and volume as the truncated-sphere joint; used for the homogenized layer and the per-bump area.',
+  nbumps: 'Bump count from the die size, keep-out and pitch.',
+  fb: 'Solder area fraction of the homogenized bump layer: π d_eff² / (4 p_x p_y).',
+  // ---- step 3 ----
+  ufMat: 'Capillary underfill filling the bump layer and forming the fillet.',
+  lidMat: 'Lid plate and foot material (Cu default; AlSiC and stainless alternatives).',
+  adhMat: 'Adhesive under the lid foot or stiffener ring.',
+  timMat: 'Thermal interface material between the die backside and the lid; its stiffness sets how strongly the lid loads the die.',
+  stiffMat: 'Stiffener ring material.',
+  stiffOuter: 'Stiffener outer outline; the ring sits inside it.',
+  footH: 'Derived: standoff + max die thickness + TIM BLT − adhesive thickness.',
+  bltDie: 'Derived TIM bond line over this die (thicker for thinner dies).',
+  // ---- step 4 ----
+  matSelect: 'Pick a material to inspect or edit. ● marks materials used by the current configuration.',
+  matDup: 'Create an editable copy of this material (for variants or what-if studies).',
+  matReset: 'Restore every property of this material to the database default.',
+  corePreset: 'Switch the core laminate of the whole stack to this preset.',
+  abfPreset: 'Switch every build-up dielectric (and the Cu-layer fill) to this ABF grade.',
+  matValue: 'Edit the value. The confidence badge becomes User and the material is marked modified.',
+  matConf: 'Datasheet: manufacturer typical value. Literature: peer-reviewed or conference source. Handbook: generic engineering value. Estimated: placeholder without a source. User: edited here.',
+  matRange: 'Datasheet range where the source gives one; used by the sensitivity analysis.',
+  matResetOne: 'Reset this property to its database default.',
+  matTableEdit: 'Edit the temperature table (one temperature, value pair per line).',
+  plotE: 'Modulus versus temperature exactly as the solver uses it; dashed lines mark the Tg values.',
+  plotCTE: 'Instantaneous CTE versus temperature as used for the thermal strain integral F(T).',
+  // ---- step 5 ----
+  TsubBtn: 'Set the substrate stress-free temperature to the solder solidus (217 °C).',
+  TsubBtn2: 'Set the substrate stress-free temperature to the ABF cure temperature (200 °C).',
+  Tmin: 'Cold extreme of the temperature cycle.',
+  Tmax: 'Hot extreme of the temperature cycle.',
+  jeitaHot: 'JEITA ED-7306 Table 1 maximum permissible warpage at elevated temperature for this pitch. Editable; customer limits often differ.',
+  jeitaRT: 'Room-temperature coplanarity reference value from JEITA ED-7306. Editable.',
+  dieStrength: 'Optional. When set, the die stress cards show the margin to this value.',
+  bumpAxialN: 'Optional per-bump axial force threshold used to flag the bump loading maps.',
+  bumpShearN: 'Optional per-bump shear force threshold used to flag the bump loading maps.',
+  CW: 'Syed energy-based life: N_f = 1 / (C_W ΔW). Default 0.00165 1/MPa (Syed 2004 via Amalu et al. 2015); other sources quote 0.0019. Fitted to a different constitutive model and joint geometry.',
+  Cstrain: 'Syed strain-based life: N_f = 1 / (C ε_acc) with the accumulated equivalent inelastic strain per cycle.',
+  K1: 'Darveaux crack initiation: N_0 = K1 ΔW^K2. No default: K1 depends on element size and averaging scheme.',
+  K2: 'Darveaux crack initiation exponent.',
+  K3: 'Darveaux crack growth: da/dN = K3 ΔW^K4. No default: K3 depends on element size and averaging scheme.',
+  K4: 'Darveaux crack growth exponent.',
+  // ---- step 6 ----
+  workers: 'The temperature sweep and the bump submodels are split over this many Web Workers. Each holds its own copy of the model, so memory scales with the count; 1 keeps everything in one worker.',
+  runFull: 'Process stages, as-assembled state at 25 °C, chip-join state, reflow sweep, cycling samples, bump screening and 3D fields, at the selected fidelity.',
+  quickPreview: 'Draft mesh, stages and the 25 °C state only; fast look at the warpage overlay.',
+  pinBaseline: 'Keep the current results as the baseline; later runs show deltas and ratios against it.',
+  clearBaseline: 'Remove the pinned baseline.',
+  meshCheck: 'Rerun the current case at the next finer preset and compare RT warpage, die interior peak stress and worst-bump force.',
+  exportCsv: 'Download all scalar results plus the warpage at every ball site and the per-bump loads as CSV.',
+  report: 'Open a printable report (inputs, assumptions, results, confidence labels, verification, materials with sources); print it to PDF from the browser.',
+  coreStudy: 'Run the 0.4 mm and 0.8 mm core variants of the study preset back to back and compare them.',
+  estCard: 'Placeholder (Estimated) properties the current configuration depends on. Replace them with measured data before trusting absolute numbers.',
+  estEdit: 'Open this material in the Materials step.',
+  solverLog: 'Iterations, residual and preconditioner of every linear solve of the last run.',
+  // ---- results views ----
+  viewWarpage: 'Substrate-bottom warpage per JEITA ED-7306 / JESD22-B112: contour, ball-site values, diagonals, sweep versus temperature.',
+  viewDieStress: 'Maximum principal stress maps on the die backside and active face; interior peaks and comparative corner patches.',
+  viewBumps: 'Per-bump axial and shear forces from the solder-phase stress, at chip join (before underfill) and as assembled.',
+  viewUf: 'Peel and shear tractions along each die perimeter at the sidewall-to-fillet and active-face interfaces.',
+  viewFatigue: 'Screening index over all bumps, and detailed bump submodels with hysteresis loops and life estimates.',
+  view3d: 'Exaggerated deformed shape coloured by displacement or stress, with part visibility toggles.',
+  viewSens: 'Tornado charts: each input moved to the low and high end of its range, effect on four outputs.',
+  viewVerify: 'The verification suite (V1 to V15) with measured values and pass / fail.',
+  viewReport: 'Printable report and CSV export.',
+  tempSelect: 'Evaluation temperature of the displayed state. States between computed samples are interpolated linearly in temperature.',
+  overlay: 'Field drawn on the floorplan: warpage of the substrate bottom or top, die stress, bump forces at chip join or as assembled, or the fatigue screening index.',
+  cutAxis: 'Direction of the cross-section line A-A\' drawn under the floorplan.',
+  cutPos: 'Position of the cut line, mm.',
+  exagg: 'Vertical exaggeration of the cross-section drawing (the package is much wider than it is tall).',
+  fit: 'Zoom the floorplan to the substrate (double-click does the same; wheel zooms, dragging the background pans).',
+  // warpage quantities
+  warpSigned: 'JEITA sign × magnitude. Positive is convex: the package centre is farther from the board than the corners.',
+  warpShape: 'Shape class from the diagonal profiles (dome, bowl, saddle, ring) and |AB_max + AB_min + CD_max + CD_min| / |C| as a sign confidence; below 25 % the sign is marginal.',
+  warpMag: 'Peak-to-valley of the substrate-bottom surface over the ball field after removing the least-squares plane.',
+  warpLimitHot: 'JEITA ED-7306 maximum permissible warpage at elevated temperature for the selected pitch (editable in step 5).',
+  warpLimitRT: 'JEITA ED-7306 room-temperature coplanarity reference for the selected pitch.',
+  warpDiag: 'Largest positive and negative displacement along the diagonal relative to the straight line joining its end points (toward the package top positive); these set the sign.',
+  warpTop: 'Peak-to-valley of the substrate top surface (for completeness; the JEITA value uses the bottom).',
+  relCurv: 'Difference between the fitted curvature of the die backside and of the substrate top under the die; a measure of the bending transmitted through the bump layer.',
+  diagPlot: 'Displacement along the two measuring-zone diagonals relative to their corner-to-corner lines; corners are at the ends.',
+  sweepPlot: 'Signed warpage while heating to the peak; the cooling half mirrors the same states (the formulation is reversible). The grey dashed line is the magnitude; orange ticks mark marginal-sign states; the band is the JEITA limit.',
+  tempPlot: 'Signed warpage at every evaluated state, with the baseline when one is pinned.',
+  // die stress
+  faceTop: 'Die backside (top surface): where the bending-induced tensile stress is largest at room temperature.',
+  faceBottom: 'Active face (bottom surface, bump side).',
+  peakNodal: 'Largest maximum principal stress over the face excluding a 0.5 mm edge band, from Gauss-point stresses extrapolated to the nodes and averaged within the die. Moderate confidence.',
+  peakGauss: 'The same peak evaluated directly at the Gauss points (no extrapolation); the two differ for steep gradients.',
+  peakAll: 'Gauss-point peak over the whole face including the singular edge region; for information only.',
+  cornerPatch: 'Maximum principal stress averaged over a fixed 100 µm × 100 µm patch at the corner or mid-edge. Singular location: compare designs, do not read as a strength.',
+  margin: 'Die strength (step 5) minus the interior peak.',
+  // bumps
+  stateCpi: 'End of chip-join cooldown at 25 °C, before underfill: the bumps alone carry the mismatch. Elastic upper bound (real joints relax by creep).',
+  stateAsm: 'As-assembled state at the selected temperature.',
+  compV: 'Shear force per bump: sqrt(τxz² + τyz²) × A_bump.',
+  compN: 'Axial force per bump: σzz × A_bump (tension positive).',
+  worstV: 'Largest shear force over all bumps of this die.',
+  worstN: 'Largest-magnitude axial force over all bumps of this die.',
+  abump: 'π d_eff² / 4, the area used to convert the solder-phase stress to a force.',
+  worstTable: 'The ten most loaded bumps by combined axial and shear force.',
+  // underfill
+  ufSide: 'Traction on the die sidewall-to-fillet interface, from underfill-side stresses averaged over 50 µm × 50 µm patches stepped along the perimeter.',
+  ufFace: 'Traction on the die active-face-to-underfill interface just inside the die edge.',
+  peel: 'Normal traction, tension positive (tends to open the interface).',
+  shearT: 'In-plane traction magnitude (tends to slide the interface).',
+  // fatigue
+  dWproxy: 'Inelastic work density of the stabilized cycle from the Anand model integrated at the bump site under the homogenized-layer strain history. Ranks locations; not a life.',
+  dEproxy: 'Equivalent inelastic strain range of the stabilized cycle at the site.',
+  stab: 'Relative change of ΔW between the last two cycles; large values mean the cycle has not stabilized.',
+  selectSite: 'Include this bump in the submodel run.',
+  subRes: 'Submodel voxel grid (in-plane × through-thickness). Finer grids resolve the joint better and take longer.',
+  runSub: 'Build and run one-pitch Anand submodels for the selected sites, split over the parallel workers.',
+  subDW: 'Inelastic work density of the last cycle, volume-averaged over a 25 µm layer at the die-side and substrate-side interfaces; the larger one is used.',
+  subDE: 'Equivalent inelastic strain range averaged the same way.',
+  subStab: 'Relative change of ΔW between the last two cycles; above 5 % run more cycles.',
+  lifeSyedE: 'N_f = 1 / (C_W ΔW). Order-of-magnitude; best used as a ratio against the baseline.',
+  lifeSyedS: 'N_f = 1 / (C ε_acc) with the accumulated inelastic strain per cycle.',
+  lifeDarv: 'N_f = N_0 + a / (da/dN) with a the joint diameter at the critical interface; needs K1 to K4 calibrated to this averaging scheme (step 5).',
+  lifeRatio: 'Life divided by the baseline\'s life for the first submodel; the most trustworthy fatigue output.',
+  subSteps: 'Time steps, cutbacks on the inelastic strain increment limit, and Newton iterations per step.',
+  hysteresis: 'Shear stress versus shear strain (radial direction) volume-averaged in the interface layers through the cycles.',
+  // 3D
+  exag3d: 'Multiplies the displacements before drawing.',
+  color3d: 'Colour the surface by out-of-plane displacement, by the nodal max principal stress of each part, or by part.',
+  partToggle: 'Show or hide this part.',
+  // sensitivity
+  sensInput: 'Input moved to the low and high end of its range in the tornado run. "est." marks Estimated database values.',
+  sensRun: 'Runs 2 × (inputs) + 1 Draft analyses on the worker pool; results are cached by configuration hash.',
+  tornado: 'Blue: input at its low end; orange: at its high end. Bar length is the change of the output from the base value.',
+  // verification
+  verifyFast: 'Run the quick tests (unit checks, element tests, plate and laminate benchmarks, Anand, JEITA, round trip).',
+  verifyAll: 'Also run the slow tests (submodel consistency, symmetry, physical sanity, mesh convergence Standard vs Fine, solver integrity, timing benchmark).',
+  // materials badges in tables
+  badgeEst: 'Estimated: no published source; placeholder to replace with measured data.',
+};
+
+/** Help icon bound to a tooltip key (or free text). */
+function helpTip(keyOrText) {
+  const text = TIPS[keyOrText] || HELP[keyOrText] || keyOrText;
+  if (!text) return null;
+  return h('span', { class: 'help', 'data-tip': text, tabindex: '0', 'aria-label': text }, '?');
+}
+/** Attribute bag that attaches a tooltip to any element: h('button', tip('runFull', {onclick}), ...). */
+function tip(key, attrs) {
+  const text = TIPS[key] || HELP[key] || key;
+  return Object.assign({ 'data-tip': text }, attrs || {});
+}
+/** kv-grid label with a help icon. */
+function kl(text, key) { return h('span', { class: 'k' }, text, key ? helpTip(key) : null); }
+
+// ---- the tooltip element ----
+(function setupTooltips() {
+  let box = null, current = null, timer = null;
+  const ensure = () => { if (!box) { box = h('div', { id: 'tooltip', role: 'tooltip' }); document.body.appendChild(box); } return box; };
+  const show = el => {
+    const text = el.getAttribute('data-tip'); if (!text) return;
+    const b = ensure(); b.textContent = text; b.style.display = 'block';
+    const r = el.getBoundingClientRect(), bw = b.offsetWidth, bh = b.offsetHeight;
+    let x = Math.min(Math.max(8, r.left + r.width / 2 - bw / 2), window.innerWidth - bw - 8);
+    let y = r.bottom + 8;
+    if (y + bh > window.innerHeight - 8) y = r.top - bh - 8;
+    b.style.left = x + 'px'; b.style.top = Math.max(4, y) + 'px';
+    current = el;
+  };
+  const hide = () => { if (box) box.style.display = 'none'; current = null; if (timer) { clearTimeout(timer); timer = null; } };
+  const target = e => e.target && e.target.closest ? e.target.closest('[data-tip]') : null;
+  document.addEventListener('mouseover', e => { const el = target(e); if (!el || el === current) return; if (timer) clearTimeout(timer); timer = setTimeout(() => show(el), 180); });
+  document.addEventListener('mouseout', e => { const el = target(e); if (el && (!e.relatedTarget || !el.contains(e.relatedTarget))) hide(); });
+  document.addEventListener('focusin', e => { const el = target(e); if (el) show(el); });
+  document.addEventListener('focusout', hide);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') hide(); });
+  window.addEventListener('scroll', hide, true);
+  document.addEventListener('pointerdown', e => { if (!target(e)) hide(); });
+})();
 
 // ===== UI: canvas plotting, colormaps, contour maps ===========================
 
@@ -7025,21 +7265,21 @@ function materialOptions(category) {
 function renderPackagePanel(root) {
   const cfg = app.cfg;
   root.append(h('h2', null, '1. Package'));
-  root.append(h('div', { class: 'row' }, h('label', null, 'Preset package '), h('select', { onchange: e => { if (e.target.value) loadPreset(e.target.value); e.target.value = ''; } }, h('option', { value: '' }, 'Load a preset...'), ...C.PRESET_LIST.map(p => h('option', { value: p.id }, p.label)))));
-  root.append(h('div', { class: 'row' }, h('button', { onclick: saveConfigFile }, 'Save configuration (JSON)'), h('button', { onclick: loadConfigFile }, 'Load configuration'), h('input', { type: 'text', value: cfg.name, placeholder: 'configuration name', style: 'flex:1', onchange: e => { cfg.name = e.target.value; } })));
+  root.append(h('div', { class: 'row' }, h('label', null, 'Preset package '), h('select', tip('presetPkg', { onchange: e => { if (e.target.value) loadPreset(e.target.value); e.target.value = ''; } }), h('option', { value: '' }, 'Load a preset...'), ...C.PRESET_LIST.map(p => h('option', { value: p.id }, p.label)))));
+  root.append(h('div', { class: 'row' }, h('button', tip('saveCfg', { onclick: saveConfigFile }), 'Save configuration (JSON)'), h('button', tip('loadCfg', { onclick: loadConfigFile }), 'Load configuration'), h('input', tip('cfgName', { type: 'text', value: cfg.name, placeholder: 'configuration name', style: 'flex:1', onchange: e => { cfg.name = e.target.value; } }))));
   root.append(h('h3', null, 'Substrate outline'));
   root.append(numField('Size x', () => cfg.substrate.sx, v => { cfg.substrate.sx = v; }, { unit: 'mm', min: 1, max: 150, plo: 5, phi: 110, help: 'sx' }));
   root.append(numField('Size y', () => cfg.substrate.sy, v => { cfg.substrate.sy = v; }, { unit: 'mm', min: 1, max: 150, plo: 5, phi: 110, help: 'sy' }));
   root.append(h('h3', null, 'Layer stack (top to bottom)'));
   const gen = { n: 6, dielT: 25, cuT: 15, coreT: 800, srT: 20, pth: 2, rPlane: 0.75, rSignal: 0.45 };
   const genRow = h('div', { class: 'card' }, h('h4', null, 'Generate N-2-N stack'),
-    h('div', { class: 'row small' }, 'N ', h('input', { type: 'number', value: 6, style: 'width:50px', onchange: e => { gen.n = +e.target.value; } }), ' dielectric µm ', h('input', { type: 'number', value: 25, style: 'width:60px', onchange: e => { gen.dielT = +e.target.value; } }), ' Cu µm ', h('input', { type: 'number', value: 15, style: 'width:55px', onchange: e => { gen.cuT = +e.target.value; } })),
-    h('div', { class: 'row small' }, 'core µm ', h('input', { type: 'number', value: 800, style: 'width:60px', onchange: e => { gen.coreT = +e.target.value; } }), ' SR µm ', h('input', { type: 'number', value: 20, style: 'width:55px', onchange: e => { gen.srT = +e.target.value; } }), ' PTH % ', h('input', { type: 'number', value: 2, style: 'width:50px', onchange: e => { gen.pth = +e.target.value; } }), ' plane r ', h('input', { type: 'number', value: 0.75, step: 0.05, style: 'width:60px', onchange: e => { gen.rPlane = +e.target.value; } }), ' signal r ', h('input', { type: 'number', value: 0.45, step: 0.05, style: 'width:60px', onchange: e => { gen.rSignal = +e.target.value; } })),
-    h('div', { class: 'row' }, h('button', { onclick: () => { cfg.substrate.layers = C.generateStack({ n: gen.n, dielT: gen.dielT / 1000, cuT: gen.cuT / 1000, coreT: gen.coreT / 1000, srT: gen.srT / 1000, pth: gen.pth / 100, rPlane: gen.rPlane, rSignal: gen.rSignal, diel: cfg.substrate.layers.find(r => r.type === 'diel')?.mat || 'abf_gl', core: cfg.substrate.layers.find(r => r.type === 'core')?.mat || 'mcl_e_795g', sr: cfg.substrate.layers.find(r => r.type === 'sr')?.mat || 'psr4000' }); onConfigChanged('geometry', { released: true }); renderContext(); } }, 'Generate stack'), h('span', { class: 'muted small' }, 'then edit rows below')));
+    h('div', { class: 'row small' }, 'N ', h('input', tip('genN', { type: 'number', value: 6, style: 'width:50px', onchange: e => { gen.n = +e.target.value; } })), ' dielectric µm ', h('input', tip('genDiel', { type: 'number', value: 25, style: 'width:60px', onchange: e => { gen.dielT = +e.target.value; } })), ' Cu µm ', h('input', tip('genCu', { type: 'number', value: 15, style: 'width:55px', onchange: e => { gen.cuT = +e.target.value; } }))),
+    h('div', { class: 'row small' }, 'core µm ', h('input', tip('genCore', { type: 'number', value: 800, style: 'width:60px', onchange: e => { gen.coreT = +e.target.value; } })), ' SR µm ', h('input', tip('genSR', { type: 'number', value: 20, style: 'width:55px', onchange: e => { gen.srT = +e.target.value; } })), ' PTH % ', h('input', tip('genPTH', { type: 'number', value: 2, style: 'width:50px', onchange: e => { gen.pth = +e.target.value; } })), ' plane r ', h('input', tip('genRPlane', { type: 'number', value: 0.75, step: 0.05, style: 'width:60px', onchange: e => { gen.rPlane = +e.target.value; } })), ' signal r ', h('input', tip('genRSignal', { type: 'number', value: 0.45, step: 0.05, style: 'width:60px', onchange: e => { gen.rSignal = +e.target.value; } }))),
+    h('div', { class: 'row' }, h('button', tip('genStack', { onclick: () => { cfg.substrate.layers = C.generateStack({ n: gen.n, dielT: gen.dielT / 1000, cuT: gen.cuT / 1000, coreT: gen.coreT / 1000, srT: gen.srT / 1000, pth: gen.pth / 100, rPlane: gen.rPlane, rSignal: gen.rSignal, diel: cfg.substrate.layers.find(r => r.type === 'diel')?.mat || 'abf_gl', core: cfg.substrate.layers.find(r => r.type === 'core')?.mat || 'mcl_e_795g', sr: cfg.substrate.layers.find(r => r.type === 'sr')?.mat || 'psr4000' }); onConfigChanged('geometry', { released: true }); renderContext(); } }), 'Generate stack'), h('span', { class: 'muted small' }, 'then edit rows below')));
   root.append(genRow);
   const total = cfg.substrate.layers.reduce((s, r) => s + r.t, 0);
-  root.append(h('div', { class: 'row' }, h('b', null, 'Total substrate thickness: ' + fmt(total * 1000, 0) + ' µm'), help('residual')));
-  const tbl = h('table', { class: 'stack-table' }, h('tr', null, h('th', null, 'Row'), h('th', null, 'Type'), h('th', null, 'Material'), h('th', null, 'Thickness µm'), h('th', null, 'Cu ratio / via / PTH'), h('th', null, 'Kind'), h('th')));
+  root.append(h('div', { class: 'row' }, h('b', null, 'Total substrate thickness: ' + fmt(total * 1000, 0) + ' µm'), helpTip('totalT')));
+  const tbl = h('table', { class: 'stack-table' }, h('tr', null, h('th', null, 'Row'), h('th', null, 'Type', helpTip('rowType')), h('th', null, 'Material', helpTip('rowMat')), h('th', null, 'Thickness µm', helpTip('rowT')), h('th', null, 'Cu ratio / via / PTH', helpTip('rowFrac')), h('th', null, 'Kind', helpTip('rowKind')), h('th')));
   cfg.substrate.layers.forEach((r, i) => {
     const typeSel = h('select', { onchange: e => { changeRowType(r, e.target.value); onConfigChanged('geometry', { released: true }); renderContext(); } }, ...['sr', 'cu', 'diel', 'core'].map(t => h('option', { value: t, selected: r.type === t ? '' : null }, { sr: 'solder resist', cu: 'Cu pattern', diel: 'dielectric', core: 'core' }[t])));
     const matCat = r.type === 'sr' ? 'resist' : (r.type === 'core' ? 'core' : 'buildup');
@@ -7047,11 +7287,11 @@ function renderPackagePanel(root) {
     const matSel = h('select', { onchange: e => { r[matKey] = e.target.value; onConfigChanged('materials'); } }, ...materialOptions(matCat).map(o => h('option', { value: o.value, selected: r[matKey] === o.value ? '' : null }, o.label)));
     const tIn = h('input', { type: 'number', step: 1, value: fmtInput(r.t * 1000), onchange: e => { r.t = +e.target.value / 1000; onConfigChanged('geometry', { released: true }); } });
     let frac = h('span');
-    if (r.type === 'cu') frac = h('input', { type: 'number', step: 0.05, min: 0, max: 1, value: r.r, title: HELP.residual, onchange: e => { r.r = Math.min(1, Math.max(0, +e.target.value)); onConfigChanged('materials'); } });
-    if (r.type === 'diel') frac = h('input', { type: 'number', step: 0.01, min: 0, max: 1, value: r.via || 0, title: HELP.via, onchange: e => { r.via = Math.min(1, Math.max(0, +e.target.value)); onConfigChanged('materials'); } });
-    if (r.type === 'core') frac = h('input', { type: 'number', step: 0.01, min: 0, max: 1, value: r.pth || 0, title: HELP.pth, onchange: e => { r.pth = Math.min(1, Math.max(0, +e.target.value)); onConfigChanged('materials'); } });
-    const kind = r.type === 'cu' ? h('select', { title: HELP.kind, onchange: e => { r.kind = e.target.value; onConfigChanged('materials'); } }, h('option', { value: 'plane', selected: r.kind === 'plane' ? '' : null }, 'plane'), h('option', { value: 'signal', selected: r.kind === 'signal' ? '' : null }, 'signal')) : h('span');
-    const btns = h('span', null, h('button', { class: 'small', title: 'insert row below', onclick: () => { cfg.substrate.layers.splice(i + 1, 0, { type: 'diel', t: 0.025, mat: 'abf_gl', via: 0 }); onConfigChanged('geometry', { released: true }); renderContext(); } }, '+'), h('button', { class: 'small', title: 'delete row', onclick: () => { cfg.substrate.layers.splice(i, 1); onConfigChanged('geometry', { released: true }); renderContext(); } }, '−'));
+    if (r.type === 'cu') frac = h('input', { type: 'number', step: 0.05, min: 0, max: 1, value: r.r, 'data-tip': HELP.residual, onchange: e => { r.r = Math.min(1, Math.max(0, +e.target.value)); onConfigChanged('materials'); } });
+    if (r.type === 'diel') frac = h('input', { type: 'number', step: 0.01, min: 0, max: 1, value: r.via || 0, 'data-tip': HELP.via, onchange: e => { r.via = Math.min(1, Math.max(0, +e.target.value)); onConfigChanged('materials'); } });
+    if (r.type === 'core') frac = h('input', { type: 'number', step: 0.01, min: 0, max: 1, value: r.pth || 0, 'data-tip': HELP.pth, onchange: e => { r.pth = Math.min(1, Math.max(0, +e.target.value)); onConfigChanged('materials'); } });
+    const kind = r.type === 'cu' ? h('select', { 'data-tip': HELP.kind, onchange: e => { r.kind = e.target.value; onConfigChanged('materials'); } }, h('option', { value: 'plane', selected: r.kind === 'plane' ? '' : null }, 'plane'), h('option', { value: 'signal', selected: r.kind === 'signal' ? '' : null }, 'signal')) : h('span');
+    const btns = h('span', null, h('button', { class: 'small', 'data-tip': TIPS.rowAdd, onclick: () => { cfg.substrate.layers.splice(i + 1, 0, { type: 'diel', t: 0.025, mat: 'abf_gl', via: 0 }); onConfigChanged('geometry', { released: true }); renderContext(); } }, '+'), h('button', { class: 'small', 'data-tip': TIPS.rowDel, onclick: () => { cfg.substrate.layers.splice(i, 1); onConfigChanged('geometry', { released: true }); renderContext(); } }, '−'));
     tbl.append(h('tr', null, h('td', null, r.type === 'cu' ? (r.name || 'L' + (i + 1)) : String(i + 1)), h('td', null, typeSel), h('td', null, matSel), h('td', null, tIn), h('td', null, frac), h('td', null, kind), h('td', null, btns)));
   });
   root.append(tbl);
@@ -7059,10 +7299,10 @@ function renderPackagePanel(root) {
   root.append(selectField('Ball pitch', () => cfg.bga.pitch, v => { cfg.bga.pitch = +v; const j = C.JEITA_TABLE.find(r => Math.abs(r.pitch - +v) < 1e-6); if (j) cfg.bga.ballH = j.ballH; renderContext(); }, [0.4, 0.5, 0.65, 0.8, 1.0, 1.27].map(p => ({ value: String(p), label: p + ' mm' })), { help: 'pitch', unit: 'mm' }));
   root.append(numField('Ball height', () => cfg.bga.ballH, v => { cfg.bga.ballH = v; }, { unit: 'mm', min: 0.05, max: 1.5, help: 'ballH' }));
   root.append(numField('Field inset from edge', () => cfg.bga.inset, v => { cfg.bga.inset = v; }, { unit: 'mm', min: 0, max: 20, plo: 0.5, phi: 5, help: 'inset' }));
-  root.append(checkField('Depopulated central region', () => cfg.bga.depop.on, v => { cfg.bga.depop.on = v; renderContext(); }));
-  if (cfg.bga.depop.on) { root.append(numField('Depop size x', () => cfg.bga.depop.sx, v => { cfg.bga.depop.sx = v; }, { unit: 'mm', min: 0 })); root.append(numField('Depop size y', () => cfg.bga.depop.sy, v => { cfg.bga.depop.sy = v; }, { unit: 'mm', min: 0 })); }
+  root.append(checkField('Depopulated central region', () => cfg.bga.depop.on, v => { cfg.bga.depop.on = v; renderContext(); }, { help: 'depop' }));
+  if (cfg.bga.depop.on) { root.append(numField('Depop size x', () => cfg.bga.depop.sx, v => { cfg.bga.depop.sx = v; }, { unit: 'mm', min: 0, help: 'depopSx' })); root.append(numField('Depop size y', () => cfg.bga.depop.sy, v => { cfg.bga.depop.sy = v; }, { unit: 'mm', min: 0, help: 'depopSy' })); }
   root.append(h('h3', null, 'Configuration'));
-  const radios = h('div', { class: 'row' }, ...[['bare', 'Bare die'], ['lid', 'Lid (hat lid with foot ring)'], ['stiffener', 'Stiffener ring']].map(([v, l]) => h('label', null, h('input', { type: 'radio', name: 'pkgtype', value: v, checked: cfg.packageType === v ? '' : null, onchange: () => { cfg.packageType = v; onConfigChanged('geometry', { released: true }); renderContext(); } }), ' ' + l)));
+  const radios = h('div', { class: 'row' }, ...[['bare', 'Bare die', 'pkgBare'], ['lid', 'Lid (hat lid with foot ring)', 'pkgLid'], ['stiffener', 'Stiffener ring', 'pkgStiff']].map(([v, l, k]) => h('label', tip(k), h('input', { type: 'radio', name: 'pkgtype', value: v, checked: cfg.packageType === v ? '' : null, onchange: () => { cfg.packageType = v; onConfigChanged('geometry', { released: true }); renderContext(); } }), ' ' + l)));
   root.append(radios);
   renderValidation(root);
 }
@@ -7089,26 +7329,26 @@ function renderDiesPanel(root) {
   const cfg = app.cfg;
   root.append(h('h2', null, '2. Dies and floorplan'));
   root.append(h('div', { class: 'muted small' }, 'Drag dies on the floorplan, press R to rotate, Delete to remove. Double-click the floorplan to fit. Scroll to zoom, drag the background to pan.'));
-  const list = h('div', { class: 'die-list' });
-  cfg.dies.forEach((d, i) => list.append(h('div', { class: 'die-row' + (i === app.selectedDie ? ' sel' : '') }, h('span', { style: 'flex:1;cursor:pointer', onclick: () => { app.selectedDie = i; renderContext(); floorplan.draw(); } }, d.name + ' ' + d.sx + '×' + d.sy + '×' + d.t + ' mm at (' + d.x + ', ' + d.y + ')' + (d.rot ? ' rot 90°' : '')), h('button', { class: 'small', onclick: () => rotateDie(i) }, 'Rotate'), h('button', { class: 'small', onclick: () => duplicateDie(i) }, 'Duplicate'), h('button', { class: 'small', onclick: () => deleteDie(i) }, 'Delete'))));
-  root.append(list, h('div', { class: 'row' }, h('button', { onclick: addDie }, '+ Add die')));
+  const list = h('div', tip('dieList', { class: 'die-list' }));
+  cfg.dies.forEach((d, i) => list.append(h('div', { class: 'die-row' + (i === app.selectedDie ? ' sel' : '') }, h('span', { style: 'flex:1;cursor:pointer', onclick: () => { app.selectedDie = i; renderContext(); floorplan.draw(); } }, d.name + ' ' + d.sx + '×' + d.sy + '×' + d.t + ' mm at (' + d.x + ', ' + d.y + ')' + (d.rot ? ' rot 90°' : '')), h('button', tip('rotate', { class: 'small', onclick: () => rotateDie(i) }), 'Rotate'), h('button', tip('duplicate', { class: 'small', onclick: () => duplicateDie(i) }), 'Duplicate'), h('button', tip('deleteDie', { class: 'small', onclick: () => deleteDie(i) }), 'Delete'))));
+  root.append(list, h('div', { class: 'row' }, h('button', tip('addDie', { onclick: addDie }), '+ Add die')));
   root.append(h('h3', null, 'Floorplan snapping'));
   root.append(h('div', { class: 'field' }, h('label', null, 'Grid snap', help('snap')), h('select', { onchange: e => { floorplan.snap = +e.target.value; } }, ...[0.01, 0.05, 0.1, 0.25, 0.5, 1].map(s => h('option', { value: s, selected: floorplan.snap === s ? '' : null }, s + ' mm'))), h('span')));
-  root.append(h('div', { class: 'row small' }, h('label', null, h('input', { type: 'checkbox', checked: floorplan.snapEdges ? '' : null, onchange: e => { floorplan.snapEdges = e.target.checked; } }), ' snap to other dies\' edges'), h('label', null, h('input', { type: 'checkbox', checked: floorplan.snapCenter ? '' : null, onchange: e => { floorplan.snapCenter = e.target.checked; } }), ' snap to substrate centerlines'), h('label', null, h('input', { type: 'checkbox', checked: app.autoSolve ? '' : null, onchange: e => { app.autoSolve = e.target.checked; } }), ' auto-solve on release')));
+  root.append(h('div', { class: 'row small' }, h('label', tip('snapEdges'), h('input', { type: 'checkbox', checked: floorplan.snapEdges ? '' : null, onchange: e => { floorplan.snapEdges = e.target.checked; } }), ' snap to other dies\' edges'), h('label', tip('snapCenter'), h('input', { type: 'checkbox', checked: floorplan.snapCenter ? '' : null, onchange: e => { floorplan.snapCenter = e.target.checked; } }), ' snap to substrate centerlines'), h('label', tip('autoSolve'), h('input', { type: 'checkbox', checked: app.autoSolve ? '' : null, onchange: e => { app.autoSolve = e.target.checked; } }), ' auto-solve on release')));
   const d = cfg.dies[app.selectedDie];
   if (!d) return;
   root.append(h('h3', null, 'Selected die: ' + d.name));
-  root.append(h('div', { class: 'field' }, h('label', null, 'Name'), h('input', { type: 'text', value: d.name, onchange: e => { d.name = e.target.value; onConfigChanged('geometry'); } }), h('span')));
-  root.append(numField('Center x', () => d.x, v => { d.x = v; }, { unit: 'mm', min: -100, max: 100 }));
-  root.append(numField('Center y', () => d.y, v => { d.y = v; }, { unit: 'mm', min: -100, max: 100 }));
+  root.append(h('div', { class: 'field' }, h('label', null, 'Name', helpTip('dieName')), h('input', { type: 'text', value: d.name, onchange: e => { d.name = e.target.value; onConfigChanged('geometry'); } }), h('span')));
+  root.append(numField('Center x', () => d.x, v => { d.x = v; }, { unit: 'mm', min: -100, max: 100, help: 'dieX' }));
+  root.append(numField('Center y', () => d.y, v => { d.y = v; }, { unit: 'mm', min: -100, max: 100, help: 'dieY' }));
   root.append(numField('Size x', () => d.sx, v => { d.sx = v; }, { unit: 'mm', min: 0.5, max: 60, plo: 2, phi: 35, help: 'dieSize' }));
   root.append(numField('Size y', () => d.sy, v => { d.sy = v; }, { unit: 'mm', min: 0.5, max: 60, plo: 2, phi: 35, help: 'dieSize' }));
   root.append(numField('Thickness', () => d.t, v => { d.t = v; }, { unit: 'mm', min: 0.05, max: 1.5, plo: 0.1, phi: 0.8, help: 'dieT' }));
-  root.append(selectField('Rotation', () => d.rot, v => { d.rot = +v; }, [{ value: '0', label: '0°' }, { value: '90', label: '90°' }]));
+  root.append(selectField('Rotation', () => d.rot, v => { d.rot = +v; }, [{ value: '0', label: '0°' }, { value: '90', label: '90°' }], { help: 'rot' }));
   root.append(selectField('Si elastic model', () => d.si, v => { d.si = v; }, [{ value: 'aniso', label: 'anisotropic cubic (100), edges <110>' }, { value: 'iso', label: 'isotropic 130 GPa, ν 0.28' }], { help: 'siModel', section: 'materials' }));
   root.append(h('h4', null, 'Bump field'));
-  root.append(selectField('Array type', () => d.bump.type, v => { d.bump.type = v; renderContext(); }, [{ value: 'full', label: 'full area' }, { value: 'peripheral', label: 'peripheral rows' }]));
-  if (d.bump.type === 'peripheral') root.append(numField('Peripheral rows', () => d.bump.rows, v => { d.bump.rows = Math.round(v); }, { min: 1, max: 50, step: 1 }));
+  root.append(selectField('Array type', () => d.bump.type, v => { d.bump.type = v; renderContext(); }, [{ value: 'full', label: 'full area' }, { value: 'peripheral', label: 'peripheral rows' }], { help: 'arrayType' }));
+  if (d.bump.type === 'peripheral') root.append(numField('Peripheral rows', () => d.bump.rows, v => { d.bump.rows = Math.round(v); }, { min: 1, max: 50, step: 1, help: 'rows' }));
   root.append(numField('Pitch x', () => d.bump.px, v => { d.bump.px = v; }, { unit: 'µm', scale: 1000, min: 0.02, max: 2, plo: 0.08, phi: 0.5, help: 'bumpPitch' }));
   root.append(numField('Pitch y', () => d.bump.py, v => { d.bump.py = v; }, { unit: 'µm', scale: 1000, min: 0.02, max: 2, plo: 0.08, phi: 0.5, help: 'bumpPitch' }));
   root.append(numField('Edge keep-out', () => d.bump.keepout, v => { d.bump.keepout = v; }, { unit: 'µm', scale: 1000, min: 0, max: 5, help: 'keepout' }));
@@ -7117,9 +7357,9 @@ function renderDiesPanel(root) {
   root.append(numField('Maximum bump diameter', () => d.bump.dmax, v => { d.bump.dmax = v; }, { unit: 'µm', scale: 1000, min: 0.005, max: 1.5, help: 'dmax' }));
   root.append(h('h4', null, 'Package-global bump technology'));
   root.append(numField('Standoff height', () => cfg.bump.standoff, v => { cfg.bump.standoff = v; }, { unit: 'µm', scale: 1000, min: 0.02, max: 0.2, help: 'standoff' }));
-  root.append(selectField('Solder alloy', () => cfg.bump.solder, v => { cfg.bump.solder = v; if (v !== 'sac305') toast('Bundled data are SAC305 only; the selected alloy carries placeholder values flagged Estimated. Enter measured properties in the Materials step.', 'warn', 9000); }, materialOptions('solder'), { section: 'materials' }));
+  root.append(selectField('Solder alloy', () => cfg.bump.solder, v => { cfg.bump.solder = v; if (v !== 'sac305') toast('Bundled data are SAC305 only; the selected alloy carries placeholder values flagged Estimated. Enter measured properties in the Materials step.', 'warn', 9000); }, materialOptions('solder'), { section: 'materials', help: 'solder' }));
   const gd = app.geom && app.geom.dies[app.selectedDie];
-  if (gd) root.append(h('div', { class: 'kv' }, h('span', { class: 'k' }, 'd_eff (equal-volume cylinder)'), h('span', null, fmt(gd.deff * 1000, 1) + ' µm'), h('span', { class: 'k' }, 'bumps'), h('span', null, gd.nbx + ' × ' + gd.nby + (gd.peripheral ? ' peripheral' : '') + ' = ' + C.dieBumpSites(gd).x.length), h('span', { class: 'k' }, 'solder area fraction f_b'), h('span', null, fmt(gd.density, 3)), h('span', { class: 'k' }, 'joint volume'), h('span', null, fmtE(gd.profile.volume, 3) + ' mm³')));
+  if (gd) root.append(h('div', { class: 'kv' }, kl('d_eff (equal-volume cylinder)', 'deff'), h('span', null, fmt(gd.deff * 1000, 1) + ' µm'), kl('bumps', 'nbumps'), h('span', null, gd.nbx + ' × ' + gd.nby + (gd.peripheral ? ' peripheral' : '') + ' = ' + C.dieBumpSites(gd).x.length), kl('solder area fraction f_b', 'fb'), h('span', null, fmt(gd.density, 3)), h('span', { class: 'k' }, 'joint volume'), h('span', null, fmtE(gd.profile.volume, 3) + ' mm³')));
   renderValidation(root);
 }
 
@@ -7128,33 +7368,33 @@ function renderConstructPanel(root) {
   const cfg = app.cfg;
   root.append(h('h2', null, '3. Underfill, lid, stiffener'));
   root.append(h('h3', null, 'Capillary underfill'));
-  root.append(selectField('Material', () => cfg.underfill.mat, v => { cfg.underfill.mat = v; }, materialOptions('underfill'), { section: 'materials' }));
+  root.append(selectField('Material', () => cfg.underfill.mat, v => { cfg.underfill.mat = v; }, materialOptions('underfill'), { section: 'materials', help: 'ufMat' }));
   root.append(numField('Fillet width W_f', () => cfg.underfill.Wf, v => { cfg.underfill.Wf = v; }, { unit: 'mm', min: 0.05, max: 5, plo: 0.3, phi: 2, help: 'Wf' }));
   root.append(numField('Fillet height H_f (fraction of die thickness)', () => cfg.underfill.Hf, v => { cfg.underfill.Hf = v; }, { min: 0.05, max: 1, help: 'Hf' }));
   root.append(numField('Effective stress-free temperature', () => cfg.process.Tuf, v => { cfg.process.Tuf = v; }, { unit: '°C', min: 0, max: 300, help: 'Tuf', section: 'process' }));
   if (cfg.packageType === 'lid') {
     const L = cfg.lid;
     root.append(h('h3', null, 'Hat lid'));
-    root.append(selectField('Lid material', () => L.mat, v => { L.mat = v; }, materialOptions('metal'), { section: 'materials' }));
+    root.append(selectField('Lid material', () => L.mat, v => { L.mat = v; }, materialOptions('metal'), { section: 'materials', help: 'lidMat' }));
     root.append(numField('Outer size x', () => L.ox, v => { L.ox = v; }, { unit: 'mm', min: 1, max: 150, help: 'lidOuter' }));
     root.append(numField('Outer size y', () => L.oy, v => { L.oy = v; }, { unit: 'mm', min: 1, max: 150, help: 'lidOuter' }));
     root.append(numField('Plate thickness', () => L.tPlate, v => { L.tPlate = v; }, { unit: 'mm', min: 0.1, max: 5, help: 'tPlate' }));
     root.append(numField('Foot width', () => L.footW, v => { L.footW = v; }, { unit: 'mm', min: 0.2, max: 20, help: 'footW' }));
-    root.append(selectField('Adhesive material', () => L.adhMat, v => { L.adhMat = v; }, materialOptions(['adhesive', 'tim']), { section: 'materials' }));
+    root.append(selectField('Adhesive material', () => L.adhMat, v => { L.adhMat = v; }, materialOptions(['adhesive', 'tim']), { section: 'materials', help: 'adhMat' }));
     root.append(numField('Adhesive thickness', () => L.adhT, v => { L.adhT = v; }, { unit: 'µm', scale: 1000, min: 0.005, max: 1, help: 'adhT' }));
-    root.append(selectField('TIM1 material', () => L.timMat, v => { L.timMat = v; }, materialOptions(['tim', 'adhesive']), { section: 'materials' }));
+    root.append(selectField('TIM1 material', () => L.timMat, v => { L.timMat = v; }, materialOptions(['tim', 'adhesive']), { section: 'materials', help: 'timMat' }));
     root.append(numField('TIM1 bond line over thickest die', () => L.blt, v => { L.blt = v; }, { unit: 'µm', scale: 1000, min: 0.005, max: 1, help: 'blt' }));
     const g = app.geom;
-    if (g && g.lid) root.append(h('div', { class: 'kv' }, h('span', { class: 'k' }, 'Derived foot height'), h('span', null, fmt(g.lid.footH * 1000, 0) + ' µm (standoff + max die thickness + BLT − adhesive)'), ...g.dies.flatMap((d, i) => [h('span', { class: 'k' }, 'TIM BLT over ' + d.name), h('span', null, fmt(g.lid.blt[i] * 1000, 0) + ' µm')])));
+    if (g && g.lid) root.append(h('div', { class: 'kv' }, kl('Derived foot height', 'footH'), h('span', null, fmt(g.lid.footH * 1000, 0) + ' µm (standoff + max die thickness + BLT − adhesive)'), ...g.dies.flatMap((d, i) => [kl('TIM BLT over ' + d.name, 'bltDie'), h('span', null, fmt(g.lid.blt[i] * 1000, 0) + ' µm')])));
   } else if (cfg.packageType === 'stiffener') {
     const S = cfg.stiffener;
     root.append(h('h3', null, 'Stiffener ring'));
-    root.append(selectField('Material', () => S.mat, v => { S.mat = v; }, materialOptions('metal'), { section: 'materials' }));
-    root.append(numField('Outer size x', () => S.ox, v => { S.ox = v; }, { unit: 'mm', min: 1, max: 150 }));
-    root.append(numField('Outer size y', () => S.oy, v => { S.oy = v; }, { unit: 'mm', min: 1, max: 150 }));
+    root.append(selectField('Material', () => S.mat, v => { S.mat = v; }, materialOptions('metal'), { section: 'materials', help: 'stiffMat' }));
+    root.append(numField('Outer size x', () => S.ox, v => { S.ox = v; }, { unit: 'mm', min: 1, max: 150, help: 'stiffOuter' }));
+    root.append(numField('Outer size y', () => S.oy, v => { S.oy = v; }, { unit: 'mm', min: 1, max: 150, help: 'stiffOuter' }));
     root.append(numField('Ring width', () => S.ringW, v => { S.ringW = v; }, { unit: 'mm', min: 0.2, max: 20, help: 'ringW' }));
     root.append(numField('Thickness', () => S.t, v => { S.t = v; }, { unit: 'mm', min: 0.1, max: 5, help: 'stiffT' }));
-    root.append(selectField('Adhesive material', () => S.adhMat, v => { S.adhMat = v; }, materialOptions(['adhesive', 'tim']), { section: 'materials' }));
+    root.append(selectField('Adhesive material', () => S.adhMat, v => { S.adhMat = v; }, materialOptions(['adhesive', 'tim']), { section: 'materials', help: 'adhMat' }));
     root.append(numField('Adhesive thickness', () => S.adhT, v => { S.adhT = v; }, { unit: 'µm', scale: 1000, min: 0.005, max: 1, help: 'adhT' }));
   } else {
     root.append(h('div', { class: 'msg info' }, 'Bare die configuration: no lid or stiffener. Change the configuration in step 1.'));
@@ -7185,41 +7425,41 @@ function renderMaterialsPanel(root) {
   root.append(h('div', { class: 'muted small' }, 'Every value shows its confidence: ', h('span', { class: 'badge Datasheet' }, 'Datasheet'), h('span', { class: 'badge Literature' }, 'Literature'), h('span', { class: 'badge Handbook' }, 'Handbook'), h('span', { class: 'badge Estimated' }, 'Estimated'), ' (placeholder, replace with measured data). Editing marks a value ', h('span', { class: 'badge User' }, 'User'), '.'));
   const roles = C.materialRoles(cfg);
   const used = new Set(roles.map(r => r.id));
-  const sel = h('select', { onchange: e => { app.selectedMaterial = e.target.value; renderContext(); } });
+  const sel = h('select', tip('matSelect', { onchange: e => { app.selectedMaterial = e.target.value; renderContext(); } }));
   for (const m of cfg.materials) sel.append(h('option', { value: m.id, selected: m.id === (app.selectedMaterial || roles[0].id) ? '' : null }, (used.has(m.id) ? '● ' : '') + m.name + ' [' + m.category + ']' + (m.modified ? ' (modified)' : '')));
   if (!app.selectedMaterial) app.selectedMaterial = roles[0].id;
-  root.append(h('div', { class: 'row' }, h('label', null, 'Material '), sel, h('button', { onclick: () => duplicateMaterial(app.selectedMaterial) }, 'Duplicate'), h('button', { onclick: () => resetMaterial(app.selectedMaterial) }, 'Reset to default')));
+  root.append(h('div', { class: 'row' }, h('label', null, 'Material '), sel, h('button', tip('matDup', { onclick: () => duplicateMaterial(app.selectedMaterial) }), 'Duplicate'), h('button', tip('matReset', { onclick: () => resetMaterial(app.selectedMaterial) }), 'Reset to default')));
   root.append(h('div', { class: 'small muted' }, 'In use: ' + roles.map(r => r.role + ' → ' + C.findMaterial(cfg.materials, r.id).name).join('; ')));
   const m = C.findMaterial(cfg.materials, app.selectedMaterial);
   root.append(h('h3', null, m.name, h('span', { class: 'muted small' }, ' ' + (m.grade || ''))));
   if (m.notes) root.append(h('div', { class: 'msg info small' }, m.notes));
   if (m.category === 'core') {
-    root.append(h('div', { class: 'row small' }, 'Core presets: ', ...cfg.materials.filter(x => x.category === 'core').map(x => h('button', { class: 'small', onclick: () => { for (const r of cfg.substrate.layers) if (r.type === 'core') r.mat = x.id; app.selectedMaterial = x.id; onConfigChanged('materials'); renderContext(); } }, x.name))));
+    root.append(h('div', { class: 'row small' }, 'Core presets: ', ...cfg.materials.filter(x => x.category === 'core').map(x => h('button', { class: 'small', 'data-tip': TIPS.corePreset, onclick: () => { for (const r of cfg.substrate.layers) if (r.type === 'core') r.mat = x.id; app.selectedMaterial = x.id; onConfigChanged('materials'); renderContext(); } }, x.name))));
   }
   if (m.category === 'buildup') {
-    root.append(h('div', { class: 'row small' }, 'ABF presets: ', ...cfg.materials.filter(x => x.category === 'buildup').map(x => h('button', { class: 'small', onclick: () => { for (const r of cfg.substrate.layers) { if (r.type === 'diel') r.mat = x.id; if (r.type === 'cu') r.fill = x.id; } app.selectedMaterial = x.id; onConfigChanged('materials'); renderContext(); } }, x.name))));
+    root.append(h('div', { class: 'row small' }, 'ABF presets: ', ...cfg.materials.filter(x => x.category === 'buildup').map(x => h('button', { class: 'small', 'data-tip': TIPS.abfPreset, onclick: () => { for (const r of cfg.substrate.layers) { if (r.type === 'diel') r.mat = x.id; if (r.type === 'cu') r.fill = x.id; } app.selectedMaterial = x.id; onConfigChanged('materials'); renderContext(); } }, x.name))));
   }
   const rows = paramRows(m, { elastic: m.elastic, cte: m.cte, cteXY: m.cteXY, cteZ: m.cteZ, cure: m.cure, solidus: m.solidus, anand: m.anand }, '', []);
-  const tbl = h('table', null, h('tr', null, h('th', null, 'Property'), h('th', null, 'Value'), h('th', null, 'Unit'), h('th', null, 'Confidence'), h('th', null, 'Range'), h('th')));
+  const tbl = h('table', null, h('tr', null, h('th', null, 'Property'), h('th', null, 'Value', helpTip('matValue')), h('th', null, 'Unit'), h('th', null, 'Confidence', helpTip('matConf')), h('th', null, 'Range', helpTip('matRange')), h('th')));
   const defaults = C.buildMaterialLibrary(MATERIALS_DB);
   const def = defaults.find(x => x.id === m.defaultOf) || null;
   for (const r of rows) {
     const p = r.par;
     const src = (p.s || []).map(s => MATERIALS_DB.references[s] ? '[' + s + '] ' + MATERIALS_DB.references[s].cite + (MATERIALS_DB.references[s].url ? ' ' + MATERIALS_DB.references[s].url : '') : s).join('\n');
-    const tip = (p.n ? p.n + '\n' : '') + (src || 'No source: ' + (MATERIALS_DB.confidenceLabels[p.c] || ''));
+    const tipText = (p.n ? p.n + ' ' : '') + (src || 'No source: ' + (MATERIALS_DB.confidenceLabels[p.c] || ''));
     let valueCell;
     if (r.table) {
-      valueCell = h('td', null, h('span', { class: 'mono' }, p.T.map((T, i) => T + ' °C: ' + p.v[i]).join('; ')), h('button', { class: 'small', onclick: () => editTable(m, r.path) }, 'edit'));
+      valueCell = h('td', null, h('span', { class: 'mono' }, p.T.map((T, i) => T + ' °C: ' + p.v[i]).join('; ')), h('button', tip('matTableEdit', { class: 'small', onclick: () => editTable(m, r.path) }), 'edit'));
     } else {
       const inp = h('input', { type: 'number', step: 'any', value: fmtInput(p.v), onchange: e => { const v = parseFloat(e.target.value); if (!isFinite(v)) return; if (!checkMaterialBound(r.path, p, v)) { e.target.value = fmtInput(p.v); return; } p.v = v; p.c = 'User'; m.modified = true; onConfigChanged('materials'); renderContext(); } });
       valueCell = h('td', null, inp);
     }
     const dp = def ? C.getPath(def, r.path) : null;
-    tbl.append(h('tr', { title: tip }, h('td', null, paramLabel(r.path), p.n ? h('span', { class: 'help', title: p.n }, 'i') : null), valueCell, h('td', null, p.u || ''), h('td', null, h('span', { class: 'badge ' + (p.c || 'Estimated') }, p.c || 'Estimated')), h('td', { class: 'small' }, p.r ? p.r[0] + ' to ' + p.r[1] : ''), h('td', null, dp && !r.table ? h('button', { class: 'small', title: 'reset to default ' + dp.v, onclick: () => { p.v = dp.v; p.c = dp.c; m.modified = rows.some(q => q.par.c === 'User'); onConfigChanged('materials'); renderContext(); } }, '↺') : null)));
+    tbl.append(h('tr', null, h('td', { 'data-tip': tipText }, paramLabel(r.path), p.n ? h('span', { class: 'help', 'data-tip': p.n, tabindex: '0' }, 'i') : null), valueCell, h('td', null, p.u || ''), h('td', null, h('span', { class: 'badge ' + (p.c || 'Estimated'), 'data-tip': (MATERIALS_DB.confidenceLabels[p.c || 'Estimated'] || '') + (src ? ' Source: ' + src : '') }, p.c || 'Estimated')), h('td', { class: 'small', 'data-tip': p.r ? TIPS.matRange : null }, p.r ? p.r[0] + ' to ' + p.r[1] : ''), h('td', null, dp && !r.table ? h('button', { class: 'small', 'data-tip': 'Reset to the database default ' + dp.v + ' ' + (p.u || ''), onclick: () => { p.v = dp.v; p.c = dp.c; m.modified = rows.some(q => q.par.c === 'User'); onConfigChanged('materials'); renderContext(); } }, '↺') : null)));
   }
   root.append(tbl);
   // E(T) and CTE(T) plots
-  const c1 = h('canvas', { class: 'plot', style: 'height:170px' }), c2 = h('canvas', { class: 'plot', style: 'height:170px' });
+  const c1 = h('canvas', tip('plotE', { class: 'plot', style: 'height:170px' })), c2 = h('canvas', tip('plotCTE', { class: 'plot', style: 'height:170px' }));
   root.append(h('div', { class: 'grid2' }, c1, c2));
   requestAnimationFrame(() => {
     const Ts = [], Es = [], As = [], Az = [];
@@ -7275,36 +7515,36 @@ function renderProcessPanel(root) {
   const tl = h('table', null, h('tr', null, h('th', null, 'Stage'), h('th', null, 'Event'), h('th', null, 'Birth temperature °C')));
   const stages = [['S0', 'Substrate born stress-free', 'Tsub', 'Tsub'], ['S1', 'Die(s) and solder born (chip join, solidification)', 'Tjoin', 'Tjoin'], ['S2', 'Underfill phase and fillet born (effective stress-free T)', 'Tuf', 'Tuf'], ['S3', cfg.packageType === 'bare' ? '(no lid or stiffener)' : (cfg.packageType === 'lid' ? 'Lid, TIM1 and lid adhesive born' : 'Stiffener and adhesive born'), 'Tattach', 'Tattach']];
   for (const [s, ev, key, hk] of stages) {
-    const inp = cfg.packageType === 'bare' && key === 'Tattach' ? h('span', { class: 'muted' }, '–') : h('input', { type: 'number', step: 1, value: p[key], title: HELP[hk], onchange: e => { p[key] = +e.target.value; onConfigChanged('process'); } });
+    const inp = cfg.packageType === 'bare' && key === 'Tattach' ? h('span', { class: 'muted' }, '–') : h('input', { type: 'number', step: 1, value: p[key], 'data-tip': HELP[hk], onchange: e => { p[key] = +e.target.value; onConfigChanged('process'); } });
     tl.append(h('tr', null, h('td', null, s), h('td', null, ev, help(hk)), h('td', null, inp)));
   }
   tl.append(h('tr', null, h('td', null, 'End'), h('td', null, 'As-assembled state'), h('td', null, '25 (evaluation)')));
   root.append(tl);
-  root.append(h('div', { class: 'row small' }, h('button', { class: 'small', onclick: () => { p.Tsub = 217; onConfigChanged('process'); renderContext(); } }, 'T_sub = solder solidus (217)'), h('button', { class: 'small', onclick: () => { p.Tsub = 200; onConfigChanged('process'); renderContext(); } }, 'T_sub = ABF cure (200)')));
+  root.append(h('div', { class: 'row small' }, h('button', tip('TsubBtn', { class: 'small', onclick: () => { p.Tsub = 217; onConfigChanged('process'); renderContext(); } }), 'T_sub = solder solidus (217)'), h('button', tip('TsubBtn2', { class: 'small', onclick: () => { p.Tsub = 200; onConfigChanged('process'); renderContext(); } }), 'T_sub = ABF cure (200)')));
   root.append(h('h3', null, 'Reflow warpage sweep'));
   root.append(numField('Peak temperature', () => cfg.reflow.peak, v => { cfg.reflow.peak = v; }, { unit: '°C', min: 30, max: 300, help: 'peak', section: 'loads' }));
   root.append(h('div', { class: 'field' }, h('label', null, 'Report temperatures', help('reportTemps')), h('input', { type: 'text', value: cfg.reflow.reportTemps.join(', '), onchange: e => { cfg.reflow.reportTemps = e.target.value.split(/[,\s]+/).filter(Boolean).map(Number).filter(isFinite); onConfigChanged('loads'); } }), h('span', { class: 'unit' }, '°C')));
   root.append(h('h3', null, 'Temperature cycling'));
   root.append(selectField('Condition', () => cfg.cycling.cond, v => { cfg.cycling.cond = v; if (C.CYCLING_CONDITIONS[v]) { cfg.cycling.Tmin = C.CYCLING_CONDITIONS[v].Tmin; cfg.cycling.Tmax = C.CYCLING_CONDITIONS[v].Tmax; } renderContext(); }, [...Object.entries(C.CYCLING_CONDITIONS).map(([k, c]) => ({ value: k, label: c.label })), { value: 'custom', label: 'custom' }], { help: 'cycling', section: 'loads' }));
-  root.append(numField('T min', () => cfg.cycling.Tmin, v => { cfg.cycling.Tmin = v; cfg.cycling.cond = 'custom'; }, { unit: '°C', min: -80, max: 200, section: 'loads' }));
-  root.append(numField('T max', () => cfg.cycling.Tmax, v => { cfg.cycling.Tmax = v; cfg.cycling.cond = 'custom'; }, { unit: '°C', min: -80, max: 300, section: 'loads' }));
+  root.append(numField('T min', () => cfg.cycling.Tmin, v => { cfg.cycling.Tmin = v; cfg.cycling.cond = 'custom'; }, { unit: '°C', min: -80, max: 200, section: 'loads', help: 'Tmin' }));
+  root.append(numField('T max', () => cfg.cycling.Tmax, v => { cfg.cycling.Tmax = v; cfg.cycling.cond = 'custom'; }, { unit: '°C', min: -80, max: 300, section: 'loads', help: 'Tmax' }));
   root.append(numField('Ramp rate', () => cfg.cycling.ramp, v => { cfg.cycling.ramp = v; }, { unit: '°C/min', min: 0.1, max: 100, help: 'ramp', section: 'loads' }));
   root.append(numField('Dwell at each extreme', () => cfg.cycling.dwell, v => { cfg.cycling.dwell = v; }, { unit: 'min', min: 0, max: 600, help: 'dwell', section: 'loads' }));
   root.append(numField('Simulated cycles (submodel)', () => cfg.cycling.cycles, v => { cfg.cycling.cycles = Math.max(1, Math.round(v)); }, { min: 1, max: 10, step: 1, help: 'cycles', section: 'loads' }));
   root.append(h('h3', null, 'Limits (editable)'));
   root.append(h('div', { class: 'small muted' }, 'JEITA ED-7306 (2007); customer limits for large FCBGA often differ.'));
-  const jt = h('table', null, h('tr', null, h('th', null, 'Pitch mm'), h('th', null, 'Ball height'), h('th', null, 'Max at elevated T, mm'), h('th', null, 'RT coplanarity ref, mm')));
+  const jt = h('table', null, h('tr', null, h('th', null, 'Pitch mm'), h('th', null, 'Ball height'), h('th', null, 'Max at elevated T, mm', helpTip('jeitaHot')), h('th', null, 'RT coplanarity ref, mm', helpTip('jeitaRT'))));
   for (const r of cfg.limits.jeita) jt.append(h('tr', null, h('td', null, r.pitch), h('td', null, r.ballH), h('td', null, h('input', { type: 'number', step: 0.01, value: r.hot, onchange: e => { r.hot = +e.target.value; onConfigChanged('post'); } })), h('td', null, h('input', { type: 'number', step: 0.01, value: r.rt, onchange: e => { r.rt = +e.target.value; onConfigChanged('post'); } }))));
   root.append(jt);
-  root.append(numField('Die strength (optional, for margin)', () => cfg.limits.dieStrength === null ? NaN : cfg.limits.dieStrength, v => { cfg.limits.dieStrength = isFinite(v) ? v : null; }, { unit: 'MPa', min: 0, section: 'post' }));
-  root.append(numField('Bump axial force threshold (optional)', () => cfg.limits.bumpAxialN === null ? NaN : cfg.limits.bumpAxialN, v => { cfg.limits.bumpAxialN = isFinite(v) ? v : null; }, { unit: 'N', min: 0, section: 'post' }));
-  root.append(numField('Bump shear force threshold (optional)', () => cfg.limits.bumpShearN === null ? NaN : cfg.limits.bumpShearN, v => { cfg.limits.bumpShearN = isFinite(v) ? v : null; }, { unit: 'N', min: 0, section: 'post' }));
+  root.append(numField('Die strength (optional, for margin)', () => cfg.limits.dieStrength === null ? NaN : cfg.limits.dieStrength, v => { cfg.limits.dieStrength = isFinite(v) ? v : null; }, { unit: 'MPa', min: 0, section: 'post', help: 'dieStrength' }));
+  root.append(numField('Bump axial force threshold (optional)', () => cfg.limits.bumpAxialN === null ? NaN : cfg.limits.bumpAxialN, v => { cfg.limits.bumpAxialN = isFinite(v) ? v : null; }, { unit: 'N', min: 0, section: 'post', help: 'bumpAxialN' }));
+  root.append(numField('Bump shear force threshold (optional)', () => cfg.limits.bumpShearN === null ? NaN : cfg.limits.bumpShearN, v => { cfg.limits.bumpShearN = isFinite(v) ? v : null; }, { unit: 'N', min: 0, section: 'post', help: 'bumpShearN' }));
   root.append(h('h3', null, 'Fatigue model constants'));
-  root.append(numField('Syed energy constant C_W', () => cfg.fatigue.CW, v => { cfg.fatigue.CW = v; }, { unit: '1/MPa', min: 1e-6, section: 'post' }));
+  root.append(numField('Syed energy constant C_W', () => cfg.fatigue.CW, v => { cfg.fatigue.CW = v; }, { unit: '1/MPa', min: 1e-6, section: 'post', help: 'CW' }));
   root.append(h('div', { class: 'small muted' }, 'N_f = 1 / (C_W ΔW), ΔW in MPa per cycle. Default 0.00165 (Syed 2004 via Amalu et al. 2015); other sources quote 0.0019. Fitted to accumulated creep energy from a different constitutive model and joint geometry.'));
-  root.append(numField('Syed strain constant', () => cfg.fatigue.Cstrain, v => { cfg.fatigue.Cstrain = v; }, { min: 1e-6, section: 'post' }));
+  root.append(numField('Syed strain constant', () => cfg.fatigue.Cstrain, v => { cfg.fatigue.Cstrain = v; }, { min: 1e-6, section: 'post', help: 'Cstrain' }));
   root.append(h('div', { class: 'small muted' }, 'Darveaux: N_0 = K1 ΔW^K2, da/dN = K3 ΔW^K4. No defaults: K1 and K3 depend on element size and averaging scheme, so enter constants calibrated to this modeling approach (25 µm averaging layers).'));
-  for (const k of ['K1', 'K2', 'K3', 'K4']) root.append(numField('Darveaux ' + k, () => cfg.fatigue[k] === null ? NaN : cfg.fatigue[k], v => { cfg.fatigue[k] = isFinite(v) ? v : null; }, { section: 'post' }));
+  for (const k of ['K1', 'K2', 'K3', 'K4']) root.append(numField('Darveaux ' + k, () => cfg.fatigue[k] === null ? NaN : cfg.fatigue[k], v => { cfg.fatigue[k] = isFinite(v) ? v : null; }, { section: 'post', help: k }));
 }
 
 // ---- configuration files and presets ----
@@ -7346,7 +7586,7 @@ function renderRunPanel(root) {
   root.append(h('h2', null, '6. Run and results'));
   root.append(selectField('Mesh fidelity', () => cfg.mesh.preset, v => { cfg.mesh.preset = v; renderContext(); }, Object.entries(C.CONST.MESH_PRESETS).map(([k, p]) => ({ value: k, label: p.label + ' (h ' + p.hmin + ' to ' + p.hmax + ' mm, cap ' + p.cap.toLocaleString() + ' DOF)' })), { help: 'preset', section: 'mesh' }));
   const hc = navigator.hardwareConcurrency || 2;
-  root.append(h('div', { class: 'field' }, h('label', null, 'Parallel workers', h('span', { class: 'help', title: 'The temperature sweep and the bump submodels are split over this many Web Workers (each holds its own copy of the model, so memory scales with the count). 1 keeps everything in one worker.' }, '?')), h('select', { onchange: e => { app.workers = +e.target.value; renderContext(); } }, ...Array.from({ length: Math.max(1, Math.min(8, hc)) }, (_, i) => i + 1).map(n => h('option', { value: n, selected: app.workers === n ? '' : null }, n + (n === 1 ? ' (single worker)' : ' workers')))), h('span', { class: 'unit' }, hc + ' cores' + (app.nestedWorkers === false ? '; nested workers unavailable in this browser' : ''))));
+  root.append(h('div', { class: 'field' }, h('label', null, 'Parallel workers', helpTip('workers')), h('select', { 'data-tip': TIPS.workers, onchange: e => { app.workers = +e.target.value; renderContext(); } }, ...Array.from({ length: Math.max(1, Math.min(8, hc)) }, (_, i) => i + 1).map(n => h('option', { value: n, selected: app.workers === n ? '' : null }, n + (n === 1 ? ' (single worker)' : ' workers')))), h('span', { class: 'unit' }, hc + ' cores' + (app.nestedWorkers === false ? '; nested workers unavailable in this browser' : ''))));
   const est = estimateRun(cfg, cfg.mesh.preset);
   if (est.error) root.append(h('div', { class: 'msg error' }, est.error));
   else {
@@ -7354,9 +7594,9 @@ function renderRunPanel(root) {
     root.append(h('div', { class: 'kv' }, h('span', { class: 'k' }, 'Estimated mesh'), h('span', null, est.info.nx + ' × ' + est.info.ny + ' × ' + est.info.nz + ' grid, ' + est.info.nElem.toLocaleString() + ' elements, ' + est.info.nDof.toLocaleString() + ' DOF' + (est.info.scaled ? ' (sizes enlarged to meet the cap)' : '')), h('span', { class: 'k' }, 'Element sizes'), h('span', null, 'h_min ' + fmt(est.info.hmin, 3) + ', h_max ' + fmt(est.info.hmax, 3) + ' mm; max aspect ' + fmt(est.info.aspectMax, 0)), h('span', { class: 'k' }, 'Estimated memory'), h('span', { class: est.memMB > 600 ? 'warnc' : '' }, fmt(est.memMB, 0) + ' MB total (' + fmt(est.perWorkerMB, 0) + ' MB per worker' + (est.memMB > 600 ? '; above the 600 MB target, reduce the worker count if memory is tight' : '') + ')'), h('span', { class: 'k' }, 'Estimated runtime'), h('span', null, 'preview ' + fmt(est.previewS, 0) + ' s, full analysis ' + fmt(est.fullS, 0) + ' s with ' + app.workers + ' worker' + (app.workers > 1 ? 's' : '') + ' (scales with your CPU)')));
   }
   const canRun = !app.validation.errors.length;
-  root.append(h('div', { class: 'row' }, h('button', { class: 'primary', disabled: canRun ? null : '', onclick: () => runFull() }, '▶ Run full global analysis'), h('button', { disabled: canRun ? null : '', onclick: () => runPreview(true) }, 'Quick preview (Draft, 25 °C)'), h('label', { class: 'small' }, h('input', { type: 'checkbox', checked: app.autoSolve ? '' : null, onchange: e => { app.autoSolve = e.target.checked; } }), ' auto-solve on die release')));
-  root.append(h('div', { class: 'row' }, h('button', { disabled: app.results ? null : '', onclick: pinBaseline }, 'Pin as baseline'), h('button', { disabled: app.baseline ? null : '', onclick: () => { app.baseline = null; renderContext(); } }, 'Clear baseline'), h('button', { disabled: canRun ? null : '', onclick: checkMeshSensitivity }, 'Check mesh sensitivity'), h('button', { disabled: app.results ? null : '', onclick: exportCSV }, 'Export CSV'), h('button', { disabled: app.results ? null : '', onclick: openReport }, 'Report (print / PDF)')));
-  if (cfg.name && cfg.name.startsWith('Core thickness study')) root.append(h('div', { class: 'row' }, h('button', { onclick: runCoreStudy }, 'Run both core variants and compare')));
+  root.append(h('div', { class: 'row' }, h('button', tip('runFull', { class: 'primary', disabled: canRun ? null : '', onclick: () => runFull() }), '▶ Run full global analysis'), h('button', tip('quickPreview', { disabled: canRun ? null : '', onclick: () => runPreview(true) }), 'Quick preview (Draft, 25 °C)'), h('label', tip('autoSolve', { class: 'small' }), h('input', { type: 'checkbox', checked: app.autoSolve ? '' : null, onchange: e => { app.autoSolve = e.target.checked; } }), ' auto-solve on die release')));
+  root.append(h('div', { class: 'row' }, h('button', tip('pinBaseline', { disabled: app.results ? null : '', onclick: pinBaseline }), 'Pin as baseline'), h('button', tip('clearBaseline', { disabled: app.baseline ? null : '', onclick: () => { app.baseline = null; renderContext(); } }), 'Clear baseline'), h('button', tip('meshCheck', { disabled: canRun ? null : '', onclick: checkMeshSensitivity }), 'Check mesh sensitivity'), h('button', tip('exportCsv', { disabled: app.results ? null : '', onclick: exportCSV }), 'Export CSV'), h('button', tip('report', { disabled: app.results ? null : '', onclick: openReport }), 'Report (print / PDF)')));
+  if (cfg.name && cfg.name.startsWith('Core thickness study')) root.append(h('div', { class: 'row' }, h('button', tip('coreStudy', { onclick: runCoreStudy }), 'Run both core variants and compare')));
   root.append(h('div', { class: 'small muted' }, 'Tip: pin a baseline, then compare variants. Ratios and deltas against the baseline are the most trustworthy outputs of a screening model.'));
   root.append(estimatedInputsCard(cfg));
   renderValidation(root);
@@ -7366,22 +7606,22 @@ function renderRunPanel(root) {
   const f = res.at25, w = f.warpage;
   const base = app.baseline;
   const delta = (v, bv, unit, dgt) => bv === undefined || bv === null || !isFinite(bv) ? '' : ' (Δ ' + (v - bv >= 0 ? '+' : '') + fmt(v - bv, dgt) + unit + ', ×' + fmt(v / bv, 2) + ' vs baseline)';
-  root.append(h('div', { class: 'card' }, h('h3', null, 'Signed warpage, JEITA, 25 °C'), h('div', { class: 'big' }, um(w.signed) + ' µm', w.marginal ? h('span', { class: 'badge Handbook', title: 'The diagonal sum that sets the JEITA sign is only ' + fmt(100 * w.signConf, 0) + ' % of the magnitude (saddle or ring shape); the sign can flip between neighbouring states while the magnitude barely changes. Compare magnitudes.' }, 'marginal sign') : null), h('div', { class: 'sub' }, shapeText(w) + '; magnitude ' + um(w.mag) + ' µm; RT reference ' + (w.limitRT * 1000) + ' µm' + (base ? delta(w.signed * 1000, base.at25.warpage.signed * 1000, ' µm', 1) : '')), whatThisMeans('warpage', res)));
+  root.append(h('div', { class: 'card' }, h('h3', null, 'Signed warpage, JEITA, 25 °C', helpTip('warpSigned')), h('div', { class: 'big' }, um(w.signed) + ' µm', w.marginal ? h('span', { class: 'badge Handbook', 'data-tip': 'The diagonal sum that sets the JEITA sign is only ' + fmt(100 * w.signConf, 0) + ' % of the magnitude (saddle or ring shape); the sign can flip between neighbouring states while the magnitude barely changes. Compare magnitudes.' }, 'marginal sign') : null), h('div', { class: 'sub' }, shapeText(w) + '; magnitude ' + um(w.mag) + ' µm; RT reference ' + (w.limitRT * 1000) + ' µm' + (base ? delta(w.signed * 1000, base.at25.warpage.signed * 1000, ' µm', 1) : '')), whatThisMeans('warpage', res)));
   const peak = res.sweep.reduce((m, r) => Math.abs(r.signed) > Math.abs(m.signed) ? r : m, res.sweep[0]);
   root.append(h('div', { class: 'card' }, h('h3', null, 'Reflow sweep peak'), h('div', { class: 'big' }, um(peak.signed) + ' µm at ' + peak.T + ' °C'), h('div', { class: 'sub' }, 'JEITA limit for ' + cfg.bga.pitch + ' mm pitch: ' + (w.limitHot * 1000) + ' µm → ' + (Math.abs(peak.signed) <= w.limitHot ? 'within limit' : 'exceeds limit') + (base ? delta(peak.signed * 1000, base.sweep.reduce((m, r) => Math.abs(r.signed) > Math.abs(m.signed) ? r : m, base.sweep[0]).signed * 1000, ' µm', 1) : ''))));
   f.dies.forEach((d, i) => {
     const bd = base && base.at25.dies[i];
-    root.append(h('div', { class: 'card' }, h('h3', null, d.name + ' backside stress'), h('div', { class: 'big' }, fmt(d.top.peakInterior, 1) + ' MPa'), h('div', { class: 'sub' }, 'interior peak (0.5 mm edge band excluded), max principal, nodal averaged; Gauss-point peak ' + fmt(d.top.gpPeakInterior, 1) + ' MPa' + (bd ? delta(d.top.peakInterior, bd.top.peakInterior, ' MPa', 1) : '') + (cfg.limits.dieStrength ? '; margin to strength ' + fmt(cfg.limits.dieStrength - d.top.peakInterior, 0) + ' MPa' : '')), h('div', { class: 'sub' }, 'corner patches (comparative): ' + d.top.corners.map(c => fmt(c.value, 0)).join(' / ') + ' MPa'), h('div', { class: 'conf' }, CONFIDENCE.dieInterior + ' Corner values: ' + CONFIDENCE.corner)));
+    root.append(h('div', { class: 'card' }, h('h3', null, d.name + ' backside stress', helpTip('peakNodal')), h('div', { class: 'big' }, fmt(d.top.peakInterior, 1) + ' MPa'), h('div', { class: 'sub' }, 'interior peak (0.5 mm edge band excluded), max principal, nodal averaged; Gauss-point peak ' + fmt(d.top.gpPeakInterior, 1) + ' MPa' + (bd ? delta(d.top.peakInterior, bd.top.peakInterior, ' MPa', 1) : '') + (cfg.limits.dieStrength ? '; margin to strength ' + fmt(cfg.limits.dieStrength - d.top.peakInterior, 0) + ' MPa' : '')), h('div', { class: 'sub' }, 'corner patches (comparative): ' + d.top.corners.map(c => fmt(c.value, 0)).join(' / ') + ' MPa'), h('div', { class: 'conf' }, CONFIDENCE.dieInterior + ' Corner values: ' + CONFIDENCE.corner)));
   });
   res.cpi.forEach((b, i) => {
     const bb = base && base.cpi[i];
-    root.append(h('div', { class: 'card' }, h('h3', null, b.die + ' bump loading (CPI proxy)'), h('div', { class: 'big' }, gf(b.worstV) + ' gf shear'), h('div', { class: 'sub' }, 'worst bump at chip join cooldown, before underfill; axial ' + gf(b.worstN) + ' gf (' + fmt(b.worstN, 3) + ' N)' + (bb ? delta(b.worstV, bb.worstV, ' N', 3) : '')), h('div', { class: 'conf' }, 'Elastic upper bound; real joints relax by creep during cooldown. ' + CONFIDENCE.bumps)));
+    root.append(h('div', { class: 'card' }, h('h3', null, b.die + ' bump loading (CPI proxy)', helpTip('stateCpi')), h('div', { class: 'big' }, gf(b.worstV) + ' gf shear'), h('div', { class: 'sub' }, 'worst bump at chip join cooldown, before underfill; axial ' + gf(b.worstN) + ' gf (' + fmt(b.worstN, 3) + ' N)' + (bb ? delta(b.worstV, bb.worstV, ' N', 3) : '')), h('div', { class: 'conf' }, 'Elastic upper bound; real joints relax by creep during cooldown. ' + CONFIDENCE.bumps)));
   });
   if (res.screening) res.screening.forEach((s, i) => {
     const bs = base && base.screening && base.screening[i];
-    root.append(h('div', { class: 'card' }, h('h3', null, s.die + ' solder fatigue screening'), h('div', { class: 'big' }, fmtE(s.top[0] ? s.top[0].dW : NaN, 3) + ' MPa/cycle'), h('div', { class: 'sub' }, 'worst-site ΔW_proxy at (' + fmt(s.top[0] && s.top[0].x, 2) + ', ' + fmt(s.top[0] && s.top[0].y, 2) + ') mm; equivalent inelastic strain range ' + fmtE(s.top[0] && s.top[0].dE, 3) + (bs && bs.top[0] ? delta(s.top[0].dW, bs.top[0].dW, ' MPa', 4) : '')), h('div', { class: 'conf' }, 'Screening index; ranks locations; not a life. ' + (s.subsampled ? 'Sites subsampled above 20,000 (outer rows and corner blocks kept).' : ''))));
+    root.append(h('div', { class: 'card' }, h('h3', null, s.die + ' solder fatigue screening', helpTip('dWproxy')), h('div', { class: 'big' }, fmtE(s.top[0] ? s.top[0].dW : NaN, 3) + ' MPa/cycle'), h('div', { class: 'sub' }, 'worst-site ΔW_proxy at (' + fmt(s.top[0] && s.top[0].x, 2) + ', ' + fmt(s.top[0] && s.top[0].y, 2) + ') mm; equivalent inelastic strain range ' + fmtE(s.top[0] && s.top[0].dE, 3) + (bs && bs.top[0] ? delta(s.top[0].dW, bs.top[0].dW, ' MPa', 4) : '')), h('div', { class: 'conf' }, 'Screening index; ranks locations; not a life. ' + (s.subsampled ? 'Sites subsampled above 20,000 (outer rows and corner blocks kept).' : ''))));
   });
-  root.append(h('details', null, h('summary', null, 'Solver log (' + res.solverLog.length + ' solves, ' + fmt(res.totalMs / 1000, 1) + ' s total)'), h('div', { class: 'mono small' }, 'Mesh ' + res.meshInfo.nDof + ' DOF, ' + res.meshInfo.nElem + ' elements, build ' + fmt(res.meshInfo.buildMs, 0) + ' ms; assembly ' + fmt(res.timings.assemble, 0) + ' ms; solves ' + fmt(res.timings.solve, 0) + ' ms'), h('table', { class: 'small' }, h('tr', null, h('th', null, 'Solve'), h('th', null, 'Iterations'), h('th', null, 'Residual'), h('th', null, 'Preconditioner'), h('th', null, 'ms')), ...res.solverLog.map(r => h('tr', null, h('td', null, r.label), h('td', null, String(r.iters) + (r.rebuilt ? ' (rebuilt)' : '') + (r.fallback ? ' (fallback from ' + r.fallback.first + ')' : '')), h('td', null, fmtE(r.relres, 1)), h('td', null, r.precond || ''), h('td', null, fmt(r.ms, 0)))))));
+  root.append(h('details', null, h('summary', tip('solverLog'), 'Solver log (' + res.solverLog.length + ' solves, ' + fmt(res.totalMs / 1000, 1) + ' s total)'), h('div', { class: 'mono small' }, 'Mesh ' + res.meshInfo.nDof + ' DOF, ' + res.meshInfo.nElem + ' elements, build ' + fmt(res.meshInfo.buildMs, 0) + ' ms; assembly ' + fmt(res.timings.assemble, 0) + ' ms; solves ' + fmt(res.timings.solve, 0) + ' ms'), h('table', { class: 'small' }, h('tr', null, h('th', null, 'Solve'), h('th', null, 'Iterations'), h('th', null, 'Residual'), h('th', null, 'Preconditioner'), h('th', null, 'ms')), ...res.solverLog.map(r => h('tr', null, h('td', null, r.label), h('td', null, String(r.iters) + (r.rebuilt ? ' (rebuilt)' : '') + (r.fallback ? ' (fallback from ' + r.fallback.first + ')' : '')), h('td', null, fmtE(r.relres, 1)), h('td', null, r.precond || ''), h('td', null, fmt(r.ms, 0)))))));
 }
 
 /** Every Estimated (placeholder) parameter the current configuration depends on. */
@@ -7399,9 +7639,9 @@ function estimatedInputsCard(cfg) {
   const S = app.sensitivity;
   const driven = new Set();
   if (S) for (const k of ['warpRT', 'warpPeak', 'dieStress', 'dW']) if (S[k]) S[k].rows.slice(0, 5).forEach(r => driven.add(r.id));
-  const card = h('div', { class: 'card' }, h('h3', null, 'Estimated inputs in use ', h('span', { class: 'badge Estimated' }, String(list.length))),
+  const card = h('div', { class: 'card' }, h('h3', null, 'Estimated inputs in use ', h('span', { class: 'badge Estimated' }, String(list.length)), helpTip('estCard')),
     h('div', { class: 'small' }, 'These placeholder values have no published source; replace them with measured or DMA data before trusting absolute numbers. Their influence is quantified by the sensitivity run (step 6 → Sensitivity), which includes them by default.'),
-    h('table', { class: 'small' }, h('tr', null, h('th', null, 'Role'), h('th', null, 'Material'), h('th', null, 'Parameter'), h('th', null, 'Value'), h('th')), ...list.map(e => h('tr', null, h('td', null, e.role), h('td', null, e.material), h('td', { title: e.note }, e.label), h('td', null, (typeof e.value === 'number' ? fmtInput(e.value) : e.value) + ' ' + e.unit), h('td', null, h('button', { class: 'small', onclick: () => { app.selectedMaterial = e.id; app.step = 4; renderAll(); } }, 'edit'))))),
+    h('table', { class: 'small' }, h('tr', null, h('th', null, 'Role'), h('th', null, 'Material'), h('th', null, 'Parameter'), h('th', null, 'Value'), h('th')), ...list.map(e => h('tr', null, h('td', null, e.role), h('td', null, e.material), h('td', { title: e.note }, e.label), h('td', null, (typeof e.value === 'number' ? fmtInput(e.value) : e.value) + ' ' + e.unit), h('td', null, h('button', tip('estEdit', { class: 'small', onclick: () => { app.selectedMaterial = e.id; app.step = 4; renderAll(); } }), 'edit'))))),
     S ? h('div', { class: 'small muted' }, 'In the last sensitivity run, ' + sensitivityEstimatedShare(S) + ' of the total top-5 swing came from Estimated inputs.') : null);
   return card;
 }
@@ -7487,14 +7727,14 @@ function runCoreStudy() {
 }
 
 // ---- results views in the center area ----
-const RESULT_VIEWS = [['warpage', 'Warpage'], ['dieStress', 'Die stress'], ['bumps', 'Bump loading'], ['uf', 'Underfill interface'], ['fatigue', 'Solder fatigue'], ['view3d', '3D view'], ['sensitivity', 'Sensitivity'], ['verification', 'Verification'], ['report', 'Report']];
+const RESULT_VIEWS = [['warpage', 'Warpage', 'viewWarpage'], ['dieStress', 'Die stress', 'viewDieStress'], ['bumps', 'Bump loading', 'viewBumps'], ['uf', 'Underfill interface', 'viewUf'], ['fatigue', 'Solder fatigue', 'viewFatigue'], ['view3d', '3D view', 'view3d'], ['sensitivity', 'Sensitivity', 'viewSens'], ['verification', 'Verification', 'viewVerify'], ['report', 'Report', 'viewReport']];
 
 function renderResults(root) {
   const res = app.results;
-  const bar = h('div', { class: 'row' }, ...RESULT_VIEWS.map(([k, l]) => h('button', { class: app.resultsView === k ? 'primary small' : 'small', onclick: () => { app.resultsView = k; renderCenter(); } }, l)));
+  const bar = h('div', { class: 'row' }, ...RESULT_VIEWS.map(([k, l, t]) => h('button', tip(t, { class: app.resultsView === k ? 'primary small' : 'small', onclick: () => { app.resultsView = k; renderCenter(); } }), l)));
   root.append(bar);
   if (!res && !['sensitivity', 'verification'].includes(app.resultsView)) { root.append(h('div', { class: 'msg info' }, 'Run the analysis (step 6) to see results.')); return; }
-  const Tsel = res ? h('select', { onchange: e => selectTemperature(+e.target.value) }, ...Array.from(new Set([25].concat(app.cfg.reflow.reportTemps, res.temps.all))).sort((a, b) => a - b).filter(T => res.temps.all.includes(T)).map(T => h('option', { value: T, selected: T === app.selectedT ? '' : null }, T + ' °C'))) : null;
+  const Tsel = res ? h('select', tip('tempSelect', { onchange: e => selectTemperature(+e.target.value) }), ...Array.from(new Set([25].concat(app.cfg.reflow.reportTemps, res.temps.all))).sort((a, b) => a - b).filter(T => res.temps.all.includes(T)).map(T => h('option', { value: T, selected: T === app.selectedT ? '' : null }, T + ' °C'))) : null;
   const f = app.currentFields;
   switch (app.resultsView) {
     case 'warpage': renderWarpageView(root, res, f, Tsel); break;
@@ -7538,8 +7778,8 @@ function renderWarpageView(root, res, f, Tsel) {
   left.append(mapCanvas(res, (ctx, X, Y, sc) => { drawGridField(ctx, res.xs, res.ys, grid, scale, X, Y, 0.95); drawContours(ctx, res.xs, res.ys, grid, ticks(scale.min, scale.max, 10), X, Y, 'rgba(0,0,0,0.3)'); drawPoints(ctx, w.ballX, w.ballY, Float32Array.from(w.ballRes, v => v * 1000), scale, X, Y, Math.max(1.5, 0.2 * cfg.bga.pitch * sc)); const z = res.geometry.bga.zone; ctx.setLineDash([6, 4]); ctx.strokeStyle = cssVar('--muted'); ctx.strokeRect(X(z.x0), Y(z.y1), (z.x1 - z.x0) * sc, (z.y1 - z.y0) * sc); ctx.setLineDash([]); ctx.strokeStyle = cssVar('--accent2'); ctx.beginPath(); ctx.moveTo(X(z.x0), Y(z.y0)); ctx.lineTo(X(z.x1), Y(z.y1)); ctx.moveTo(X(z.x0), Y(z.y1)); ctx.lineTo(X(z.x1), Y(z.y0)); ctx.stroke(); ctx.fillStyle = cssVar('--accent2'); ctx.font = '11px ' + cssVar('--font'); ctx.fillText('A', X(z.x0) - 10, Y(z.y0) + 4); ctx.fillText('B', X(z.x1) + 3, Y(z.y1)); ctx.fillText('C', X(z.x0) - 10, Y(z.y1)); ctx.fillText('D', X(z.x1) + 3, Y(z.y0) + 4); }));
   left.append(legendRow(scale, 'substrate bottom surface, µm relative to the best-fit plane over the BGA zone; + toward the package top (away from the PWB); dots: ball sites'));
   const right = h('div');
-  right.append(h('div', { class: 'card' }, h('div', { class: 'kv' }, h('span', { class: 'k' }, 'Signed warpage'), h('b', null, um(w.signed) + ' µm (' + (w.sign > 0 ? 'convex' : w.sign < 0 ? 'concave' : 'flat') + ')', w.marginal ? h('span', { class: 'badge Handbook' }, 'marginal sign') : null), h('span', { class: 'k' }, 'Shape, sign confidence'), h('span', null, w.shape + ', ' + fmt(100 * (w.signConf || 0), 0) + ' % (|AB_max + AB_min + CD_max + CD_min| / |C|; orange ticks on the sweep mark marginal states)'), h('span', { class: 'k' }, 'Magnitude |C|'), h('span', null, um(w.mag) + ' µm'), h('span', { class: 'k' }, 'JEITA max at elevated T'), h('span', null, (w.limitHot * 1000) + ' µm for ' + cfg.bga.pitch + ' mm pitch'), h('span', { class: 'k' }, 'RT coplanarity reference'), h('span', null, (w.limitRT * 1000) + ' µm'), h('span', { class: 'k' }, 'Diagonal AB max / min'), h('span', null, um(w.diagAB.max) + ' / ' + um(w.diagAB.min) + ' µm'), h('span', { class: 'k' }, 'Diagonal CD max / min'), h('span', null, um(w.diagCD.max) + ' / ' + um(w.diagCD.min) + ' µm'), h('span', { class: 'k' }, 'Substrate top warpage'), h('span', null, um(f.substrateTop.mag) + ' µm'), ...f.substrateTop.dies.flatMap(d => [h('span', { class: 'k' }, d.die + ' die-to-substrate relative curvature'), h('span', null, fmtE(d.relKxx, 2) + ' (xx), ' + fmtE(d.relKyy, 2) + ' (yy) 1/mm')])), whatThisMeans('warpage', res)));
-  const c1 = h('canvas', { class: 'plot' }), c2 = h('canvas', { class: 'plot' }), c3 = h('canvas', { class: 'plot' });
+  right.append(h('div', { class: 'card' }, h('div', { class: 'kv' }, kl('Signed warpage', 'warpSigned'), h('b', null, um(w.signed) + ' µm (' + (w.sign > 0 ? 'convex' : w.sign < 0 ? 'concave' : 'flat') + ')', w.marginal ? h('span', { class: 'badge Handbook', 'data-tip': TIPS.warpShape }, 'marginal sign') : null), kl('Shape, sign confidence', 'warpShape'), h('span', null, w.shape + ', ' + fmt(100 * (w.signConf || 0), 0) + ' % (|AB_max + AB_min + CD_max + CD_min| / |C|; orange ticks on the sweep mark marginal states)'), kl('Magnitude |C|', 'warpMag'), h('span', null, um(w.mag) + ' µm'), kl('JEITA max at elevated T', 'warpLimitHot'), h('span', null, (w.limitHot * 1000) + ' µm for ' + cfg.bga.pitch + ' mm pitch'), kl('RT coplanarity reference', 'warpLimitRT'), h('span', null, (w.limitRT * 1000) + ' µm'), kl('Diagonal AB max / min', 'warpDiag'), h('span', null, um(w.diagAB.max) + ' / ' + um(w.diagAB.min) + ' µm'), kl('Diagonal CD max / min', 'warpDiag'), h('span', null, um(w.diagCD.max) + ' / ' + um(w.diagCD.min) + ' µm'), kl('Substrate top warpage', 'warpTop'), h('span', null, um(f.substrateTop.mag) + ' µm'), ...f.substrateTop.dies.flatMap(d => [kl(d.die + ' die-to-substrate relative curvature', 'relCurv'), h('span', null, fmtE(d.relKxx, 2) + ' (xx), ' + fmtE(d.relKyy, 2) + ' (yy) 1/mm')])), whatThisMeans('warpage', res)));
+  const c1 = h('canvas', tip('diagPlot', { class: 'plot' })), c2 = h('canvas', tip('sweepPlot', { class: 'plot' })), c3 = h('canvas', tip('tempPlot', { class: 'plot' }));
   right.append(c1, c2, c3);
   root.append(h('div', { class: 'grid2' }, left, right));
   requestAnimationFrame(() => {
@@ -7558,7 +7798,7 @@ function renderDieStressView(root, res, f, Tsel) {
   const cfg = app.cfg;
   root.append(h('div', { class: 'row' }, h('b', null, 'Die stress'), ' at ', Tsel, h('span', { class: 'conf' }, 'Interior: ' + CONFIDENCE.dieInterior + ' Edges and corners: ' + CONFIDENCE.corner)));
   const which = app.dieStressFace || 'top';
-  root.append(h('div', { class: 'row' }, ...[['top', 'Backside (top surface)'], ['bottom', 'Active face']].map(([k, l]) => h('button', { class: which === k ? 'primary small' : 'small', onclick: () => { app.dieStressFace = k; renderCenter(); } }, l))));
+  root.append(h('div', { class: 'row' }, ...[['top', 'Backside (top surface)', 'faceTop'], ['bottom', 'Active face', 'faceBottom']].map(([k, l, t]) => h('button', tip(t, { class: which === k ? 'primary small' : 'small', onclick: () => { app.dieStressFace = k; renderCenter(); } }), l))));
   let mn = Infinity, mx = -Infinity;
   for (const d of f.dies) for (const v of d[which].smax) if (isFinite(v)) { mn = Math.min(mn, v); mx = Math.max(mx, v); }
   const scale = makeScale(mn, mx, mn < 0);
@@ -7569,7 +7809,7 @@ function renderDieStressView(root, res, f, Tsel) {
   for (const d of f.dies) {
     const s = d[which];
     right.append(h('div', { class: 'card' }, h('h3', null, d.name + ', ' + (which === 'top' ? 'backside' : 'active face')),
-      h('div', { class: 'kv' }, h('span', { class: 'k' }, 'Interior peak (nodal averaged)'), h('b', { title: 'Gauss-point peak in the interior: ' + fmt(s.gpPeakInterior, 1) + ' MPa; nodal extrapolation can differ meaningfully from Gauss-point values' }, fmt(s.peakInterior, 1) + ' MPa at (' + fmt(s.peakX, 1) + ', ' + fmt(s.peakY, 1) + ')'), h('span', { class: 'k' }, 'Interior peak (Gauss points)'), h('span', null, fmt(s.gpPeakInterior, 1) + ' MPa'), h('span', { class: 'k' }, 'Whole-face Gauss-point peak'), h('span', null, fmt(s.gpPeakAll, 1) + ' MPa (includes singular edge region)'), ...s.corners.flatMap(c => [h('span', { class: 'k' }, c.name + ' (100 µm patch)'), h('span', null, fmt(c.value, 1) + ' MPa')]), ...s.midEdges.flatMap(c => [h('span', { class: 'k' }, c.name + ' (100 µm patch)'), h('span', null, fmt(c.value, 1) + ' MPa')]), cfg.limits.dieStrength ? h('span', { class: 'k' }, 'Margin to die strength') : null, cfg.limits.dieStrength ? h('span', { class: cfg.limits.dieStrength > s.peakInterior ? 'ok' : 'bad' }, fmt(cfg.limits.dieStrength - s.peakInterior, 0) + ' MPa') : null),
+      h('div', { class: 'kv' }, kl('Interior peak (nodal averaged)', 'peakNodal'), h('b', { 'data-tip': 'Gauss-point peak in the interior: ' + fmt(s.gpPeakInterior, 1) + ' MPa; nodal extrapolation can differ meaningfully from Gauss-point values' }, fmt(s.peakInterior, 1) + ' MPa at (' + fmt(s.peakX, 1) + ', ' + fmt(s.peakY, 1) + ')'), kl('Interior peak (Gauss points)', 'peakGauss'), h('span', null, fmt(s.gpPeakInterior, 1) + ' MPa'), kl('Whole-face Gauss-point peak', 'peakAll'), h('span', null, fmt(s.gpPeakAll, 1) + ' MPa (includes singular edge region)'), ...s.corners.flatMap(c => [kl(c.name + ' (100 µm patch)', 'cornerPatch'), h('span', null, fmt(c.value, 1) + ' MPa')]), ...s.midEdges.flatMap(c => [kl(c.name + ' (100 µm patch)', 'cornerPatch'), h('span', null, fmt(c.value, 1) + ' MPa')]), cfg.limits.dieStrength ? kl('Margin to die strength', 'margin') : null, cfg.limits.dieStrength ? h('span', { class: cfg.limits.dieStrength > s.peakInterior ? 'ok' : 'bad' }, fmt(cfg.limits.dieStrength - s.peakInterior, 0) + ' MPa') : null),
       h('details', null, h('summary', null, 'What this means'), h('p', { class: 'small' }, 'Positive values are tensile. On the backside the dominant term is the bending of the die on the mismatched substrate; tensile backside stress is the usual state at room temperature for a bare die. Interior peaks are mesh-converging quantities; corner and mid-edge values sit at stress singularities and are averaged over a fixed 100 µm × 100 µm patch so that they can be compared between designs but never read as absolute strengths.'))));
   }
   root.append(h('div', { class: 'grid2' }, left, right));
@@ -7578,9 +7818,9 @@ function renderDieStressView(root, res, f, Tsel) {
 function renderBumpView(root, res, f, Tsel) {
   const cfg = app.cfg;
   const state = app.bumpState || 'cpi';
-  root.append(h('div', { class: 'row' }, h('b', null, 'Bump loading (chip-package interaction proxy)'), ...[['cpi', 'End of chip join, 25 °C (before underfill)'], ['asm', 'As-assembled']].map(([k, l]) => h('button', { class: state === k ? 'primary small' : 'small', onclick: () => { app.bumpState = k; renderCenter(); } }, l)), state === 'asm' ? Tsel : null, h('span', { class: 'conf' }, CONFIDENCE.bumps)));
+  root.append(h('div', { class: 'row' }, h('b', null, 'Bump loading (chip-package interaction proxy)'), ...[['cpi', 'End of chip join, 25 °C (before underfill)', 'stateCpi'], ['asm', 'As-assembled', 'stateAsm']].map(([k, l, t]) => h('button', tip(t, { class: state === k ? 'primary small' : 'small', onclick: () => { app.bumpState = k; renderCenter(); } }), l)), state === 'asm' ? Tsel : null, h('span', { class: 'conf' }, CONFIDENCE.bumps)));
   const comp = app.bumpComp || 'V';
-  root.append(h('div', { class: 'row' }, ...[['V', 'Shear force'], ['N', 'Axial force']].map(([k, l]) => h('button', { class: comp === k ? 'primary small' : 'small', onclick: () => { app.bumpComp = k; renderCenter(); } }, l))));
+  root.append(h('div', { class: 'row' }, ...[['V', 'Shear force', 'compV'], ['N', 'Axial force', 'compN']].map(([k, l, t]) => h('button', tip(t, { class: comp === k ? 'primary small' : 'small', onclick: () => { app.bumpComp = k; renderCenter(); } }), l))));
   const list = state === 'cpi' ? res.cpi : f.dies.map(d => d.bumps);
   let mn = Infinity, mx = -Infinity;
   for (const b of list) for (const v of b[comp]) if (isFinite(v)) { mn = Math.min(mn, v); mx = Math.max(mx, v); }
@@ -7591,8 +7831,8 @@ function renderBumpView(root, res, f, Tsel) {
   const right = h('div');
   list.forEach((b, i) => {
     right.append(h('div', { class: 'card' }, h('h3', null, b.die + (state === 'cpi' ? ', chip join cooldown (elastic upper bound; real joints relax by creep)' : ', as-assembled at ' + f.T + ' °C')),
-      h('div', { class: 'kv' }, h('span', { class: 'k' }, 'Worst shear'), h('b', null, fmt(b.worstV, 3) + ' N = ' + gf(b.worstV) + ' gf' + (cfg.limits.bumpShearN ? (b.worstV > cfg.limits.bumpShearN ? ' (above threshold)' : ' (below threshold)') : '')), h('span', { class: 'k' }, 'Worst axial'), h('b', null, fmt(b.worstN, 3) + ' N = ' + gf(b.worstN) + ' gf' + (cfg.limits.bumpAxialN ? (Math.abs(b.worstN) > cfg.limits.bumpAxialN ? ' (above threshold)' : ' (below threshold)') : '')), h('span', { class: 'k' }, 'Bump area'), h('span', null, fmtE(b.abump, 3) + ' mm² (d_eff ' + fmt(res.geometry.dies[i].deff * 1000, 1) + ' µm)')),
-      h('table', { class: 'small' }, h('tr', null, h('th', null, 'x'), h('th', null, 'y'), h('th', null, 'N (N)'), h('th', null, 'V (N)')), ...b.worst.map(q => h('tr', null, h('td', null, fmt(q.x, 2)), h('td', null, fmt(q.y, 2)), h('td', null, fmt(q.N, 4)), h('td', null, fmt(q.V, 4))))),
+      h('div', { class: 'kv' }, kl('Worst shear', 'worstV'), h('b', null, fmt(b.worstV, 3) + ' N = ' + gf(b.worstV) + ' gf' + (cfg.limits.bumpShearN ? (b.worstV > cfg.limits.bumpShearN ? ' (above threshold)' : ' (below threshold)') : '')), kl('Worst axial', 'worstN'), h('b', null, fmt(b.worstN, 3) + ' N = ' + gf(b.worstN) + ' gf' + (cfg.limits.bumpAxialN ? (Math.abs(b.worstN) > cfg.limits.bumpAxialN ? ' (above threshold)' : ' (below threshold)') : '')), kl('Bump area', 'abump'), h('span', null, fmtE(b.abump, 3) + ' mm² (d_eff ' + fmt(res.geometry.dies[i].deff * 1000, 1) + ' µm)')),
+      h('table', tip('worstTable', { class: 'small' }), h('tr', null, h('th', null, 'x'), h('th', null, 'y'), h('th', null, 'N (N)', helpTip('compN')), h('th', null, 'V (N)', helpTip('compV'))), ...b.worst.map(q => h('tr', null, h('td', null, fmt(q.x, 2)), h('td', null, fmt(q.y, 2)), h('td', null, fmt(q.N, 4)), h('td', null, fmt(q.V, 4))))),
       h('details', null, h('summary', null, 'What this means'), h('p', { class: 'small' }, 'Forces are the solder-phase stress of the homogenized bump layer times the bump area (iso-strain mixture). The chip-join state carries the full die-substrate mismatch through the bumps alone and is typically the critical case for BEOL / low-k cracking at die corners; it is an elastic upper bound. Use the maps to rank bump locations and designs.'))));
   });
   root.append(h('div', { class: 'grid2' }, left, right));
@@ -7602,8 +7842,8 @@ function renderUFView(root, res, f, Tsel) {
   root.append(h('div', { class: 'row' }, h('b', null, 'Underfill interface tractions'), ' at ', Tsel, h('span', { class: 'conf' }, CONFIDENCE.corner)));
   for (const d of f.dies) {
     const u = d.uf;
-    const c1 = h('canvas', { class: 'plot' }), c2 = h('canvas', { class: 'plot' });
-    root.append(h('div', { class: 'card' }, h('h3', null, d.name + ' perimeter (counterclockwise from the (−x, −y) corner)'), h('div', { class: 'grid2' }, c1, c2), h('div', { class: 'kv' }, h('span', { class: 'k' }, 'Max sidewall peel / shear'), h('span', null, fmt(u.maxPeelSide, 1) + ' / ' + fmt(u.maxShearSide, 1) + ' MPa'), h('span', { class: 'k' }, 'Max active-face peel / shear'), h('span', null, fmt(u.maxPeelFace, 1) + ' / ' + fmt(u.maxShearFace, 1) + ' MPa')), h('details', null, h('summary', null, 'What this means'), h('p', { class: 'small' }, 'Tractions are taken from the underfill-side stresses next to the die edge, averaged over 50 µm × 50 µm patches stepped along the perimeter. Peel is the traction normal to the interface (tension positive); shear is the in-plane traction magnitude. Peaks sit at the die corners (marked), where the elastic solution is singular; compare designs by these values, do not read them as strengths.'))));
+    const c1 = h('canvas', tip('ufSide', { class: 'plot' })), c2 = h('canvas', tip('ufFace', { class: 'plot' }));
+    root.append(h('div', { class: 'card' }, h('h3', null, d.name + ' perimeter (counterclockwise from the (−x, −y) corner)'), h('div', { class: 'grid2' }, c1, c2), h('div', { class: 'kv' }, kl('Max sidewall peel / shear', 'ufSide'), h('span', null, fmt(u.maxPeelSide, 1) + ' / ' + fmt(u.maxShearSide, 1) + ' MPa', helpTip('peel'), helpTip('shearT')), kl('Max active-face peel / shear', 'ufFace'), h('span', null, fmt(u.maxPeelFace, 1) + ' / ' + fmt(u.maxShearFace, 1) + ' MPa')), h('details', null, h('summary', null, 'What this means'), h('p', { class: 'small' }, 'Tractions are taken from the underfill-side stresses next to the die edge, averaged over 50 µm × 50 µm patches stepped along the perimeter. Peel is the traction normal to the interface (tension positive); shear is the in-plane traction magnitude. Peaks sit at the die corners (marked), where the elastic solution is singular; compare designs by these values, do not read them as strengths.'))));
     requestAnimationFrame(() => {
       const vl = u.corners.map((s, i) => ({ x: s, label: ['', 'corner', 'corner', 'corner', ''][i] }));
       linePlot(c1, [{ x: u.s, y: u.peelSide, label: 'peel (normal)' }, { x: u.s, y: u.shearSide, label: 'shear' }], { title: 'Die sidewall to fillet interface', xlabel: 'perimeter position, mm', ylabel: 'MPa', vlines: vl, hlines: [{ y: 0 }] });
@@ -7625,10 +7865,10 @@ function renderFatigueView(root, res) {
   const right = h('div');
   const sel = app.submodelSelection || defaultSubmodelSelection(res);
   app.submodelSelection = sel;
-  const nxySel = h('select', null, ...[12, 16, 20].map(n => h('option', { value: n, selected: cfg.submodel.nxy === n ? '' : null }, n + ' × ' + n + ' × ' + (n === 12 ? 10 : n === 16 ? 14 : 18))));
+  const nxySel = h('select', tip('subRes'), ...[12, 16, 20].map(n => h('option', { value: n, selected: cfg.submodel.nxy === n ? '' : null }, n + ' × ' + n + ' × ' + (n === 12 ? 10 : n === 16 ? 14 : 18))));
   nxySel.addEventListener('change', () => { cfg.submodel.nxy = +nxySel.value; cfg.submodel.nz = +nxySel.value === 12 ? 10 : (+nxySel.value === 16 ? 14 : 18); });
-  right.append(h('div', { class: 'card' }, h('h3', null, 'Screening ranking'), ...res.screening.map(s => h('div', null, h('b', null, s.die), h('table', { class: 'small' }, h('tr', null, h('th', null, 'select'), h('th', null, 'x'), h('th', null, 'y'), h('th', null, 'ΔW_proxy MPa'), h('th', null, 'Δε̄p')), ...s.top.slice(0, 8).map(t => { const key = s.dieIdx + ':' + t.q; return h('tr', null, h('td', null, h('input', { type: 'checkbox', checked: sel.has(key) ? '' : null, onchange: e => { if (e.target.checked) sel.add(key); else sel.delete(key); } })), h('td', null, fmt(t.x, 2)), h('td', null, fmt(t.y, 2)), h('td', null, fmtE(t.dW, 3)), h('td', null, fmtE(t.dE, 3))); })), h('div', { class: 'small muted' }, 'stabilization (last two cycles): ' + fmtE(s.stab[s.top[0] ? s.top[0].q : 0], 2) + (s.subsampled ? '; subsampled' : '') + '; ' + fmt(s.ms / 1000, 1) + ' s'))),
-    h('div', { class: 'row' }, h('label', null, 'Submodel resolution ', nxySel), h('button', { class: 'primary', onclick: () => runSubmodels(res) }, '▶ Run bump submodels for selected sites'))));
+  right.append(h('div', { class: 'card' }, h('h3', null, 'Screening ranking'), ...res.screening.map(s => h('div', null, h('b', null, s.die), h('table', { class: 'small' }, h('tr', null, h('th', null, 'select', helpTip('selectSite')), h('th', null, 'x'), h('th', null, 'y'), h('th', null, 'ΔW_proxy MPa', helpTip('dWproxy')), h('th', null, 'Δε̄p', helpTip('dEproxy'))), ...s.top.slice(0, 8).map(t => { const key = s.dieIdx + ':' + t.q; return h('tr', null, h('td', null, h('input', { type: 'checkbox', checked: sel.has(key) ? '' : null, onchange: e => { if (e.target.checked) sel.add(key); else sel.delete(key); } })), h('td', null, fmt(t.x, 2)), h('td', null, fmt(t.y, 2)), h('td', null, fmtE(t.dW, 3)), h('td', null, fmtE(t.dE, 3))); })), h('div', tip('stab', { class: 'small muted' }), 'stabilization (last two cycles): ' + fmtE(s.stab[s.top[0] ? s.top[0].q : 0], 2) + (s.subsampled ? '; subsampled' : '') + '; ' + fmt(s.ms / 1000, 1) + ' s'))),
+    h('div', { class: 'row' }, h('label', null, 'Submodel resolution ', nxySel), h('button', tip('runSub', { class: 'primary', onclick: () => runSubmodels(res) }), '▶ Run bump submodels for selected sites'))));
   for (const sm of app.submodels) right.append(renderSubmodelCard(sm));
   root.append(h('div', { class: 'grid2' }, left, right));
 }
@@ -7653,11 +7893,11 @@ function runSubmodels(res) {
   p.then(() => renderCenter()).catch(e => { if (e.message !== 'cancelled') toast('Submodel failed: ' + e.message, 'error', 9000); });
 }
 function renderSubmodelCard(sm) {
-  const c1 = h('canvas', { class: 'plot' });
+  const c1 = h('canvas', tip('hysteresis', { class: 'plot' }));
   const base = app.baseline && app.baseline.submodelRef;
   const life = sm.life;
   const card = h('div', { class: 'card' }, h('h3', null, 'Submodel: ' + sm.die + ' bump at (' + fmt(sm.site.x, 2) + ', ' + fmt(sm.site.y, 2) + ') mm, ' + sm.nxy + '×' + sm.nxy + '×' + sm.nz + ' voxels'),
-    h('div', { class: 'kv' }, h('span', { class: 'k' }, 'ΔW stabilized cycle (critical layer: ' + sm.critical + ')'), h('b', null, fmtE(sm.dW, 3) + ' MPa/cycle'), h('span', { class: 'k' }, 'die side / substrate side'), h('span', null, fmtE(sm.dWdie, 3) + ' / ' + fmtE(sm.dWsub, 3)), h('span', { class: 'k' }, 'Equivalent inelastic strain range'), h('span', null, fmtE(sm.dE, 3)), h('span', { class: 'k' }, 'Cycle-to-cycle change of ΔW'), h('span', { class: sm.stabWarn ? 'warnc' : 'ok' }, fmt(100 * sm.stabChange, 1) + ' %' + (sm.stabWarn ? ' (not stabilized; run more cycles)' : '')), h('span', { class: 'k' }, 'Life, Syed energy model'), h('b', null, fmt(life.syedEnergy, 0) + ' cycles'), h('span', { class: 'k' }, 'Life, Syed strain model'), h('span', null, fmt(life.syedStrain, 0) + ' cycles'), h('span', { class: 'k' }, 'Life, Darveaux'), h('span', null, life.darveaux === null ? 'enter K1 to K4 in step 5' : fmt(life.darveaux, 0) + ' cycles (N0 ' + fmt(life.darveauxN0, 0) + ', a = ' + fmt(sm.dJoint * 1000, 0) + ' µm)'), app.baseline && app.baseline.submodels && app.baseline.submodels[0] ? h('span', { class: 'k' }, 'Life ratio vs baseline') : null, app.baseline && app.baseline.submodels && app.baseline.submodels[0] ? h('b', null, fmt(life.syedEnergy / app.baseline.submodels[0].life.syedEnergy, 2)) : null, h('span', { class: 'k' }, 'Steps / cutbacks / Newton per step'), h('span', null, sm.steps + ' / ' + sm.cutbacks + ' / ' + fmt(sm.newtonPerStep, 1) + ', ' + fmt(sm.ms / 1000, 1) + ' s')),
+    h('div', { class: 'kv' }, kl('ΔW stabilized cycle (critical layer: ' + sm.critical + ')', 'subDW'), h('b', null, fmtE(sm.dW, 3) + ' MPa/cycle'), kl('die side / substrate side', 'subDW'), h('span', null, fmtE(sm.dWdie, 3) + ' / ' + fmtE(sm.dWsub, 3)), kl('Equivalent inelastic strain range', 'subDE'), h('span', null, fmtE(sm.dE, 3)), kl('Cycle-to-cycle change of ΔW', 'subStab'), h('span', { class: sm.stabWarn ? 'warnc' : 'ok' }, fmt(100 * sm.stabChange, 1) + ' %' + (sm.stabWarn ? ' (not stabilized; run more cycles)' : '')), kl('Life, Syed energy model', 'lifeSyedE'), h('b', null, fmt(life.syedEnergy, 0) + ' cycles'), kl('Life, Syed strain model', 'lifeSyedS'), h('span', null, fmt(life.syedStrain, 0) + ' cycles'), kl('Life, Darveaux', 'lifeDarv'), h('span', null, life.darveaux === null ? 'enter K1 to K4 in step 5' : fmt(life.darveaux, 0) + ' cycles (N0 ' + fmt(life.darveauxN0, 0) + ', a = ' + fmt(sm.dJoint * 1000, 0) + ' µm)'), app.baseline && app.baseline.submodels && app.baseline.submodels[0] ? kl('Life ratio vs baseline', 'lifeRatio') : null, app.baseline && app.baseline.submodels && app.baseline.submodels[0] ? h('b', null, fmt(life.syedEnergy / app.baseline.submodels[0].life.syedEnergy, 2)) : null, kl('Steps / cutbacks / Newton per step', 'subSteps'), h('span', null, sm.steps + ' / ' + sm.cutbacks + ' / ' + fmt(sm.newtonPerStep, 1) + ', ' + fmt(sm.ms / 1000, 1) + ' s')),
     c1, h('div', { class: 'small muted' }, 'Per cycle: ' + sm.perCycle.map(c => 'cycle ' + c.cycle + ': ' + fmtE(Math.max(c.dWdie, c.dWsub), 2)).join('; ')),
     h('details', null, h('summary', null, 'What this means'), h('p', { class: 'small' }, 'The submodel resolves one solder joint with the Anand viscoplastic model, driven by cut-boundary displacements from the global model. ΔW is the inelastic work density of the last simulated cycle averaged over a 25 µm layer at each interface; the larger side is used. Energy-based lives use Syed\'s constant (fitted to a different model and joint geometry) and are order-of-magnitude. The Darveaux model needs constants calibrated to this averaging scheme. The solder is assumed stress-free at 25 °C in the as-assembled state (room-temperature relaxation).')));
   requestAnimationFrame(() => linePlot(c1, [{ x: sm.loop.gamma, y: sm.loop.tau, label: 'die-side layer' }, { x: sm.loop.gammaSub, y: sm.loop.tauSub, label: 'substrate-side layer', dash: [3, 3] }], { title: 'Shear hysteresis (volume averaged in the interface layers, radial direction)', xlabel: 'shear strain γ', ylabel: 'τ, MPa', zero: false }));
@@ -7674,7 +7914,7 @@ function renderView3D(root, res, f, Tsel) {
   }
   if (!res.view3d) { root.append(h('div', { class: 'msg info' }, 'The 3D view needs the full analysis.')); return; }
   const v = app.view3dOpts || (app.view3dOpts = { scale: 20, color: 'warpage', hidden: new Set() });
-  const ctl = h('div', { class: 'row' }, h('b', null, '3D deformed shape'), ' at ', Tsel, h('label', null, ' exaggeration ', h('input', { type: 'range', min: 1, max: 200, value: v.scale, oninput: e => { v.scale = +e.target.value; update3D(); } })), h('label', null, ' color by ', h('select', { onchange: e => { v.color = e.target.value; update3D(); } }, h('option', { value: 'warpage', selected: v.color === 'warpage' ? '' : null }, 'out-of-plane displacement'), h('option', { value: 'stress', selected: v.color === 'stress' ? '' : null }, 'max principal stress (per part)'), h('option', { value: 'part', selected: v.color === 'part' ? '' : null }, 'part'))), ...C.PART_NAMES.map((n, i) => (res.view3d.part.includes(i) ? h('label', { class: 'small' }, h('input', { type: 'checkbox', checked: v.hidden.has(i) ? null : '', onchange: e => { if (e.target.checked) v.hidden.delete(i); else v.hidden.add(i); update3D(); } }), ' ' + n) : null)));
+  const ctl = h('div', { class: 'row' }, h('b', null, '3D deformed shape'), ' at ', Tsel, h('label', tip('exag3d'), ' exaggeration ', h('input', { type: 'range', min: 1, max: 200, value: v.scale, oninput: e => { v.scale = +e.target.value; update3D(); } })), h('label', tip('color3d'), ' color by ', h('select', { onchange: e => { v.color = e.target.value; update3D(); } }, h('option', { value: 'warpage', selected: v.color === 'warpage' ? '' : null }, 'out-of-plane displacement'), h('option', { value: 'stress', selected: v.color === 'stress' ? '' : null }, 'max principal stress (per part)'), h('option', { value: 'part', selected: v.color === 'part' ? '' : null }, 'part'))), ...C.PART_NAMES.map((n, i) => (res.view3d.part.includes(i) ? h('label', tip('partToggle', { class: 'small' }), h('input', { type: 'checkbox', checked: v.hidden.has(i) ? null : '', onchange: e => { if (e.target.checked) v.hidden.delete(i); else v.hidden.add(i); update3D(); } }), ' ' + n) : null)));
   root.append(ctl);
   const el = h('div', { id: 'view3d' });
   root.append(el, h('div', { class: 'legend', id: 'legend3d' }), h('div', { class: 'small muted' }, 'Drag to rotate, wheel to zoom, right-drag to pan.'));
@@ -7760,15 +8000,15 @@ function renderSensitivityView(root) {
   const inputs = C.sensitivityInputs(cfg);
   if (!app.sensInputs) app.sensInputs = new Set(inputs.map(i => i.id));
   root.append(h('div', { class: 'row' }, h('b', null, 'Sensitivity (tornado), Draft preset'), h('span', { class: 'muted small' }, 'Each input is set to the low and high end of its range (datasheet range where given, else ±10 %, ±10 °C for temperatures). Results are cached by configuration hash.')));
-  root.append(h('div', { class: 'row small' }, ...inputs.map(i => h('label', { class: 'pill', title: i.estimated ? 'Estimated (placeholder) value in the database' : '' }, h('input', { type: 'checkbox', checked: app.sensInputs.has(i.id) ? '' : null, onchange: e => { if (e.target.checked) app.sensInputs.add(i.id); else app.sensInputs.delete(i.id); } }), ' ' + i.label, i.estimated ? h('span', { class: 'badge Estimated' }, 'est.') : null))));
+  root.append(h('div', { class: 'row small' }, ...inputs.map(i => h('label', { class: 'pill', 'data-tip': TIPS.sensInput + (i.estimated ? ' This one is Estimated.' : '') }, h('input', { type: 'checkbox', checked: app.sensInputs.has(i.id) ? '' : null, onchange: e => { if (e.target.checked) app.sensInputs.add(i.id); else app.sensInputs.delete(i.id); } }), ' ' + i.label, i.estimated ? h('span', { class: 'badge Estimated' }, 'est.') : null))));
   const nw = Math.max(1, Math.min(8, (navigator.hardwareConcurrency || 4) - 1));
-  root.append(h('div', { class: 'row' }, h('button', { class: 'primary', disabled: app.validation.errors.length ? '' : null, onclick: () => runSensitivity(inputs.filter(i => app.sensInputs.has(i.id)), nw) }, '▶ Run sensitivity (' + (2 * app.sensInputs.size + 1) + ' Draft analyses on ' + nw + ' workers)')));
+  root.append(h('div', { class: 'row' }, h('button', tip('sensRun', { class: 'primary', disabled: app.validation.errors.length ? '' : null, onclick: () => runSensitivity(inputs.filter(i => app.sensInputs.has(i.id)), nw) }), '▶ Run sensitivity (' + (2 * app.sensInputs.size + 1) + ' Draft analyses on ' + nw + ' workers)')));
   const S = app.sensitivity;
   if (!S) return;
   if (S.hash !== C.configHashes(cfg).model) root.append(h('div', { class: 'msg warning' }, 'The configuration changed since this sensitivity run.'));
   for (const [k, title, unit, mult, dg] of [['warpRT', 'RT signed warpage', 'µm', 1000, 1], ['warpPeak', 'Warpage at the reflow peak', 'µm', 1000, 1], ['dieStress', 'Die backside interior peak stress', 'MPa', 1, 1], ['dW', 'Worst-bump ΔW_proxy', 'MPa', 1, 4]]) {
     const t = S[k]; if (!t) continue;
-    const cv = h('canvas', { class: 'plot', style: 'height:' + (60 + 24 * t.rows.length) + 'px' });
+    const cv = h('canvas', tip('tornado', { class: 'plot', style: 'height:' + (60 + 24 * t.rows.length) + 'px' }));
     root.append(h('div', { class: 'card' }, cv, h('div', { class: 'small muted' }, t.rows.map(r => r.label + ': ' + fmt(r.loValue, 3) + ' → ' + fmt(r.lo * mult, dg) + ' ' + unit + ', ' + fmt(r.hiValue, 3) + ' → ' + (r.hi >= 0 ? '+' : '') + fmt(r.hi * mult, dg) + ' ' + unit).join('; '))));
     requestAnimationFrame(() => tornadoPlot(cv, t.rows.map(r => ({ label: r.label, lo: r.lo * mult, hi: r.hi * mult })), t.base * mult, { title: title, unit, digits: dg }));
   }
@@ -7814,7 +8054,7 @@ function runSensitivity(inputs, nWorkers) {
 
 // ---- verification ----
 function renderVerificationView(root) {
-  root.append(h('div', { class: 'row' }, h('b', null, 'Verification suite (Section 14)'), h('button', { class: 'primary', onclick: () => runVerify(false) }, '▶ Run fast tests'), h('button', { onclick: () => runVerify(true) }, 'Run all (includes slow convergence and timing tests)')));
+  root.append(h('div', { class: 'row' }, h('b', null, 'Verification suite (Section 14)'), h('button', tip('verifyFast', { class: 'primary', onclick: () => runVerify(false) }), '▶ Run fast tests'), h('button', tip('verifyAll', { onclick: () => runVerify(true) }), 'Run all (includes slow convergence and timing tests)')));
   const V = app.verification;
   const tbl = h('table', { class: 'small' }, h('tr', null, h('th', null, 'ID'), h('th', null, 'Test'), h('th', null, 'Result'), h('th', null, 'Measured'), h('th', null, 'Criterion'), h('th', null, 's')));
   for (const t of C.VERIFICATION_TESTS) {
@@ -7835,7 +8075,7 @@ function runVerify(all) {
 
 // ---- report and CSV ----
 function renderReportView(root, res) {
-  root.append(h('div', { class: 'row' }, h('button', { class: 'primary', onclick: openReport }, 'Open printable report'), h('button', { onclick: exportCSV }, 'Export CSV (scalars, ball warpage, bump loads)'), h('span', { class: 'muted small' }, 'The report opens in a new window; use the browser print dialog to save as PDF.')));
+  root.append(h('div', { class: 'row' }, h('button', tip('report', { class: 'primary', onclick: openReport }), 'Open printable report'), h('button', tip('exportCsv', { onclick: exportCSV }), 'Export CSV (scalars, ball warpage, bump loads)'), h('span', { class: 'muted small' }, 'The report opens in a new window; use the browser print dialog to save as PDF.')));
   root.append(h('div', { class: 'card' }, reportBody(res)));
 }
 function reportBody(res) {
@@ -7920,26 +8160,26 @@ function limitationsList(res) {
 function renderStepper() {
   const nav = $('#stepper'); nav.innerHTML = '';
   for (const s of STEPS) {
-    nav.append(h('div', { class: 'step' + (app.step === s.n ? ' active' : '') + (s.n < app.step ? ' done' : ''), onclick: () => { app.step = s.n; prefs.set('step', s.n); renderAll(); } }, h('span', { class: 'num' }, s.n), h('span', { class: 'lbl' }, s.label)));
+    nav.append(h('div', { class: 'step' + (app.step === s.n ? ' active' : '') + (s.n < app.step ? ' done' : ''), 'data-tip': TIPS['step' + s.n], onclick: () => { app.step = s.n; prefs.set('step', s.n); renderAll(); } }, h('span', { class: 'num' }, s.n), h('span', { class: 'lbl' }, s.label)));
   }
   nav.append(h('hr'), h('div', { class: 'small muted', style: 'padding:6px' }, 'Configuration: ', h('b', null, app.cfg.name || '(unnamed)'), app.results ? h('div', null, 'Results: ' + app.results.preset + (app.results.preview ? ' preview' : '') + (app.dirty ? ' (configuration changed since)' : '')) : null, app.baseline ? h('div', null, 'Baseline pinned') : null));
-  nav.append(h('div', { style: 'padding:6px' }, h('button', { class: 'small', onclick: showLimitations }, 'Assumptions and limitations')));
+  nav.append(h('div', { style: 'padding:6px' }, h('button', tip('limitations', { class: 'small', onclick: showLimitations }), 'Assumptions and limitations')));
 }
 
-const CENTER_TABS = [['floorplan', 'Floorplan and section'], ['results', 'Results'], ['view3d', '3D view']];
+const CENTER_TABS = [['floorplan', 'Floorplan and section', 'tabFloorplan'], ['results', 'Results', 'tabResults'], ['view3d', '3D view', 'tab3d']];
 function setCenterTab(t) { app.centerTab = t; prefs.set('tab', t); renderCenter(); }
 function renderCenterTabs() {
   const el = $('#center-tabs'); el.innerHTML = '';
-  for (const [k, l] of CENTER_TABS) el.append(h('div', { class: 'tab' + (app.centerTab === k ? ' active' : ''), onclick: () => setCenterTab(k) }, l));
+  for (const [k, l, t] of CENTER_TABS) el.append(h('div', tip(t, { class: 'tab' + (app.centerTab === k ? ' active' : ''), onclick: () => setCenterTab(k) }), l));
 }
 function renderCenter() {
   renderCenterTabs();
   const body = $('#center-body'); body.innerHTML = '';
   if (three) { try { three.renderer.dispose(); } catch (e) { /* ignore */ } three = null; }
   if (app.centerTab === 'floorplan') {
-    const overlaySel = h('select', { onchange: e => { app.showOverlay = e.target.value; floorplan.draw(); } }, ...[['none', 'no overlay'], ['warpage', 'warpage, substrate bottom'], ['subtop', 'warpage, substrate top'], ['dieTop', 'die backside stress'], ['dieBottom', 'die active-face stress'], ['cpiV', 'bump shear, chip join'], ['cpiN', 'bump axial, chip join'], ['bumpV', 'bump shear, as-assembled'], ['bumpN', 'bump axial, as-assembled'], ['screening', 'fatigue screening ΔW']].map(([v, l]) => h('option', { value: v, selected: app.showOverlay === v ? '' : null }, l)));
+    const overlaySel = h('select', tip('overlay', { onchange: e => { app.showOverlay = e.target.value; floorplan.draw(); } }), ...[['none', 'no overlay'], ['warpage', 'warpage, substrate bottom'], ['subtop', 'warpage, substrate top'], ['dieTop', 'die backside stress'], ['dieBottom', 'die active-face stress'], ['cpiV', 'bump shear, chip join'], ['cpiN', 'bump axial, chip join'], ['bumpV', 'bump shear, as-assembled'], ['bumpN', 'bump axial, as-assembled'], ['screening', 'fatigue screening ΔW']].map(([v, l]) => h('option', { value: v, selected: app.showOverlay === v ? '' : null }, l)));
     const cut = h('div', { class: 'fp-toolbar' }, h('b', null, 'Floorplan'), h('span', null, 'overlay ', overlaySel), app.results ? h('span', { class: 'small muted' }, '(' + (app.currentFields ? app.currentFields.T : 25) + ' °C, ' + app.results.preset + (app.results.preview ? ' preview' : '') + ')') : null,
-      h('span', null, ' cut A-A\' '), h('select', { onchange: e => { app.cutLine.axis = e.target.value; floorplan.draw(); xsection.draw(); } }, h('option', { value: 'x', selected: app.cutLine.axis === 'x' ? '' : null }, 'along x at y ='), h('option', { value: 'y', selected: app.cutLine.axis === 'y' ? '' : null }, 'along y at x =')), h('input', { type: 'number', step: 0.5, value: app.cutLine.pos, style: 'width:70px', onchange: e => { app.cutLine.pos = +e.target.value; floorplan.draw(); xsection.draw(); } }), h('span', null, ' mm; vertical exaggeration '), h('select', { onchange: e => { app.exaggeration = +e.target.value; xsection.draw(); } }, ...[1, 5, 20].map(v => h('option', { value: v, selected: app.exaggeration === v ? '' : null }, v + '×'))), h('button', { class: 'small', onclick: () => { floorplan.zoomFit(); floorplan.draw(); } }, 'Fit'));
+      h('span', null, ' cut A-A\' '), h('select', tip('cutAxis', { onchange: e => { app.cutLine.axis = e.target.value; floorplan.draw(); xsection.draw(); } }), h('option', { value: 'x', selected: app.cutLine.axis === 'x' ? '' : null }, 'along x at y ='), h('option', { value: 'y', selected: app.cutLine.axis === 'y' ? '' : null }, 'along y at x =')), h('input', tip('cutPos', { type: 'number', step: 0.5, value: app.cutLine.pos, style: 'width:70px', onchange: e => { app.cutLine.pos = +e.target.value; floorplan.draw(); xsection.draw(); } })), h('span', null, ' mm; vertical exaggeration '), h('select', tip('exagg', { onchange: e => { app.exaggeration = +e.target.value; xsection.draw(); } }), ...[1, 5, 20].map(v => h('option', { value: v, selected: app.exaggeration === v ? '' : null }, v + '×'))), h('button', tip('fit', { class: 'small', onclick: () => { floorplan.zoomFit(); floorplan.draw(); } }), 'Fit'));
     const wrap = h('div', { id: 'floorplan-wrap' }, h('canvas', { id: 'floorplan' }), h('div', { id: 'fp-readout', class: 'readout' }), app.results && app.results.preview ? h('div', { class: 'preview-badge' }, 'Preview (Draft)') : null);
     body.append(cut, wrap, h('div', { id: 'fp-legend', class: 'legend' }), h('canvas', { id: 'xsection' }));
     floorplan.init($('#floorplan')); xsection.init($('#xsection'));
@@ -8004,6 +8244,7 @@ function init() {
   app.step = prefs.get('step', 1);
   app.centerTab = prefs.get('tab', 'floorplan');
   onConfigChanged('geometry', {});
+  $('#btn-theme').setAttribute('data-tip', TIPS.theme); $('#btn-help').setAttribute('data-tip', TIPS.helpBtn); $('#btn-cancel').setAttribute('data-tip', TIPS.cancel);
   $('#btn-theme').addEventListener('click', () => { const order = ['auto', 'light', 'dark']; applyTheme(order[(order.indexOf(app.theme) + 1) % 3]); toast('Theme: ' + app.theme, '', 1500); });
   $('#btn-help').addEventListener('click', showLimitations);
   $('#modal-close').addEventListener('click', closeModal);

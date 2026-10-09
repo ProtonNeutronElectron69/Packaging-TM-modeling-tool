@@ -108,7 +108,7 @@ const HELP = {
   pth: 'Plated through hole Cu area fraction of the core.',
   kind: 'Plane layers use the Voigt (parallel) rule in-plane; signal layers use the mean of Voigt and Reuss.',
 };
-function help(key) { return HELP[key] ? h('span', { class: 'help', title: HELP[key] }, '?') : null; }
+function help(key) { const text = key && (HELP[key] || (typeof TIPS !== 'undefined' && TIPS[key])); return text ? h('span', { class: 'help', 'data-tip': text, tabindex: '0', 'aria-label': text }, '?') : null; }
 
 /** Numeric input with hard bounds (error) and plausibility range (warning). */
 function numField(label, get, set, opts) {
@@ -119,9 +119,9 @@ function numField(label, get, set, opts) {
   const check = () => {
     const v = parseFloat(inp.value) / scale;
     wrap.classList.remove('warn', 'err');
-    if (!isFinite(v) || (opts.min !== undefined && v < opts.min) || (opts.max !== undefined && v > opts.max)) { wrap.classList.add('err'); inp.title = 'Allowed range: ' + (opts.min !== undefined ? opts.min * scale : '') + ' to ' + (opts.max !== undefined ? opts.max * scale : ''); return false; }
-    if ((opts.plo !== undefined && v < opts.plo) || (opts.phi !== undefined && v > opts.phi)) { wrap.classList.add('warn'); inp.title = 'Outside the usual range ' + opts.plo * scale + ' to ' + opts.phi * scale + '; check the value.'; }
-    else inp.title = '';
+    if (!isFinite(v) || (opts.min !== undefined && v < opts.min) || (opts.max !== undefined && v > opts.max)) { wrap.classList.add('err'); inp.setAttribute('data-tip', 'Allowed range: ' + (opts.min !== undefined ? opts.min * scale : '') + ' to ' + (opts.max !== undefined ? opts.max * scale : '')); return false; }
+    if ((opts.plo !== undefined && v < opts.plo) || (opts.phi !== undefined && v > opts.phi)) { wrap.classList.add('warn'); inp.setAttribute('data-tip', 'Outside the usual range ' + opts.plo * scale + ' to ' + opts.phi * scale + '; check the value.'); }
+    else inp.setAttribute('data-tip', (opts.min !== undefined || opts.max !== undefined) ? 'Allowed ' + (opts.min !== undefined ? opts.min * scale : '…') + ' to ' + (opts.max !== undefined ? opts.max * scale : '…') + (opts.plo !== undefined ? '; usual ' + opts.plo * scale + ' to ' + opts.phi * scale : '') : '');
     return true;
   };
   inp.addEventListener('change', () => { if (check()) { set(parseFloat(inp.value) / scale); onConfigChanged(opts.section || 'geometry'); } });

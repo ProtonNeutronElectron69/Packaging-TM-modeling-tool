@@ -1,3 +1,35 @@
+# FCBGA Thermomechanical Screening Tool: project guide
+
+## Project status (read this first)
+
+The build specification that follows (from "Build Prompt" onward) has been **implemented in full** and merged to `main` through three pull requests. A new session should treat it as the reference design of an existing, working application, not as a task to start.
+
+| PR | Merged | Content |
+|---|---|---|
+| #1 | 2026-10-08 | Complete tool: physics core, worker, single-file UI, verification suite, build and test tooling |
+| #2 | 2026-10-09 | Feature-preserving multigrid (lid convergence), parallel temperature sweep and submodels on nested workers, faster submodel, JEITA shape class and sign confidence, three.js CDN fallback and 3D smoke test, "Estimated inputs in use" card, V7 made consistent (suite 15/15) |
+| #3 | 2026-10-09 | Tooltips on every control, dropdown, results tab and result quantity (344 elements) |
+
+Current state on `main` (merge commit `e992fc8`):
+
+- Verification suite: **15/15 pass** headless in Node (`dist/verification.json` holds the last run with measured values).
+- Performance (Chromium, 4-core container, 3 workers): drag preview 2.3 to 2.6 s (target 2 s), full Standard analysis 147 s (target 90 s), screening 7 s (target 10 s), four submodels 286 s (target 120 s). The remaining gaps are the main open item; see README "Known issues and next steps".
+- Deliverable: `dist/fcbga_thermomech_tool.html` (about 500 kB, committed; rebuilt from `src/` by `node tools/build.mjs`).
+
+`README.md` carries the detailed status: verification table, measured timings, every deviation from the specification, known issues, repository layout and development workflow.
+
+## Working in this repository
+
+- **Source of truth is `src/`.** Never hand-edit `dist/fcbga_thermomech_tool.html`; run `node tools/build.mjs` after any change to `src/` and commit the rebuilt file together with the sources.
+- **Physics core** (`src/core/*.js`, concatenated in filename order) must stay free of DOM references: the same block runs on the UI thread, in the Web Worker and headless in Node. All constants live in `CONST` (`src/core/00-constants.js`); no magic numbers elsewhere. Large data in typed arrays only.
+- **UI** (`src/ui/*.js`, concatenated in filename order) uses the small `h()` element helper; every control gets a tooltip through `tip()`, `helpTip()` or `kl()` from `src/ui/00b-tips.js` (dictionary `TIPS`). Numeric inputs go through `numField()` so bounds and plausibility ranges apply.
+- **Worker protocol** is in `src/worker.js` (message types `init`, `run`, `evalSubset`, `submodelRemote`, `submodels`, `fieldsAt`, `submodel`, `sensitivityCase`, `verify`, `meshInfo`). Nested helper workers are spawned from inside the main worker; keep a sequential fallback for every parallel path.
+- **Before pushing**: `node tools/build.mjs`, then `node tools/verify.mjs` (full suite, about 4 minutes; V10 dominates) and `node tools/smoke.mjs --full` (Playwright and Chromium; three.js is served from a local stub because CDNs are blocked in the cloud sandbox). Quick checks: `node tools/verify.mjs V1,V2,V13` and `node tools/smoke.mjs`.
+- **Git**: develop on the designated feature branch, open a pull request to `main`, and keep each PR focused. The repository has no CI workflows; the headless suite and the smoke test are the gate.
+- **Writing style** in UI copy, tooltips, comments and documentation: plain language, no em dashes (use commas or semicolons), units on every number, confidence labels on every result.
+
+---
+
 # Build Prompt: FCBGA Thermomechanical Screening Tool (3D FE, in-browser)
 
 ## 0. Your task

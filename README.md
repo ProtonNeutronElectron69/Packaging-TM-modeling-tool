@@ -8,7 +8,7 @@ The full specification the tool is built against is in [`CLAUDE.md`](CLAUDE.md).
 
 ## Using the tool
 
-Open `dist/fcbga_thermomech_tool.html` in a current Chromium-based browser (Chrome, Edge) or Firefox. Everything runs locally in the page; nothing is uploaded. The only external resource is three.js (for the 3D view) from cdnjs; when it cannot be loaded the 3D view is hidden and every other feature keeps working.
+Open `dist/fcbga_thermomech_tool.html` in a current Chromium-based browser (Chrome, Edge) or Firefox. Everything runs locally in the page; nothing is uploaded. The only external resource is three.js (for the 3D view), loaded from cdnjs with jsdelivr and unpkg as fallbacks; when none can be reached the 3D view is hidden and every other feature keeps working.
 
 Workflow (left stepper):
 
@@ -21,16 +21,64 @@ Workflow (left stepper):
 
 Configurations are saved and loaded as JSON files. `localStorage` holds only the theme and the last step.
 
-## Building and verifying
+## Project status
+
+The specification in `CLAUDE.md` is implemented in full. Three pull requests are merged on `main`:
+
+| PR | Merged | Content |
+|---|---|---|
+| [#1](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/1) | 2026-10-08 | Complete tool: physics core, worker, single-file UI, verification suite, build and test tooling |
+| [#2](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/2) | 2026-10-09 | Feature-preserving multigrid, parallel sweep and submodels on nested workers, faster submodel, JEITA shape class and sign confidence, three.js fallback chain and 3D smoke test, "Estimated inputs in use" card, V7 consistency (suite 15/15) |
+| [#3](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/3) | 2026-10-09 | Tooltips on every control, dropdown, results tab and result quantity |
+
+Open items are listed under "Known issues and next steps" below. The largest is performance against the Section 13 targets.
+
+## Repository layout
+
+| Path | Content |
+|---|---|
+| `CLAUDE.md` | Project guide (status, conventions) followed by the original build specification |
+| `dist/fcbga_thermomech_tool.html` | The deliverable, built from `src/` and committed |
+| `dist/verification.json` | Results of the last headless verification run (not committed) |
+| `src/template.html`, `src/style.css` | Page skeleton (three.js loader with cdnjs, jsdelivr and unpkg fallback) and styles, light and dark themes |
+| `src/materials-db.json` | Cited materials database (Section 11) with per-property source, confidence and range |
+| `src/core/00-constants.js` | `CONST`: every modelling, mesh, solver and fatigue constant |
+| `src/core/01-util.js`, `02-config.js` | Helpers; default configuration, presets, stack generator, hashing, JSON round trip, JEITA and cycling tables |
+| `src/core/03-materials.js`, `04-homogenize.js` | E(T) and CTE(T) forms on the 1 °C grid, cubic silicon rotated 45°, Voigt / Reuss / Turner layer mixing, layered band sections, bump profile and d_eff |
+| `src/core/05-geometry.js`, `06-mesher.js` | Package geometry; structured extruded hex mesher with void cells, feature lines, size function, DOF cap, 3-2-1 constraints |
+| `src/core/07-element.js`, `08-sparse.js`, `09-assembly.js` | Incompatible-mode hex (closed-form box integration, layered integration), block CSR, `FEModel` (assembly, birth states, stress recovery) |
+| `src/core/10-solver.js` | Jacobi-scaled PCG, `MultigridPC` (column block Gauss-Seidel, shell aggregates, feature-preserving coarsening, banded coarsest Cholesky), `ICPC`, warm start, rebuild policy |
+| `src/core/11-analysis.js` | Process stages, evaluation temperatures, sweep ordering, the `Analysis` driver |
+| `src/core/12-post.js` | JEITA warpage with shape class and sign confidence, die stress, bump loads, underfill tractions, 3D face fields |
+| `src/core/13-fatigue.js` | Anand point integrator, cycle history, screening, `BumpSubmodel`, Syed and Darveaux life models |
+| `src/core/14-sensitivity.js`, `15-verify.js` | Tornado inputs, bounds and cases; verification tests V1 to V15 |
+| `src/worker.js` | Worker driver and nested helper workers (parallel sweep and submodels) |
+| `src/ui/00-app.js`, `00b-tips.js`, `01-plot.js` | App state, worker client, field helpers, tooltip dictionary and element, 2D plots and colour maps |
+| `src/ui/02-floorplan.js`, `03-panels.js`, `04-results.js`, `05-main.js` | Floorplan and cross-section editor, the six step panels, results views and report, shell and wiring |
+| `tools/build.mjs` | Concatenates `src/` into the single HTML file |
+| `tools/verify.mjs` | Extracts the core block from the built file and runs the suite in Node |
+| `tools/smoke.mjs`, `tools/three-stub.js` | Playwright / Chromium end-to-end test, with a local three.js API stub for sandboxes that block CDNs |
+| `tools/dev-core.mjs` | Loads `src/core` directly for ad-hoc experiments in Node |
+
+## Development workflow
 
 ```
-node tools/build.mjs          # writes dist/fcbga_thermomech_tool.html
-node tools/verify.mjs         # runs the verification suite headless in Node (V1 to V15)
-node tools/verify.mjs V1,V2,V13   # selected tests
-node tools/smoke.mjs --full [--standard] [--workers 3] [--submodels]   # Playwright / Chromium smoke test (three.js served from a local API stub)
+node tools/build.mjs                       # writes dist/fcbga_thermomech_tool.html (always rebuild after editing src/)
+node tools/verify.mjs                      # full verification suite headless in Node, V1 to V15 (about 4 min, V10 dominates)
+node tools/verify.mjs V1,V2,V13            # selected tests
+node tools/verify.mjs --presets draft      # V15 timing presets (default draft,standard)
+node tools/smoke.mjs                       # Chromium: page load and Draft preview, zero console errors
+node tools/smoke.mjs --full [--standard] [--workers 3] [--submodels]   # full analysis, every results view, 3D view, submodels
 ```
 
-`src/core/*.js` is the physics core (materials, homogenization, mesher, elements, assembly, solvers, post-processing, Anand model, screening, submodel, sensitivity, verification). It has no DOM dependencies and is embedded in the HTML as a `text/plain` script block that the UI thread, the Web Worker and the headless runner all load. `src/worker.js` is the worker driver, `src/ui/*.js` the interface, `src/materials-db.json` the materials database with citations.
+Rules that keep the three execution contexts consistent:
+
+- `src/core/*.js` must stay free of DOM references; the same text runs on the UI thread, in the Web Worker (Blob URL) and in Node.
+- Never edit `dist/` by hand; commit the rebuilt file with the sources.
+- Every constant goes in `CONST`; large data lives in `Float64Array` / `Int32Array`.
+- Every UI control gets a tooltip through `tip()`, `helpTip()` or `kl()` (dictionary `TIPS` in `src/ui/00b-tips.js`); numeric inputs go through `numField()` so bounds and plausibility ranges apply.
+- Playwright is resolved from the repository or from `/opt/node-tools/node_modules`; Chromium is pre-installed in the cloud sandbox.
+- There are no CI workflows; the headless suite and the smoke test are the gate before a pull request.
 
 ## Modeling summary
 
@@ -42,3 +90,69 @@ node tools/smoke.mjs --full [--standard] [--workers 3] [--submodels]   # Playwri
 - Anand viscoplastic SAC305 with backward-Euler radial return and consistent tangent; bump screening across all sites; one-pitch bump submodel with B-bar hexahedra, cut-boundary displacements and Newton-Raphson; Syed and Darveaux life models.
 
 See the in-app "Assumptions and limitations" panel for every modeling assumption and build decision.
+
+## Verification status
+
+Last headless run (Node 22, 4-core container), 15 of 15 pass. `dist/verification.json` holds the full text of each measurement.
+
+| ID | Test | Measured | Criterion | Result |
+|---|---|---|---|---|
+| V1 | Free thermal expansion | displacement error 3.3e-12 relative, stress 1.2e-13 × EαΔT | 1e-9 / 1e-8 | pass |
+| V2 | Patch test, incompatible-mode hex, distorted mesh | displacement 6.8e-17, strain 6.5e-16 | 1e-9 | pass |
+| V3 | Bimaterial plate curvature vs Timoshenko | 2.0692e-3 vs 2.0692e-3 1/mm (0.00 %) | 3 % | pass |
+| V4 | Three-layer laminate vs classical lamination theory | kx 0.01 %, ky 0.17 % | 3 % | pass |
+| V5 | Layered integration vs one element per layer | 104.95 vs 105.11 µm (0.15 %) | 1 % | pass |
+| V6 | Anand saturation stress vs closed form | 42.04 / 22.81 / 13.02 MPa vs 42.09 / 22.83 / 13.04 | 1 % | pass |
+| V7 | Submodel consistency with homogenized bump layer | 0.18 % (bump-layer domain, uniform phases); 0.47 % with the production domain, reported as information | 2 % | pass |
+| V8 | Symmetry of the warpage field | 1.3e-11 (x), 2.0e-11 (y), 7.3e-12 (diagonal), 1.3e-11 mirrored | 1e-6 | pass |
+| V9 | Physical sanity on the presets | bare RT +236 µm convex; backside +89 MPa tensile; 0.8 mm core 174 vs 313 µm; 795G LH 182 vs 705G 278 µm | all four | pass |
+| V10 | Mesh convergence, Standard vs Fine | warpage 0.59 %, die interior peak 2.95 % (113k vs 383k DOF) | 5 % | pass |
+| V11 | Solver integrity | residual 9.1e-11, reactions 2.8e-11 of the force scale, energy balance 2.4e-13 | 1e-8 / 1e-9 | pass |
+| V12 | JEITA sign and magnitude on synthetic domes | signs +1 / -1, magnitude error 0.0 | exact / 1e-9 | pass |
+| V13 | Unit checks (Si CTE, rotated Si moduli, SAC305 E, AlSiC-9 strain, Turner, Voigt, Reuss) | all exact | 1e-9 (formulas), printed precision (rounded references) | pass |
+| V14 | JSON save / load round trip | identical hash | identical | pass |
+| V15 | Timing benchmark | see below | report | pass |
+
+## Measured performance
+
+Headless Chromium on a 4-core cloud container with 3 workers, Section 13 targets in parentheses. A 2023-class laptop should be somewhat faster per core.
+
+| Job | Measured | Target |
+|---|---|---|
+| Drag preview (Draft) | 2.3 to 2.6 s | 2 s |
+| Full Draft analysis (stages, 25 °C, chip-join state, reflow sweep, cycling samples) | 33 s | none |
+| Full Standard analysis | 147 s | 90 s |
+| Full Fine analysis | not run end to end; stage chain alone about 190 s at 383k DOF | 10 min |
+| Screening over all 17,424 bumps of the default die | 7 s | 10 s |
+| Four bump submodels, 16×16×14, 3 cycles | 286 s on 3 workers (145 s per bump) | 120 s |
+| Sensitivity (Draft, default input set, worker pool) | about 15 to 20 s per case, roughly 2 to 3 min on 8 cores | 3 min |
+| Peak memory at Standard | about 330 MB per worker | 600 MB |
+| V15, stage chain + 25 °C, Draft 28k DOF | multigrid 4.7 s, IC(0) 37.7 s | report |
+| V15, stage chain + 25 °C, Standard 113k DOF | multigrid 23.6 s, IC(0) 170 s | report |
+
+Multigrid wins by about 6× at both presets and is the default preconditioner; IC(0) remains the fallback. PCG iterations per solve: bare 25, lidded 26, two-die stiffener 42 at Standard.
+
+## Deviations from the specification
+
+Each is also listed in the in-app "Assumptions and limitations" panel.
+
+1. **Multigrid coarse space.** Plain semi-coarsening with nodal interpolation stalled at 110 to 200 iterations, growing with refinement, because interpolated bending modes carry far too much shear energy on thin layered structures. The coarse levels use per-column shell aggregates (rigid-body plus thickness modes of each stiff stack, split at compliant layers) with Hermite deflection interpolation, keep die, lid and stiffener feature lines at every level, and finish with a banded Cholesky. Smoother, Galerkin products and warm starts are as specified.
+2. **Full symmetric block matrix stored** instead of the upper triangle, for faster smoothing sweeps; memory stays within target.
+3. **Element integration** uses a closed-form 12-point box rule, identical to 2×2×2 Gauss for single-material elements and to two Gauss points per sub-layer for layered elements.
+4. **Layered sub-layer stiffness** uses the continuum-shell form (plane-stress in-plane block, uncoupled thickness modulus); one thickness strain shared across a band's sub-layers over-constrained the softer ones (V5 at 1.5 %, now 0.15 %).
+5. **Preconditioner rebuild policy** is also keyed on the process stage and the solder regime (below or above the solidus), with a mid-solve rebuild when the 2× budget is exceeded; without it the solidus crossing stalled at 2000 iterations.
+6. **Drag preview** solves to 1e-5 and skips the chip-join state (preview warpage within 0.01 µm of the full solve on the default package).
+7. **Reflow sweep sampling** is 15 °C above the cycling range and 10 °C near a Tg, plus the report temperatures and the solidus; the 10 / 5 °C rule of Section 9.2 applies to the cycling samples.
+8. **V7** is run with 25 °C process temperatures and a bump-layer-only domain of uniform homogenized phases, because the spec's perturbation submodel coincides with the global total formulation only when the 25 °C state is stress-free; the production domain with materially consistent silicon and substrate slices is reported as information (0.47 %).
+9. **V11** is solved to 1e-10 to meet the 1e-9 reaction criterion; **V13** compares rounded reference values at their printed precision.
+10. **Submodel Newton** refreshes the consistent tangent on the first iterations and on stalls, and freezes it while the residual shrinks (modified Newton); the inner PCG uses an inexact-Newton tolerance.
+11. **Estimated material values** (rubbery moduli of ABF and solder resist, polymer Poisson ratios, core through-thickness and shear moduli, TIM gel) are flagged in the materials editor, listed in the run panel and report, and included in the default sensitivity set. SAC105 and SAC387 are placeholders without bundled data.
+
+## Known issues and next steps
+
+- **Performance targets are still missed** by 1.2× to 2.4× (preview, Standard, submodels; Fine not measured end to end). Candidates: WebAssembly or SIMD kernels for the matrix-vector product and the column smoother, a sparse direct solver for the 13k-DOF submodel, and fewer sweep temperatures when no Tg lies in the range.
+- **Fine preset** full analysis has not been timed; V10 covers its accuracy against Standard.
+- **JEITA sign on ring and saddle surfaces** is inherently fragile (the lidded default at 25 °C is a ring profile); the shape class, the sign-confidence metric and the magnitude curve are shown so the user can judge. A customer-specific sign rule could be added as an option.
+- **Peak memory grows with the worker count** (each helper holds its own model copy); the run panel shows the estimate.
+- **3D view** has been exercised only against the local three.js stub in the sandbox; a check in a browser with CDN access is still worthwhile.
+- **Possible future work**: mesh-independent corner metrics across presets (currently fixed physical patches), a warpage-only fast mode for sensitivity, calibrating effective stress-free temperatures against measured warpage, and an optional viscoelastic underfill model.

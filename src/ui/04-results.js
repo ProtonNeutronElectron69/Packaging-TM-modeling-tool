@@ -594,7 +594,7 @@ function limitationsList(res) {
   const cfg = app.cfg;
   const L = [
     'Total (secant) thermoelastic formulation with element birth for all non-solder materials in the global model: path independent, no viscoelastic relaxation. Each polymer\'s effective stress-free temperature is exposed as a knob (default: cure temperature).',
-    'Polymer properties above Tg are partly estimated (rubbery moduli of ABF and solder resist, all Poisson ratios of polymers, TIM gel). Values flagged Estimated should be replaced by measured or DMA data.',
+    'Polymer properties above Tg are partly estimated (rubbery moduli of ABF and solder resist, all Poisson ratios of polymers, TIM gel; for most underfills and adhesives added from data sheets, the rubbery modulus is a fixed fraction of the glassy modulus). Values flagged Estimated should be replaced by measured or DMA data.',
     'Substrate layers are homogenized with mixture rules (Voigt / Reuss / Turner) per physical layer and integrated layer by layer within four element bands; a Cu pattern is treated as a uniform fraction, not as routed geometry.',
     'Bumps are homogenized in the global model as a superposed solder phase and underfill phase sharing nodes (iso-strain / Voigt), exact for the through-thickness and transverse shear load paths of short columns, an upper bound for in-plane membrane stiffness.',
     'The underfill fillet is a stair-stepped approximation of a linear wedge on the global z-planes.',

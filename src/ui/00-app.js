@@ -38,7 +38,7 @@ const prefs = {
 const app = {
   cfg: null, results: null, baseline: null, fieldsCache: new Map(), screening: null, submodels: [], sensitivity: null, verification: null,
   step: 1, centerTab: 'floorplan', selectedDie: 0, resultsView: 'warpage', selectedT: 25, exaggeration: 5, cutLine: { axis: 'x', pos: 0 },
-  autoSolve: true, previewPending: null, running: null, mesh: null, validation: { errors: [], warnings: [] }, geom: null, dirty: true,
+  previewPending: null, running: null, mesh: null, validation: { errors: [], warnings: [] }, geom: null, dirty: true,
   workers: Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1)), nestedWorkers: true,
   decisions: [], showOverlay: 'warpage', cutDirty: true,
 };

@@ -30,7 +30,19 @@ function setupCanvas(canvas) {
   if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(hh * dpr)) { canvas.width = Math.round(w * dpr); canvas.height = Math.round(hh * dpr); }
   const ctx = canvas.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  canvas.__drawnW = w; canvas.__drawnH = hh;
   return { ctx, w, h: hh };
+}
+/** Redraw a canvas with fn whenever its displayed size changes (panel splitters, plot edge drags). */
+function autoRedraw(canvas, fn) {
+  canvas.__redraw = fn;
+  if (canvas.__resizeObs || typeof ResizeObserver === 'undefined') return;
+  canvas.__resizeObs = new ResizeObserver(() => {
+    if (!canvas.isConnected || !canvas.__redraw) return;
+    const r = canvas.getBoundingClientRect();
+    if (Math.round(r.width) !== canvas.__drawnW || Math.round(r.height) !== canvas.__drawnH) canvas.__redraw();
+  });
+  canvas.__resizeObs.observe(canvas);
 }
 
 /** Nice axis ticks. */
@@ -48,6 +60,7 @@ function ticks(lo, hi, n) {
  */
 function linePlot(canvas, series, opts) {
   opts = opts || {};
+  autoRedraw(canvas, () => linePlot(canvas, series, opts));
   const { ctx, w, h: H } = setupCanvas(canvas);
   const text = cssVar('--text'), muted = cssVar('--muted'), grid = cssVar('--grid'), panel = cssVar('--panel');
   ctx.fillStyle = panel; ctx.fillRect(0, 0, w, H);
@@ -95,10 +108,11 @@ function linePlot(canvas, series, opts) {
 /** Horizontal tornado bars: rows [{label, lo, hi}], base value. */
 function tornadoPlot(canvas, rows, base, opts) {
   opts = opts || {};
+  autoRedraw(canvas, () => tornadoPlot(canvas, rows, base, opts));
   const { ctx, w, h: H } = setupCanvas(canvas);
   const text = cssVar('--text'), muted = cssVar('--muted'), grid = cssVar('--grid'), panel = cssVar('--panel');
   ctx.fillStyle = panel; ctx.fillRect(0, 0, w, H);
-  const L = 180, R = 20, T = 24, B = 24;
+  const L = Math.min(180, Math.max(90, 0.4 * w)), R = 20, T = 24, B = 24;  // label column shrinks with narrow panels
   let m = 0;
   for (const r of rows) m = Math.max(m, Math.abs(r.lo), Math.abs(r.hi));
   if (!(m > 0)) m = 1;

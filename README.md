@@ -13,13 +13,15 @@ Open `dist/fcbga_thermomech_tool.html` in a current Chromium-based browser (Chro
 Workflow (left stepper):
 
 1. **Package**: substrate outline, layer stack (with an N-2-N generator), BGA field, configuration (bare die, lid, stiffener). Presets from Section 12 of the specification load in one click.
-2. **Dies and floorplan**: die list and properties, bump fields; drag dies on the floorplan (R rotates, Delete removes), with snapping and live clearances. A Draft preview solve runs while dragging and the full analysis runs on release when auto-solve is on.
+2. **Dies and floorplan**: die list and properties, bump fields; drag dies on the floorplan (R rotates, Delete removes), with snapping and live clearances. A Draft preview solve runs while dragging; releasing a die starts no further analysis (run the full analysis from step 6).
 3. **Underfill, lid, stiffener** geometry.
 4. **Materials**: the cited database with confidence badges, datasheet ranges, source tooltips, E(T) and CTE(T) plots, duplicate / reset.
 5. **Process and loads**: stress-free temperatures, reflow sweep, JESD22-A104 cycling, limits and fatigue constants.
 6. **Run and results**: fidelity preset, parallel worker count with the memory estimate, estimated DOF / memory / runtime, run controls, baseline pinning, mesh sensitivity check, the list of Estimated inputs in use, CSV export and printable report. Results views (center area): warpage (JEITA ED-7306 sign convention), die stress, bump loading, underfill interface tractions, solder fatigue screening and bump submodels, 3D view, sensitivity tornado charts, verification suite.
 
-Configurations are saved and loaded as JSON files. `localStorage` holds only the theme and the last step.
+Every pane can be resized by dragging: the step list and the context panel (vertical splitters), the split between the floorplan and the cross-section, the 3D view (grip below it), and each plot or map (drag its bottom edge). Fields, dropdowns, tables and plots follow the new size; double-click a splitter or edge to restore its default. A narrow step list shows step numbers only.
+
+Configurations are saved and loaded as JSON files. `localStorage` holds only conveniences: the theme, the last step and tab, and the pane sizes.
 
 ## Project status
 
@@ -54,7 +56,7 @@ Open items are listed under "Known issues and next steps" below. The largest is 
 | `src/core/13-fatigue.js` | Anand point integrator, cycle history, screening, `BumpSubmodel`, Syed and Darveaux life models |
 | `src/core/14-sensitivity.js`, `15-verify.js` | Tornado inputs, bounds and cases; verification tests V1 to V15 |
 | `src/worker.js` | Worker driver and nested helper workers (parallel sweep and submodels) |
-| `src/ui/00-app.js`, `00b-tips.js`, `01-plot.js` | App state, worker client, field helpers, tooltip dictionary and element, 2D plots and colour maps |
+| `src/ui/00-app.js`, `00b-tips.js`, `00c-layout.js`, `01-plot.js` | App state, worker client, field helpers, tooltip dictionary and element, resizable panes and plot edge grips, 2D plots and colour maps |
 | `src/ui/02-floorplan.js`, `03-panels.js`, `04-results.js`, `05-main.js` | Floorplan and cross-section editor, the six step panels, results views and report, shell and wiring |
 | `tools/build.mjs` | Concatenates `src/` into the single HTML file |
 | `tools/verify.mjs` | Extracts the core block from the built file and runs the suite in Node |
@@ -147,7 +149,8 @@ Each is also listed in the in-app "Assumptions and limitations" panel.
 8. **V7** is run with 25 °C process temperatures and a bump-layer-only domain of uniform homogenized phases, because the spec's perturbation submodel coincides with the global total formulation only when the 25 °C state is stress-free; the production domain with materially consistent silicon and substrate slices is reported as information (0.47 %).
 9. **V11** is solved to 1e-10 to meet the 1e-9 reaction criterion; **V13** compares rounded reference values at their printed precision.
 10. **Submodel Newton** refreshes the consistent tangent on the first iterations and on stalls, and freezes it while the residual shrinks (modified Newton); the inner PCG uses an inexact-Newton tolerance.
-11. **Estimated material values** (rubbery moduli of ABF and solder resist, polymer Poisson ratios, core through-thickness and shear moduli, TIM gel) are flagged in the materials editor, listed in the run panel and report, and included in the default sensitivity set. SAC105 and SAC387 are placeholders without bundled data.
+11. **No auto-solve on die release** (Section 4.3 asks for one, on by default). Removed at the user's request because a full analysis after every die move kept the worker busy; the Draft preview during a drag is kept, and the full analysis runs from the Run button in step 6.
+12. **Estimated material values** (rubbery moduli of ABF and solder resist, polymer Poisson ratios, core through-thickness and shear moduli, TIM gel) are flagged in the materials editor, listed in the run panel and report, and included in the default sensitivity set. SAC105 and SAC387 are placeholders without bundled data.
 
 ## Known issues and next steps
 

@@ -158,7 +158,8 @@ const RESULT_VIEWS = [['warpage', 'Warpage', 'viewWarpage'], ['dieStress', 'Die 
 
 function renderResults(root) {
   const res = app.results;
-  const bar = h('div', { class: 'row' }, ...RESULT_VIEWS.map(([k, l, t]) => h('button', tip(t, { class: app.resultsView === k ? 'primary small' : 'small', onclick: () => { app.resultsView = k; renderCenter(); } }), l)));
+  const colorSel = h('label', tip('colorMap', { class: 'small' }), 'colors ', h('select', { onchange: e => { app.colorMap = e.target.value; prefs.set('colorMap', app.colorMap); renderCenter(); } }, h('option', { value: 'rainbow', selected: app.colorMap === 'rainbow' ? '' : null }, 'rainbow'), h('option', { value: 'colorblind', selected: app.colorMap === 'colorblind' ? '' : null }, 'colorblind-safe')));
+  const bar = h('div', { class: 'row' }, ...RESULT_VIEWS.map(([k, l, t]) => h('button', tip(t, { class: app.resultsView === k ? 'primary small' : 'small', onclick: () => { app.resultsView = k; renderCenter(); } }), l)), colorSel);
   root.append(bar);
   if (!res && !['sensitivity', 'verification'].includes(app.resultsView)) { root.append(h('div', { class: 'msg info' }, 'Run the analysis (step 6) to see results.')); return; }
   const Tsel = res ? h('select', tip('tempSelect', { onchange: e => selectTemperature(+e.target.value) }), ...Array.from(new Set([25].concat(app.cfg.reflow.reportTemps, res.temps.all))).sort((a, b) => a - b).filter(T => res.temps.all.includes(T)).map(T => h('option', { value: T, selected: T === app.selectedT ? '' : null }, T + ' °C'))) : null;
@@ -185,15 +186,35 @@ function mapCanvas(res, drawFn, height) {
   const cv = h('canvas', { class: 'map', style: 'width:100%;height:' + (height || 420) + 'px' });
   const draw = () => {
     const { ctx, w, h: H } = setupCanvas(cv);
+    ctx.clearRect(0, 0, w, H);
     const sx = app.cfg.substrate.sx, sy = app.cfg.substrate.sy;
-    const sc = Math.min((w - 40) / sx, (H - 40) / sy);
-    const X = x => w / 2 + x * sc, Y = y => H / 2 - y * sc;
+    const sc0 = Math.min((w - 40) / sx, (H - 40) / sy);
+    cv.__tx = { w, H, sc0 };
+    const v = cv.__view || { z: 1, cx: 0, cy: 0 };  // zoom factor and the package point at the canvas centre (mm)
+    const sc = sc0 * v.z;
+    const X = x => w / 2 + (x - v.cx) * sc, Y = y => H / 2 - (y - v.cy) * sc;
     ctx.strokeStyle = cssVar('--text'); ctx.strokeRect(X(-sx / 2), Y(sy / 2), sx * sc, sy * sc);
     drawFn(ctx, X, Y, sc);
     for (const d of res.geometry.dies) { ctx.strokeStyle = cssVar('--text'); ctx.setLineDash([4, 3]); ctx.strokeRect(X(d.rect.x0), Y(d.rect.y1), d.w * sc, d.h * sc); ctx.setLineDash([]); }
   };
-  requestAnimationFrame(() => { draw(); autoRedraw(cv, draw); });
+  requestAnimationFrame(() => { autoRedraw(cv, draw); draw(); plotZoom(cv, mapZoomHandlers(cv)); });
   return cv;
+}
+/** Wheel zoom about the cursor and drag pan for a package map (view: zoom z, centre cx, cy in mm). */
+function mapZoomHandlers(cv) {
+  return {
+    zoom(px, py, f) {
+      const t = cv.__tx, v = cv.__view || { z: 1, cx: 0, cy: 0 };
+      const z = Math.min(ZOOM_MAX, v.z * f);
+      if (z <= 1) { cv.__view = null; return; }
+      const wx = v.cx + (px - t.w / 2) / (t.sc0 * v.z), wy = v.cy - (py - t.H / 2) / (t.sc0 * v.z);
+      cv.__view = { z, cx: wx - (px - t.w / 2) / (t.sc0 * z), cy: wy + (py - t.H / 2) / (t.sc0 * z) };
+    },
+    pan(dx, dy) {
+      const t = cv.__tx, v = cv.__view; if (!v) return;
+      cv.__view = { z: v.z, cx: v.cx - dx / (t.sc0 * v.z), cy: v.cy + dy / (t.sc0 * v.z) };
+    },
+  };
 }
 function legendRow(scale, label) { const cv = h('canvas'); const el = h('div', { class: 'legend' }, h('span', null, fmt(scale.min, 1)), cv, h('span', null, fmt(scale.max, 1)), h('span', null, label)); requestAnimationFrame(() => drawLegend(cv, scale)); return el; }
 
@@ -585,6 +606,7 @@ function limitationsList(res) {
     'Poisson ratios are clamped to 0.45 in the global hexahedral elements (B-bar elements in the submodel accept up to 0.49).',
     'Layered substrate bands use the continuum-shell form of each sub-layer stiffness (plane-stress in-plane block, uncoupled thickness modulus), because one thickness strain shared by all sub-layers of a band over-constrains the Poisson expansion (0.7 % warpage bias against lamination theory).',
     'No automatic analysis after editing: dragging or releasing a die (or any other edit) starts no solve, and the floorplan overlay is hidden while the geometry differs from the last analysis. The analysis runs only from step 6 (Run full global analysis, or Quick preview on the Draft mesh).',
+    'Contour colours default to a rainbow scale (purple low to red high). It is not colorblind safe or perceptually uniform: bright yellow and cyan bands can suggest features that are not there. Switch to the colorblind-safe scales with the "colors" dropdown in the Results bar.',
     'Parallel workers: the temperature sweep and the bump submodels can be split over several Web Workers; each holds its own copy of the model, so peak memory grows with the worker count (shown in the run panel).',
     'Build decisions: the multigrid coarse space uses per-column shell aggregates (rigid-body plus thickness modes of each stiff stack) because plain nodal interpolation stalls on thin layered structures; the full symmetric block matrix is stored (instead of the upper triangle) for faster smoothing; single-material elements use a closed-form 12-point rule that reproduces 2×2×2 Gauss exactly.',
   ];

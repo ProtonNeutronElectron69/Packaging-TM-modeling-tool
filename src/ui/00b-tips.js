@@ -58,6 +58,8 @@ const TIPS = {
   splitXs: 'Drag to share the height between the floorplan (above) and the cross-section (below). Double-click to restore the default split.',
   split3d: 'Drag to change the height of the 3D view. Double-click to restore the default height.',
   plotResize: 'Drag the bottom edge to change the height; double-click the edge to restore it.',
+  plotZoom: 'Mouse wheel zooms about the pointer; drag to pan once zoomed; double-click to show everything again.',
+  colorMap: 'Colour scale for contour maps, the floorplan overlay, bump maps and the 3D view. Rainbow runs purple (low) through blue, green, yellow and orange to red (high); signed quantities put zero at mid-scale (green to yellow). Colorblind-safe uses viridis for magnitudes and blue-white-red for signed values.',
   dieName: 'Label used in every result view and the report.',
   dieX: 'Die centre x in package coordinates (origin at the substrate centre). Synchronised with dragging.',
   dieY: 'Die centre y in package coordinates. Synchronised with dragging.',

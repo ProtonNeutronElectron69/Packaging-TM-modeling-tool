@@ -190,6 +190,11 @@ const floorplan = {
     const f = app.currentFields || res.at25;
     if (!f) return;
     const legendEl = $('#fp-legend');
+    // results belong to the geometry they were computed for; hide them once the floorplan or stack changes
+    if (res.hashes && res.hashes.geometry !== C.configHashes(app.cfg).geometry) {
+      if (legendEl) legendEl.textContent = 'Overlay hidden: the geometry changed since the last analysis. Run the analysis in step 6 (or Quick preview) to update it.';
+      return;
+    }
     let scale, label;
     if (app.showOverlay === 'warpage') {
       const grid = f.warpage.grid;

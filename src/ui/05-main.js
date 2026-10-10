@@ -51,22 +51,13 @@ function showLimitations() {
   showModal('Assumptions and limitations', box);
 }
 
-// ---- preview scheduling ----
-let previewTimer = null;
+// ---- configuration changes ----
+// Edits never start an analysis (no drag preview, no solve on release); the user runs it from step 6.
 document.addEventListener('configchange', ev => {
   const d = ev.detail || {};
   const o = d.opts || {};
   if (app.centerTab === 'floorplan') { floorplan.draw(); xsection.draw(); }
-  if (o.dragging) {
-    // debounce 250 ms after the pointer stops; cancel in-flight preview
-    if (previewTimer) clearTimeout(previewTimer);
-    if (app.running && app.running.startsWith('Drag preview')) worker.cancel();
-    previewTimer = setTimeout(() => { previewTimer = null; if (!app.validation.errors.length) runPreview(false); }, 250);
-    floorplan.drawReadout();
-    return;
-  }
-  // Releasing a die starts no analysis: the Draft preview from the drag (pending or in flight) completes,
-  // and the full analysis runs only from the Run button in step 6.
+  if (o.dragging) { floorplan.drawReadout(); return; }
   if (app.step !== 2 || !o.dragging) renderContext();
   renderStepper();
 });

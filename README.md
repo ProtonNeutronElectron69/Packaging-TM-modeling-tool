@@ -13,7 +13,7 @@ Open `dist/fcbga_thermomech_tool.html` in a current Chromium-based browser (Chro
 Workflow (left stepper):
 
 1. **Package**: substrate outline, layer stack (with an N-2-N generator), BGA field, configuration (bare die, lid, stiffener). Presets from Section 12 of the specification load in one click.
-2. **Dies and floorplan**: die list and properties, bump fields; drag dies on the floorplan (R rotates, Delete removes), with snapping and live clearances. A Draft preview solve runs while dragging; releasing a die starts no further analysis (run the full analysis from step 6).
+2. **Dies and floorplan**: die list and properties, bump fields; drag dies on the floorplan (R rotates, Delete removes), with snapping and live clearances. Moving dies starts no analysis; the warpage overlay is hidden while the geometry differs from the last results. Run the analysis from step 6 (full, or Quick preview on the Draft mesh).
 3. **Underfill, lid, stiffener** geometry.
 4. **Materials**: the cited database with confidence badges, datasheet ranges, source tooltips, E(T) and CTE(T) plots, duplicate / reset.
 5. **Process and loads**: stress-free temperatures, reflow sweep, JESD22-A104 cycling, limits and fatigue constants.
@@ -122,7 +122,7 @@ Headless Chromium on a 4-core cloud container with 3 workers, Section 13 targets
 
 | Job | Measured | Target |
 |---|---|---|
-| Drag preview (Draft) | 2.3 to 2.6 s | 2 s |
+| Quick preview (Draft, step 6 button; the drag preview was removed) | about 8 s | none (drag preview target 2 s no longer applies) |
 | Full Draft analysis (stages, 25 °C, chip-join state, reflow sweep, cycling samples) | 33 s | none |
 | Full Standard analysis | 147 s | 90 s |
 | Full Fine analysis | not run end to end; stage chain alone about 190 s at 383k DOF | 10 min |
@@ -144,17 +144,16 @@ Each is also listed in the in-app "Assumptions and limitations" panel.
 3. **Element integration** uses a closed-form 12-point box rule, identical to 2×2×2 Gauss for single-material elements and to two Gauss points per sub-layer for layered elements.
 4. **Layered sub-layer stiffness** uses the continuum-shell form (plane-stress in-plane block, uncoupled thickness modulus); one thickness strain shared across a band's sub-layers over-constrained the softer ones (V5 at 1.5 %, now 0.15 %).
 5. **Preconditioner rebuild policy** is also keyed on the process stage and the solder regime (below or above the solidus), with a mid-solve rebuild when the 2× budget is exceeded; without it the solidus crossing stalled at 2000 iterations.
-6. **Drag preview** solves to 1e-5 and skips the chip-join state (preview warpage within 0.01 µm of the full solve on the default package).
-7. **Reflow sweep sampling** is 15 °C above the cycling range and 10 °C near a Tg, plus the report temperatures and the solidus; the 10 / 5 °C rule of Section 9.2 applies to the cycling samples.
-8. **V7** is run with 25 °C process temperatures and a bump-layer-only domain of uniform homogenized phases, because the spec's perturbation submodel coincides with the global total formulation only when the 25 °C state is stress-free; the production domain with materially consistent silicon and substrate slices is reported as information (0.47 %).
-9. **V11** is solved to 1e-10 to meet the 1e-9 reaction criterion; **V13** compares rounded reference values at their printed precision.
-10. **Submodel Newton** refreshes the consistent tangent on the first iterations and on stalls, and freezes it while the residual shrinks (modified Newton); the inner PCG uses an inexact-Newton tolerance.
-11. **No auto-solve on die release** (Section 4.3 asks for one, on by default). Removed at the user's request because a full analysis after every die move kept the worker busy; the Draft preview during a drag is kept, and the full analysis runs from the Run button in step 6.
-12. **Estimated material values** (rubbery moduli of ABF and solder resist, polymer Poisson ratios, core through-thickness and shear moduli, TIM gel) are flagged in the materials editor, listed in the run panel and report, and included in the default sensitivity set. SAC105 and SAC387 are placeholders without bundled data.
+6. **Reflow sweep sampling** is 15 °C above the cycling range and 10 °C near a Tg, plus the report temperatures and the solidus; the 10 / 5 °C rule of Section 9.2 applies to the cycling samples.
+7. **V7** is run with 25 °C process temperatures and a bump-layer-only domain of uniform homogenized phases, because the spec's perturbation submodel coincides with the global total formulation only when the 25 °C state is stress-free; the production domain with materially consistent silicon and substrate slices is reported as information (0.47 %).
+8. **V11** is solved to 1e-10 to meet the 1e-9 reaction criterion; **V13** compares rounded reference values at their printed precision.
+9. **Submodel Newton** refreshes the consistent tangent on the first iterations and on stalls, and freezes it while the residual shrinks (modified Newton); the inner PCG uses an inexact-Newton tolerance.
+10. **No drag preview and no auto-solve on die release** (Section 4.3 asks for both). Removed at the user's request: moving a die starts no solve, and the floorplan overlay is hidden while the geometry differs from the results it was computed for. The analysis runs from step 6 (full, or Quick preview on the Draft mesh).
+11. **Estimated material values** (rubbery moduli of ABF and solder resist, polymer Poisson ratios, core through-thickness and shear moduli, TIM gel) are flagged in the materials editor, listed in the run panel and report, and included in the default sensitivity set. SAC105 and SAC387 are placeholders without bundled data.
 
 ## Known issues and next steps
 
-- **Performance targets are still missed** by 1.2× to 2.4× (preview, Standard, submodels; Fine not measured end to end). Candidates: WebAssembly or SIMD kernels for the matrix-vector product and the column smoother, a sparse direct solver for the 13k-DOF submodel, and fewer sweep temperatures when no Tg lies in the range.
+- **Performance targets are still missed** by 1.6× to 2.4× (Standard, submodels; Fine not measured end to end). Candidates: WebAssembly or SIMD kernels for the matrix-vector product and the column smoother, a sparse direct solver for the 13k-DOF submodel, and fewer sweep temperatures when no Tg lies in the range.
 - **Fine preset** full analysis has not been timed; V10 covers its accuracy against Standard.
 - **JEITA sign on ring and saddle surfaces** is inherently fragile (the lidded default at 25 °C is a ring profile); the shape class, the sign-confidence metric and the magnitude curve are shown so the user can judge. A customer-specific sign rule could be added as an option.
 - **Peak memory grows with the worker count** (each helper holds its own model copy); the run panel shows the estimate.

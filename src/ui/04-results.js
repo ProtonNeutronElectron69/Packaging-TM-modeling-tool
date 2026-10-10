@@ -21,7 +21,7 @@ function renderRunPanel(root) {
     root.append(h('div', { class: 'kv' }, h('span', { class: 'k' }, 'Estimated mesh'), h('span', null, est.info.nx + ' × ' + est.info.ny + ' × ' + est.info.nz + ' grid, ' + est.info.nElem.toLocaleString() + ' elements, ' + est.info.nDof.toLocaleString() + ' DOF' + (est.info.scaled ? ' (sizes enlarged to meet the cap)' : '')), h('span', { class: 'k' }, 'Element sizes'), h('span', null, 'h_min ' + fmt(est.info.hmin, 3) + ', h_max ' + fmt(est.info.hmax, 3) + ' mm; max aspect ' + fmt(est.info.aspectMax, 0)), h('span', { class: 'k' }, 'Estimated memory'), h('span', { class: est.memMB > 600 ? 'warnc' : '' }, fmt(est.memMB, 0) + ' MB total (' + fmt(est.perWorkerMB, 0) + ' MB per worker' + (est.memMB > 600 ? '; above the 600 MB target, reduce the worker count if memory is tight' : '') + ')'), h('span', { class: 'k' }, 'Estimated runtime'), h('span', null, 'preview ' + fmt(est.previewS, 0) + ' s, full analysis ' + fmt(est.fullS, 0) + ' s with ' + app.workers + ' worker' + (app.workers > 1 ? 's' : '') + ' (scales with your CPU)')));
   }
   const canRun = !app.validation.errors.length;
-  root.append(h('div', { class: 'row' }, h('button', tip('runFull', { class: 'primary', disabled: canRun ? null : '', onclick: () => runFull() }), '▶ Run full global analysis'), h('button', tip('quickPreview', { disabled: canRun ? null : '', onclick: () => runPreview(true) }), 'Quick preview (Draft, 25 °C)')));
+  root.append(h('div', { class: 'row' }, h('button', tip('runFull', { class: 'primary', disabled: canRun ? null : '', onclick: () => runFull() }), '▶ Run full global analysis'), h('button', tip('quickPreview', { disabled: canRun ? null : '', onclick: () => runPreview() }), 'Quick preview (Draft, 25 °C)')));
   root.append(h('div', { class: 'row' }, h('button', tip('pinBaseline', { disabled: app.results ? null : '', onclick: pinBaseline }), 'Pin as baseline'), h('button', tip('clearBaseline', { disabled: app.baseline ? null : '', onclick: () => { app.baseline = null; renderContext(); } }), 'Clear baseline'), h('button', tip('meshCheck', { disabled: canRun ? null : '', onclick: checkMeshSensitivity }), 'Check mesh sensitivity'), h('button', tip('exportCsv', { disabled: app.results ? null : '', onclick: exportCSV }), 'Export CSV'), h('button', tip('report', { disabled: app.results ? null : '', onclick: openReport }), 'Report (print / PDF)')));
   if (cfg.name && cfg.name.startsWith('Core thickness study')) root.append(h('div', { class: 'row' }, h('button', tip('coreStudy', { onclick: runCoreStudy }), 'Run both core variants and compare')));
   root.append(h('div', { class: 'small muted' }, 'Tip: pin a baseline, then compare variants. Ratios and deltas against the baseline are the most trustworthy outputs of a screening model.'));
@@ -111,13 +111,13 @@ function runFull() {
     toast('Analysis complete in ' + fmt(res.totalMs / 1000, 1) + ' s (' + res.meshInfo.nDof + ' DOF, ' + res.workers + ' worker' + (res.workers > 1 ? 's' : '') + ').', 'ok');
   }).catch(err => { if (err.message !== 'cancelled') toast('Analysis failed: ' + err.message, 'error', 9000); });
 }
-function runPreview(explicit) {
+function runPreview() {
   if (app.validation.errors.length) return;
-  startRun({ type: 'run', cfg: app.cfg, preset: 'draft', evaluations: 'preview', quick: !explicit }, explicit ? 'Draft preview' : 'Drag preview (Draft)').then(res => {
+  startRun({ type: 'run', cfg: app.cfg, preset: 'draft', evaluations: 'preview' }, 'Draft preview').then(res => {
     res.preview = true;
     app.results = res; app.currentFields = res.at25; app.selectedT = 25;
     floorplan.draw();
-    if (explicit) { renderContext(); }
+    renderContext();
   }).catch(err => { if (err.message !== 'cancelled') toast('Preview failed: ' + err.message, 'error'); });
 }
 function startRun(msg, label) {
@@ -584,9 +584,9 @@ function limitationsList(res) {
     'Silicon elastic constants are temperature independent; Cu and metals are elastic.',
     'Poisson ratios are clamped to 0.45 in the global hexahedral elements (B-bar elements in the submodel accept up to 0.49).',
     'Layered substrate bands use the continuum-shell form of each sub-layer stiffness (plane-stress in-plane block, uncoupled thickness modulus), because one thickness strain shared by all sub-layers of a band over-constrains the Poisson expansion (0.7 % warpage bias against lamination theory).',
-    'No automatic analysis after editing: releasing a dragged die (or any other edit) starts no solve. The Draft preview computed during a drag still completes; the full global analysis runs only from the Run button in step 6.',
+    'No automatic analysis after editing: dragging or releasing a die (or any other edit) starts no solve, and the floorplan overlay is hidden while the geometry differs from the last analysis. The analysis runs only from step 6 (Run full global analysis, or Quick preview on the Draft mesh).',
     'Parallel workers: the temperature sweep and the bump submodels can be split over several Web Workers; each holds its own copy of the model, so peak memory grows with the worker count (shown in the run panel).',
-    'Build decisions: the multigrid coarse space uses per-column shell aggregates (rigid-body plus thickness modes of each stiff stack) because plain nodal interpolation stalls on thin layered structures; the full symmetric block matrix is stored (instead of the upper triangle) for faster smoothing; single-material elements use a closed-form 12-point rule that reproduces 2×2×2 Gauss exactly; the drag preview solves to a looser tolerance (1e-5) and skips the chip-join state.',
+    'Build decisions: the multigrid coarse space uses per-column shell aggregates (rigid-body plus thickness modes of each stiff stack) because plain nodal interpolation stalls on thin layered structures; the full symmetric block matrix is stored (instead of the upper triangle) for faster smoothing; single-material elements use a closed-form 12-point rule that reproduces 2×2×2 Gauss exactly.',
   ];
   if (res && res.notes) L.push(...res.notes);
   return L;

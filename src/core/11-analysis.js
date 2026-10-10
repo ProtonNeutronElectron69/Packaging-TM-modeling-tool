@@ -63,7 +63,7 @@ class Analysis {
     this.model = new FEModel(this.mesh, this.cfg);
     this.timings.model = nowMs() - t1;
     this.planeSeg = planeSegments(this.mesh);
-    this.solver = new LinearSolver(this.model, { precond: this.opts.precond, tol: this.opts.quick ? CONST.PREVIEW_TOL : CONST.PCG_TOL, mg: { planeSeg: this.planeSeg }, log: r => this.log.push(r) });
+    this.solver = new LinearSolver(this.model, { precond: this.opts.precond, tol: CONST.PCG_TOL, mg: { planeSeg: this.planeSeg }, log: r => this.log.push(r) });
     this.rhs = new Float64Array(this.model.ndof);
     this.finalStage = this.cfg.packageType === 'bare' ? 2 : 3;
     this.tgs = modelTgs(this.cfg, this.model.groups);
@@ -149,10 +149,8 @@ class Analysis {
 
   /** CPI state and bookkeeping after the sweep. */
   finishSweep() {
-    if (!this.opts.quick) {
-      this.progress(0.9, 'Chip-join state at 25 °C (CPI proxy)');
-      this.uCPI = this.solveAt(25, 1, 'chip join only, 25 °C').u;
-    }
+    this.progress(0.9, 'Chip-join state at 25 °C (CPI proxy)');
+    this.uCPI = this.solveAt(25, 1, 'chip join only, 25 °C').u;
     this.timings.total = nowMs() - this.tAll;
     this.progress(0.92, 'Post-processing');
     return this;

@@ -109,7 +109,7 @@ const TIPS = {
   // ---- step 6 ----
   workers: 'The temperature sweep and the bump submodels are split over this many Web Workers. Each holds its own copy of the model, so memory scales with the count; 1 keeps everything in one worker.',
   runFull: 'Process stages, as-assembled state at 25 °C, chip-join state, reflow sweep, cycling samples, bump screening and 3D fields, at the selected fidelity.',
-  quickPreview: 'Draft mesh, stages and the 25 °C state only; fast look at the warpage overlay.',
+  quickPreview: 'Draft mesh, stages and the 25 °C state only; fast look at the warpage overlay. Edits never start an analysis on their own.',
   pinBaseline: 'Keep the current results as the baseline; later runs show deltas and ratios against it.',
   clearBaseline: 'Remove the pinned baseline.',
   meshCheck: 'Rerun the current case at the next finer preset and compare RT warpage, die interior peak stress and worst-bump force.',

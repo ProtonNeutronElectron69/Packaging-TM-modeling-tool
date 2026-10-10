@@ -14,7 +14,7 @@ The build specification that follows (from "Build Prompt" onward) has been **imp
 Current state on `main`:
 
 - Verification suite: **15/15 pass** headless in Node (`dist/verification.json` holds the last run with measured values).
-- Performance (Chromium, 4-core container, 3 workers): drag preview 2.3 to 2.6 s (target 2 s), full Standard analysis 147 s (target 90 s), screening 7 s (target 10 s), four submodels 286 s (target 120 s). The remaining gaps are the main open item; see README "Known issues and next steps".
+- Performance (Chromium, 4-core container, 3 workers): full Standard analysis 147 s (target 90 s), screening 7 s (target 10 s), four submodels 286 s (target 120 s). The remaining gaps are the main open item; see README "Known issues and next steps". The drag preview and auto-solve of Section 4.3 were removed at the user's request (README deviations).
 - Deliverable: `dist/fcbga_thermomech_tool.html` (about 500 kB, committed; rebuilt from `src/` by `node tools/build.mjs`).
 
 `README.md` carries the detailed status: verification table, measured timings, every deviation from the specification, known issues, repository layout and development workflow.

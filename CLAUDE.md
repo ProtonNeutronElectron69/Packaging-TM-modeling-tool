@@ -2,7 +2,7 @@
 
 ## Project status (read this first)
 
-The build specification that follows (from "Build Prompt" onward) has been **implemented in full** and merged to `main` through four pull requests (three of code, one of documentation). A new session should treat it as the reference design of an existing, working application, not as a task to start.
+The build specification that follows (from "Build Prompt" onward) has been **implemented in full** and merged to `main` through seven pull requests (three of code and two of documentation for the build, then two UI updates requested by the user). A new session should treat it as the reference design of an existing, working application, not as a task to start.
 
 | PR | Merged | Content |
 |---|---|---|
@@ -10,6 +10,9 @@ The build specification that follows (from "Build Prompt" onward) has been **imp
 | #2 | 2026-10-09 | Feature-preserving multigrid (lid convergence), parallel temperature sweep and submodels on nested workers, faster submodel, JEITA shape class and sign confidence, three.js CDN fallback and 3D smoke test, "Estimated inputs in use" card, V7 made consistent (suite 15/15) |
 | #3 | 2026-10-09 | Tooltips on every control, dropdown, results tab and result quantity (344 elements) |
 | #4 | 2026-10-09 | Documentation: this status section and the README status, layout, verification, performance, deviations and known-issues sections |
+| #5 | 2026-10-09 | Documentation: listed the documentation PR in the status tables |
+| #6 | 2026-10-10 | Resizable panes (side panels, floorplan and cross-section split, 3D view, plot edges) with content that follows the size; auto-solve on die release and the drag preview removed; floorplan overlay hidden while the geometry differs from the results |
+| #7 | 2026-10-10 | Mouse-wheel zoom, drag pan and double-click reset on every results plot and map; rainbow colour scale by default with a colorblind-safe option |
 
 Current state on `main`:
 

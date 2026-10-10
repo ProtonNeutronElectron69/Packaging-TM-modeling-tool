@@ -16,11 +16,16 @@ function colormapRGB(table, t) {
   const a = table[i], b = table[i + 1];
   return [a[0] + f * (b[0] - a[0]), a[1] + f * (b[1] - a[1]), a[2] + f * (b[2] - a[2])];
 }
-/** Colour scale: diverging centered on zero (signed) or sequential (magnitude). */
+/** Rainbow, low to high: purple, blue, green, yellow, orange, red (the usual FE contour scale; not colorblind safe). */
+const RAINBOW = [[110, 0, 170], [45, 60, 235], [0, 145, 235], [0, 180, 95], [140, 210, 0], [255, 225, 0], [255, 150, 0], [225, 30, 20]];
+/** Colour map choice (app.colorMap): rainbow for both scale types, or the colorblind-safe pair (viridis, blue-white-red). */
+const COLOR_MAPS = { rainbow: { seq: RAINBOW, div: RAINBOW }, colorblind: { seq: VIRIDIS, div: RDBU } };
+/** Colour scale: symmetric about zero (signed, zero at mid-scale) or sequential (magnitude). */
 function makeScale(vmin, vmax, signed) {
-  if (signed) { const m = Math.max(Math.abs(vmin), Math.abs(vmax)) || 1; return { min: -m, max: m, signed: true, color: v => colormap(RDBU, (v + m) / (2 * m)), rgb: v => colormapRGB(RDBU, (v + m) / (2 * m)) }; }
+  const maps = COLOR_MAPS[app.colorMap] || COLOR_MAPS.rainbow;
+  if (signed) { const m = Math.max(Math.abs(vmin), Math.abs(vmax)) || 1; return { min: -m, max: m, signed: true, color: v => colormap(maps.div, (v + m) / (2 * m)), rgb: v => colormapRGB(maps.div, (v + m) / (2 * m)) }; }
   const lo = vmin, hi = vmax === vmin ? vmin + 1 : vmax;
-  return { min: lo, max: hi, signed: false, color: v => colormap(VIRIDIS, (v - lo) / (hi - lo)), rgb: v => colormapRGB(VIRIDIS, (v - lo) / (hi - lo)) };
+  return { min: lo, max: hi, signed: false, color: v => colormap(maps.seq, (v - lo) / (hi - lo)), rgb: v => colormapRGB(maps.seq, (v - lo) / (hi - lo)) };
 }
 
 function setupCanvas(canvas) {
@@ -43,6 +48,55 @@ function autoRedraw(canvas, fn) {
     if (Math.round(r.width) !== canvas.__drawnW || Math.round(r.height) !== canvas.__drawnH) canvas.__redraw();
   });
   canvas.__resizeObs.observe(canvas);
+}
+
+// ---- wheel zoom, drag pan and double-click reset on the results plots and maps ----
+const ZOOM_STEP = 1.2;   // zoom factor per wheel notch
+const ZOOM_MAX = 200;    // deepest zoom relative to the full view
+/** Zoom the range [lo, hi] by factor f about the point at; null once it reaches the full range [blo, bhi]. */
+function zoomRange(lo, hi, at, f, blo, bhi) {
+  const span = (hi - lo) / f, full = bhi - blo;
+  if (span >= full) return null;
+  const s = Math.max(span, full / ZOOM_MAX), k = (at - lo) / (hi - lo);
+  return [at - k * s, at - k * s + s];
+}
+/**
+ * Make a canvas in the results area zoomable. The plot's draw stores its current mapping in canvas.__tx
+ * and reads canvas.__view (null = full view); handlers.zoom(px, py, f) and handlers.pan(dx, dy) update the view.
+ */
+function plotZoom(canvas, handlers) {
+  canvas.__zoomHandlers = handlers;
+  if (canvas.__zoomBound || !canvas.closest('#center-body')) return;
+  canvas.__zoomBound = true;
+  canvas.classList.add('zoomable');
+  const t = canvas.getAttribute('data-tip') || '';
+  if (!t.includes(TIPS.plotZoom)) canvas.setAttribute('data-tip', (t ? t + ' ' : '') + TIPS.plotZoom);
+  const pos = e => { const r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+  const redraw = () => { if (canvas.__raf) return; canvas.__raf = requestAnimationFrame(() => { canvas.__raf = 0; canvas.__redraw(); }); };
+  canvas.addEventListener('wheel', e => { e.preventDefault(); const [px, py] = pos(e); canvas.__zoomHandlers.zoom(px, py, e.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP); redraw(); }, { passive: false });
+  let last = null;
+  canvas.addEventListener('pointerdown', e => { if (e.button !== 0 || !canvas.__view) return; last = pos(e); canvas.setPointerCapture(e.pointerId); canvas.classList.add('panning'); });
+  canvas.addEventListener('pointermove', e => { if (!last) return; const p = pos(e); canvas.__zoomHandlers.pan(p[0] - last[0], p[1] - last[1]); last = p; redraw(); });
+  const end = () => { last = null; canvas.classList.remove('panning'); };
+  canvas.addEventListener('pointerup', end); canvas.addEventListener('pointercancel', end);
+  canvas.addEventListener('dblclick', e => { if (e.clientY >= canvas.getBoundingClientRect().bottom - LAYOUT_LIMITS.edgeGrip) return; canvas.__view = null; redraw(); });
+}
+/** Zoom handlers for plots with data axes (axes: 'xy' or 'x'); canvas.__tx = {L, T, pw, ph, x0, x1, y0, y1, bx0, bx1, by0, by1}. */
+function axisZoomHandlers(canvas, axes) {
+  const view = () => canvas.__view || { x0: canvas.__tx.bx0, x1: canvas.__tx.bx1, y0: canvas.__tx.by0, y1: canvas.__tx.by1 };
+  return {
+    zoom(px, py, f) {
+      const t = canvas.__tx, v = view();
+      const xr = zoomRange(v.x0, v.x1, v.x0 + (px - t.L) / t.pw * (v.x1 - v.x0), f, t.bx0, t.bx1);
+      const yr = axes === 'xy' ? zoomRange(v.y0, v.y1, v.y1 - (py - t.T) / t.ph * (v.y1 - v.y0), f, t.by0, t.by1) : null;
+      canvas.__view = xr || yr ? { x0: xr ? xr[0] : t.bx0, x1: xr ? xr[1] : t.bx1, y0: yr ? yr[0] : t.by0, y1: yr ? yr[1] : t.by1 } : null;
+    },
+    pan(dx, dy) {
+      const t = canvas.__tx, v = canvas.__view; if (!v) return;
+      const sx = -dx / t.pw * (v.x1 - v.x0), sy = axes === 'xy' ? dy / t.ph * (v.y1 - v.y0) : 0;
+      canvas.__view = { x0: v.x0 + sx, x1: v.x1 + sx, y0: v.y0 + sy, y1: v.y1 + sy };
+    },
+  };
 }
 
 /** Nice axis ticks. */
@@ -76,12 +130,17 @@ function linePlot(canvas, series, opts) {
   if (xmax === xmin) { xmax += 1; xmin -= 1; }
   const pad = (ymax - ymin) * 0.08; ymin -= pad; ymax += pad;
   if (opts.zero !== false && ymin > 0 && ymin < (ymax - ymin)) ymin = 0;
-  const X = x => L + (x - xmin) / (xmax - xmin) * (w - L - R), Y = y => T + (ymax - y) / (ymax - ymin) * (H - T - B);
+  const pw = w - L - R, ph = H - T - B;
+  canvas.__tx = { L, T, pw, ph, bx0: xmin, bx1: xmax, by0: ymin, by1: ymax };
+  if (canvas.__view) ({ x0: xmin, x1: xmax, y0: ymin, y1: ymax } = canvas.__view);
+  plotZoom(canvas, axisZoomHandlers(canvas, 'xy'));
+  const X = x => L + (x - xmin) / (xmax - xmin) * pw, Y = y => T + (ymax - y) / (ymax - ymin) * ph;
   ctx.font = '11px ' + cssVar('--font');
   ctx.strokeStyle = grid; ctx.lineWidth = 1; ctx.fillStyle = muted; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
   for (const t of ticks(xmin, xmax, 6)) { ctx.beginPath(); ctx.moveTo(X(t), T); ctx.lineTo(X(t), H - B); ctx.stroke(); ctx.fillText(String(t), X(t), H - B + 4); }
   ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
   for (const t of ticks(ymin, ymax, 5)) { ctx.beginPath(); ctx.moveTo(L, Y(t)); ctx.lineTo(w - R, Y(t)); ctx.stroke(); ctx.fillText(String(t), L - 5, Y(t)); }
+  ctx.save(); ctx.beginPath(); ctx.rect(L, T, pw, ph); ctx.clip();  // zoomed data stays inside the axes
   if (opts.band) { ctx.fillStyle = 'rgba(255,170,0,0.13)'; ctx.fillRect(L, Y(opts.band[1]), w - L - R, Y(opts.band[0]) - Y(opts.band[1])); }
   for (const hl of opts.hlines || []) { ctx.strokeStyle = hl.color || muted; ctx.setLineDash([5, 4]); ctx.beginPath(); ctx.moveTo(L, Y(hl.y)); ctx.lineTo(w - R, Y(hl.y)); ctx.stroke(); ctx.setLineDash([]); if (hl.label) { ctx.fillStyle = hl.color || muted; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom'; ctx.fillText(hl.label, L + 4, Y(hl.y) - 2); } }
   for (const vl of opts.vlines || []) { ctx.strokeStyle = vl.color || muted; ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(X(vl.x), T); ctx.lineTo(X(vl.x), H - B); ctx.stroke(); ctx.setLineDash([]); if (vl.label) { ctx.fillStyle = vl.color || muted; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillText(vl.label, X(vl.x), T + 10); } }
@@ -93,6 +152,7 @@ function linePlot(canvas, series, opts) {
     ctx.stroke(); ctx.setLineDash([]);
     if (s.points) { ctx.fillStyle = ctx.strokeStyle; for (let i = 0; i < s.x.length; i++) if (isFinite(s.y[i])) { ctx.beginPath(); ctx.arc(X(s.x[i]), Y(s.y[i]), 2.5, 0, 6.3); ctx.fill(); } }
   });
+  ctx.restore();
   ctx.fillStyle = text; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
   if (opts.xlabel) ctx.fillText(opts.xlabel, L + (w - L - R) / 2, H - 2);
   if (opts.ylabel) { ctx.save(); ctx.translate(12, T + (H - T - B) / 2); ctx.rotate(-Math.PI / 2); ctx.textBaseline = 'top'; ctx.fillText(opts.ylabel, 0, -6); ctx.restore(); }
@@ -116,16 +176,24 @@ function tornadoPlot(canvas, rows, base, opts) {
   let m = 0;
   for (const r of rows) m = Math.max(m, Math.abs(r.lo), Math.abs(r.hi));
   if (!(m > 0)) m = 1;
-  const X = v => L + (v + m) / (2 * m) * (w - L - R);
+  canvas.__tx = { L, T, pw: w - L - R, ph: H - T - B, bx0: -m, bx1: m, by0: 0, by1: 1 };
+  const v = canvas.__view || { x0: -m, x1: m };
+  plotZoom(canvas, axisZoomHandlers(canvas, 'x'));
+  const X = x => L + (x - v.x0) / (v.x1 - v.x0) * (w - L - R);
   const rh = Math.min(22, (H - T - B) / Math.max(rows.length, 1));
   ctx.font = '11px ' + cssVar('--font');
   ctx.strokeStyle = grid;
-  for (const t of ticks(-m, m, 5)) { ctx.beginPath(); ctx.moveTo(X(t), T); ctx.lineTo(X(t), H - B); ctx.stroke(); ctx.fillStyle = muted; ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillText(String(t), X(t), H - B + 4); }
+  for (const t of ticks(v.x0, v.x1, 5)) { ctx.beginPath(); ctx.moveTo(X(t), T); ctx.lineTo(X(t), H - B); ctx.stroke(); ctx.fillStyle = muted; ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.fillText(String(t), X(t), H - B + 4); }
+  ctx.save(); ctx.beginPath(); ctx.rect(L, 0, w - L - R, H); ctx.clip();  // zoomed bars stay right of the labels
   ctx.strokeStyle = text; ctx.beginPath(); ctx.moveTo(X(0), T); ctx.lineTo(X(0), H - B); ctx.stroke();
   rows.forEach((r, i) => {
     const y = T + i * rh + 3;
     ctx.fillStyle = cssVar('--accent'); ctx.fillRect(Math.min(X(0), X(r.lo)), y, Math.abs(X(r.lo) - X(0)), rh - 6);
     ctx.fillStyle = cssVar('--warn'); ctx.fillRect(Math.min(X(0), X(r.hi)), y, Math.abs(X(r.hi) - X(0)), rh - 6);
+  });
+  ctx.restore();
+  rows.forEach((r, i) => {
+    const y = T + i * rh + 3;
     ctx.fillStyle = text; ctx.textAlign = 'right'; ctx.textBaseline = 'middle'; ctx.fillText(r.label, L - 6, y + (rh - 6) / 2);
   });
   ctx.fillStyle = text; ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.font = '600 12px ' + cssVar('--font');

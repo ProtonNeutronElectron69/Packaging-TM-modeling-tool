@@ -41,6 +41,7 @@ const app = {
   running: null, mesh: null, validation: { errors: [], warnings: [] }, geom: null, dirty: true,
   workers: Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1)), nestedWorkers: true,
   decisions: [], showOverlay: 'warpage', cutDirty: true,
+  colorMap: prefs.get('colorMap', 'rainbow') === 'colorblind' ? 'colorblind' : 'rainbow',  // contour colours: rainbow or colorblind-safe
 };
 
 // ---- theme ----

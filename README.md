@@ -21,7 +21,9 @@ Workflow (left stepper):
 
 Every pane can be resized by dragging: the step list and the context panel (vertical splitters), the split between the floorplan and the cross-section, the 3D view (grip below it), and each plot or map (drag its bottom edge). Fields, dropdowns, tables and plots follow the new size; double-click a splitter or edge to restore its default. A narrow step list shows step numbers only.
 
-Configurations are saved and loaded as JSON files. `localStorage` holds only conveniences: the theme, the last step and tab, and the pane sizes.
+In the Results area every plot, contour map and tornado chart zooms with the mouse wheel about the pointer; drag to pan once zoomed and double-click to show everything again (the page scrolls normally when the pointer is outside a plot). Contour maps, bump maps, the floorplan overlay and the 3D view use a rainbow colour scale by default (purple for low values through blue, green, yellow and orange to red for high; signed quantities put zero at mid-scale). The "colors" dropdown in the Results bar switches to the colorblind-safe scales (viridis and blue-white-red).
+
+Configurations are saved and loaded as JSON files. `localStorage` holds only conveniences: the theme, the last step and tab, the pane sizes and the colour scale.
 
 ## Project status
 
@@ -149,7 +151,8 @@ Each is also listed in the in-app "Assumptions and limitations" panel.
 8. **V11** is solved to 1e-10 to meet the 1e-9 reaction criterion; **V13** compares rounded reference values at their printed precision.
 9. **Submodel Newton** refreshes the consistent tangent on the first iterations and on stalls, and freezes it while the residual shrinks (modified Newton); the inner PCG uses an inexact-Newton tolerance.
 10. **No drag preview and no auto-solve on die release** (Section 4.3 asks for both). Removed at the user's request: moving a die starts no solve, and the floorplan overlay is hidden while the geometry differs from the results it was computed for. The analysis runs from step 6 (full, or Quick preview on the Draft mesh).
-11. **Estimated material values** (rubbery moduli of ABF and solder resist, polymer Poisson ratios, core through-thickness and shear moduli, TIM gel) are flagged in the materials editor, listed in the run panel and report, and included in the default sensitivity set. SAC105 and SAC387 are placeholders without bundled data.
+11. **Rainbow colour scale by default** (Section 4.8 asks for colorblind-safe, perceptually uniform maps). Changed at the user's request; the rainbow is neither colorblind safe nor perceptually uniform, so bright yellow and cyan bands can look like features. The colorblind-safe scales remain one click away in the Results bar.
+12. **Estimated material values** (rubbery moduli of ABF and solder resist, polymer Poisson ratios, core through-thickness and shear moduli, TIM gel) are flagged in the materials editor, listed in the run panel and report, and included in the default sensitivity set. SAC105 and SAC387 are placeholders without bundled data.
 
 ## Known issues and next steps
 

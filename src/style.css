@@ -146,6 +146,8 @@ hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
 body.resizing-x, body.resizing-x * { cursor: col-resize !important; user-select: none; }
 body.resizing-y, body.resizing-y * { cursor: row-resize !important; user-select: none; }
 canvas.plot, canvas.map { border-bottom-width: 3px; }
+canvas.zoomable { cursor: zoom-in; }
+canvas.zoomable.panning { cursor: grabbing; }
 canvas.plot.grip-hover, canvas.map.grip-hover { cursor: row-resize; border-bottom-color: var(--accent); }
 #stepper.narrow { padding: 8px 4px; }
 #stepper.narrow .lbl, #stepper.narrow .step-info { display: none; }

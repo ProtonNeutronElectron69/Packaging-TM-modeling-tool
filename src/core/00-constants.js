@@ -44,7 +44,6 @@ const CONST = Object.freeze({
   },
   // ---- solver -------------------------------------------------------------
   PCG_TOL: 1e-8,
-  PREVIEW_TOL: 1e-5,         // drag preview only (Draft)
   PCG_MAXIT: 2000,
   WARM_START_MAX: 20,
   REBUILD_FACTOR: 2,

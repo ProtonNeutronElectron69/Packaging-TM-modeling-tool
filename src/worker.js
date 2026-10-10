@@ -129,7 +129,7 @@
     const cfg = msg.cfg;
     const t0 = nowMs();
     const an = new Analysis(cfg, {
-      preset: msg.preset, evaluations: msg.evaluations || 'full', precond: msg.precond || 'mg', quick: !!msg.quick,
+      preset: msg.preset, evaluations: msg.evaluations || 'full', precond: msg.precond || 'mg',
       progress: (f, m) => progress(id, f, m),
     });
     an.build();

@@ -21,7 +21,7 @@ function renderRunPanel(root) {
     root.append(h('div', { class: 'kv' }, h('span', { class: 'k' }, 'Estimated mesh'), h('span', null, est.info.nx + ' × ' + est.info.ny + ' × ' + est.info.nz + ' grid, ' + est.info.nElem.toLocaleString() + ' elements, ' + est.info.nDof.toLocaleString() + ' DOF' + (est.info.scaled ? ' (sizes enlarged to meet the cap)' : '')), h('span', { class: 'k' }, 'Element sizes'), h('span', null, 'h_min ' + fmt(est.info.hmin, 3) + ', h_max ' + fmt(est.info.hmax, 3) + ' mm; max aspect ' + fmt(est.info.aspectMax, 0)), h('span', { class: 'k' }, 'Estimated memory'), h('span', { class: est.memMB > 600 ? 'warnc' : '' }, fmt(est.memMB, 0) + ' MB total (' + fmt(est.perWorkerMB, 0) + ' MB per worker' + (est.memMB > 600 ? '; above the 600 MB target, reduce the worker count if memory is tight' : '') + ')'), h('span', { class: 'k' }, 'Estimated runtime'), h('span', null, 'preview ' + fmt(est.previewS, 0) + ' s, full analysis ' + fmt(est.fullS, 0) + ' s with ' + app.workers + ' worker' + (app.workers > 1 ? 's' : '') + ' (scales with your CPU)')));
   }
   const canRun = !app.validation.errors.length;
-  root.append(h('div', { class: 'row' }, h('button', tip('runFull', { class: 'primary', disabled: canRun ? null : '', onclick: () => runFull() }), '▶ Run full global analysis'), h('button', tip('quickPreview', { disabled: canRun ? null : '', onclick: () => runPreview(true) }), 'Quick preview (Draft, 25 °C)'), h('label', tip('autoSolve', { class: 'small' }), h('input', { type: 'checkbox', checked: app.autoSolve ? '' : null, onchange: e => { app.autoSolve = e.target.checked; } }), ' auto-solve on die release')));
+  root.append(h('div', { class: 'row' }, h('button', tip('runFull', { class: 'primary', disabled: canRun ? null : '', onclick: () => runFull() }), '▶ Run full global analysis'), h('button', tip('quickPreview', { disabled: canRun ? null : '', onclick: () => runPreview() }), 'Quick preview (Draft, 25 °C)')));
   root.append(h('div', { class: 'row' }, h('button', tip('pinBaseline', { disabled: app.results ? null : '', onclick: pinBaseline }), 'Pin as baseline'), h('button', tip('clearBaseline', { disabled: app.baseline ? null : '', onclick: () => { app.baseline = null; renderContext(); } }), 'Clear baseline'), h('button', tip('meshCheck', { disabled: canRun ? null : '', onclick: checkMeshSensitivity }), 'Check mesh sensitivity'), h('button', tip('exportCsv', { disabled: app.results ? null : '', onclick: exportCSV }), 'Export CSV'), h('button', tip('report', { disabled: app.results ? null : '', onclick: openReport }), 'Report (print / PDF)')));
   if (cfg.name && cfg.name.startsWith('Core thickness study')) root.append(h('div', { class: 'row' }, h('button', tip('coreStudy', { onclick: runCoreStudy }), 'Run both core variants and compare')));
   root.append(h('div', { class: 'small muted' }, 'Tip: pin a baseline, then compare variants. Ratios and deltas against the baseline are the most trustworthy outputs of a screening model.'));
@@ -111,13 +111,13 @@ function runFull() {
     toast('Analysis complete in ' + fmt(res.totalMs / 1000, 1) + ' s (' + res.meshInfo.nDof + ' DOF, ' + res.workers + ' worker' + (res.workers > 1 ? 's' : '') + ').', 'ok');
   }).catch(err => { if (err.message !== 'cancelled') toast('Analysis failed: ' + err.message, 'error', 9000); });
 }
-function runPreview(explicit) {
+function runPreview() {
   if (app.validation.errors.length) return;
-  startRun({ type: 'run', cfg: app.cfg, preset: 'draft', evaluations: 'preview', quick: !explicit }, explicit ? 'Draft preview' : 'Drag preview (Draft)').then(res => {
+  startRun({ type: 'run', cfg: app.cfg, preset: 'draft', evaluations: 'preview' }, 'Draft preview').then(res => {
     res.preview = true;
     app.results = res; app.currentFields = res.at25; app.selectedT = 25;
     floorplan.draw();
-    if (explicit) { renderContext(); }
+    renderContext();
   }).catch(err => { if (err.message !== 'cancelled') toast('Preview failed: ' + err.message, 'error'); });
 }
 function startRun(msg, label) {
@@ -183,7 +183,7 @@ function selectTemperature(T) {
 }
 function mapCanvas(res, drawFn, height) {
   const cv = h('canvas', { class: 'map', style: 'width:100%;height:' + (height || 420) + 'px' });
-  requestAnimationFrame(() => {
+  const draw = () => {
     const { ctx, w, h: H } = setupCanvas(cv);
     const sx = app.cfg.substrate.sx, sy = app.cfg.substrate.sy;
     const sc = Math.min((w - 40) / sx, (H - 40) / sy);
@@ -191,7 +191,8 @@ function mapCanvas(res, drawFn, height) {
     ctx.strokeStyle = cssVar('--text'); ctx.strokeRect(X(-sx / 2), Y(sy / 2), sx * sc, sy * sc);
     drawFn(ctx, X, Y, sc);
     for (const d of res.geometry.dies) { ctx.strokeStyle = cssVar('--text'); ctx.setLineDash([4, 3]); ctx.strokeRect(X(d.rect.x0), Y(d.rect.y1), d.w * sc, d.h * sc); ctx.setLineDash([]); }
-  });
+  };
+  requestAnimationFrame(() => { draw(); autoRedraw(cv, draw); });
   return cv;
 }
 function legendRow(scale, label) { const cv = h('canvas'); const el = h('div', { class: 'legend' }, h('span', null, fmt(scale.min, 1)), cv, h('span', null, fmt(scale.max, 1)), h('span', null, label)); requestAnimationFrame(() => drawLegend(cv, scale)); return el; }
@@ -344,7 +345,7 @@ function renderView3D(root, res, f, Tsel) {
   const ctl = h('div', { class: 'row' }, h('b', null, '3D deformed shape'), ' at ', Tsel, h('label', tip('exag3d'), ' exaggeration ', h('input', { type: 'range', min: 1, max: 200, value: v.scale, oninput: e => { v.scale = +e.target.value; update3D(); } })), h('label', tip('color3d'), ' color by ', h('select', { onchange: e => { v.color = e.target.value; update3D(); } }, h('option', { value: 'warpage', selected: v.color === 'warpage' ? '' : null }, 'out-of-plane displacement'), h('option', { value: 'stress', selected: v.color === 'stress' ? '' : null }, 'max principal stress (per part)'), h('option', { value: 'part', selected: v.color === 'part' ? '' : null }, 'part'))), ...C.PART_NAMES.map((n, i) => (res.view3d.part.includes(i) ? h('label', tip('partToggle', { class: 'small' }), h('input', { type: 'checkbox', checked: v.hidden.has(i) ? null : '', onchange: e => { if (e.target.checked) v.hidden.delete(i); else v.hidden.add(i); update3D(); } }), ' ' + n) : null)));
   root.append(ctl);
   const el = h('div', { id: 'view3d' });
-  root.append(el, h('div', { class: 'legend', id: 'legend3d' }), h('div', { class: 'small muted' }, 'Drag to rotate, wheel to zoom, right-drag to pan.'));
+  root.append(el, view3dSplitter(), h('div', { class: 'legend', id: 'legend3d' }), h('div', { class: 'small muted' }, 'Drag to rotate, wheel to zoom, right-drag to pan.'));
   requestAnimationFrame(() => setup3D(el, res, f));
 }
 let three = null;
@@ -369,6 +370,14 @@ function setup3D(el, res, f) {
   const mesh = new THREE.Mesh(geom, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }));
   scene.add(mesh);
   three = { renderer, scene, camera, geom, pos, col, el, res, f, target: new THREE.Vector3(0, 0, 0) };
+  // follow the pane size (3D grip, side-panel splitters, window resize)
+  new ResizeObserver(() => {
+    if (!three || three.el !== el) return;
+    const w2 = el.clientWidth, h2 = el.clientHeight; if (!w2 || !h2) return;
+    three.renderer.setSize(w2, h2); three.camera.aspect = w2 / h2;
+    if (three.camera.updateProjectionMatrix) three.camera.updateProjectionMatrix();
+    three.renderer.render(three.scene, three.camera);
+  }).observe(el);
   // orbit controls
   let drag = null;
   el.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY, btn: e.button }; });
@@ -575,8 +584,9 @@ function limitationsList(res) {
     'Silicon elastic constants are temperature independent; Cu and metals are elastic.',
     'Poisson ratios are clamped to 0.45 in the global hexahedral elements (B-bar elements in the submodel accept up to 0.49).',
     'Layered substrate bands use the continuum-shell form of each sub-layer stiffness (plane-stress in-plane block, uncoupled thickness modulus), because one thickness strain shared by all sub-layers of a band over-constrains the Poisson expansion (0.7 % warpage bias against lamination theory).',
+    'No automatic analysis after editing: dragging or releasing a die (or any other edit) starts no solve, and the floorplan overlay is hidden while the geometry differs from the last analysis. The analysis runs only from step 6 (Run full global analysis, or Quick preview on the Draft mesh).',
     'Parallel workers: the temperature sweep and the bump submodels can be split over several Web Workers; each holds its own copy of the model, so peak memory grows with the worker count (shown in the run panel).',
-    'Build decisions: the multigrid coarse space uses per-column shell aggregates (rigid-body plus thickness modes of each stiff stack) because plain nodal interpolation stalls on thin layered structures; the full symmetric block matrix is stored (instead of the upper triangle) for faster smoothing; single-material elements use a closed-form 12-point rule that reproduces 2×2×2 Gauss exactly; the drag preview solves to a looser tolerance (1e-5) and skips the chip-join state.',
+    'Build decisions: the multigrid coarse space uses per-column shell aggregates (rigid-body plus thickness modes of each stiff stack) because plain nodal interpolation stalls on thin layered structures; the full symmetric block matrix is stored (instead of the upper triangle) for faster smoothing; single-material elements use a closed-form 12-point rule that reproduces 2×2×2 Gauss exactly.',
   ];
   if (res && res.notes) L.push(...res.notes);
   return L;

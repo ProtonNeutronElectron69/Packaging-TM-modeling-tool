@@ -9,9 +9,11 @@ function isDark() { return getComputedStyle(document.documentElement).getPropert
 
 const floorplan = {
   canvas: null, ctx: null, scale: 10, ox: 0, oy: 0, drag: null, hover: null, snap: 0.1, snapEdges: true, snapCenter: true,
+  autoFit: true, size: null,  // autoFit: refit on resize until the user zooms or pans
   zoomFit() {
     const c = this.canvas; if (!c) return;
     const r = c.getBoundingClientRect();
+    this.autoFit = true; this.size = { w: r.width, h: r.height };
     const sx = app.cfg.substrate.sx, sy = app.cfg.substrate.sy;
     this.scale = Math.min((r.width - 70) / sx, (r.height - 70) / sy);
     this.ox = r.width / 2; this.oy = r.height / 2;
@@ -28,11 +30,19 @@ const floorplan = {
     canvas.addEventListener('pointermove', e => this.onMove(e));
     canvas.addEventListener('pointerup', e => this.onUp(e));
     canvas.addEventListener('pointercancel', e => this.onUp(e));
-    canvas.addEventListener('wheel', e => { e.preventDefault(); const f = e.deltaY < 0 ? 1.15 : 1 / 1.15; const r = canvas.getBoundingClientRect(); const px = e.clientX - r.left, py = e.clientY - r.top; const wx = this.invX(px), wy = this.invY(py); this.scale *= f; this.ox = px - wx * this.scale; this.oy = py + wy * this.scale; this.draw(); }, { passive: false });
+    canvas.addEventListener('wheel', e => { e.preventDefault(); const f = e.deltaY < 0 ? 1.15 : 1 / 1.15; const r = canvas.getBoundingClientRect(); const px = e.clientX - r.left, py = e.clientY - r.top; const wx = this.invX(px), wy = this.invY(py); this.scale *= f; this.ox = px - wx * this.scale; this.oy = py + wy * this.scale; this.autoFit = false; this.draw(); }, { passive: false });
     canvas.addEventListener('dblclick', () => { this.zoomFit(); this.draw(); });
     canvas.tabIndex = 0;
     canvas.addEventListener('keydown', e => { if (e.key === 'r' || e.key === 'R') { rotateDie(app.selectedDie); } if (e.key === 'Delete') deleteDie(app.selectedDie); });
-    new ResizeObserver(() => this.draw()).observe(canvas);
+    new ResizeObserver(() => { if (this.canvas === canvas) { this.onResize(); this.draw(); } }).observe(canvas);
+  },
+  /** Keep the drawing fitted while the pane is resized; after a zoom or pan, keep the view centered instead. */
+  onResize() {
+    const r = this.canvas.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    if (this.autoFit || !this.size) { this.zoomFit(); return; }
+    this.ox += (r.width - this.size.w) / 2; this.oy += (r.height - this.size.h) / 2;
+    this.size = { w: r.width, h: r.height };
   },
 
   dieAtPoint(wx, wy) {
@@ -77,7 +87,7 @@ const floorplan = {
       this.drawReadout();
       return;
     }
-    if (this.drag.pan) { this.ox = this.drag.ox + (px - this.drag.px); this.oy = this.drag.oy + (py - this.drag.py); this.draw(); return; }
+    if (this.drag.pan) { this.ox = this.drag.ox + (px - this.drag.px); this.oy = this.drag.oy + (py - this.drag.py); this.autoFit = false; this.draw(); return; }
     const d = app.cfg.dies[this.drag.die];
     const g = app.geom, me = g.dies[this.drag.die];
     const othersX = g.dies.filter((_, i) => i !== this.drag.die).map(o => ({ lo: o.rect.x0, hi: o.rect.x1 }));
@@ -180,6 +190,11 @@ const floorplan = {
     const f = app.currentFields || res.at25;
     if (!f) return;
     const legendEl = $('#fp-legend');
+    // results belong to the geometry they were computed for; hide them once the floorplan or stack changes
+    if (res.hashes && res.hashes.geometry !== C.configHashes(app.cfg).geometry) {
+      if (legendEl) legendEl.textContent = 'Overlay hidden: the geometry changed since the last analysis. Run the analysis in step 6 (or Quick preview) to update it.';
+      return;
+    }
     let scale, label;
     if (app.showOverlay === 'warpage') {
       const grid = f.warpage.grid;

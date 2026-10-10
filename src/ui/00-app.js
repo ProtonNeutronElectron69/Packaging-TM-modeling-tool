@@ -38,7 +38,7 @@ const prefs = {
 const app = {
   cfg: null, results: null, baseline: null, fieldsCache: new Map(), screening: null, submodels: [], sensitivity: null, verification: null,
   step: 1, centerTab: 'floorplan', selectedDie: 0, resultsView: 'warpage', selectedT: 25, exaggeration: 5, cutLine: { axis: 'x', pos: 0 },
-  autoSolve: true, previewPending: null, running: null, mesh: null, validation: { errors: [], warnings: [] }, geom: null, dirty: true,
+  running: null, mesh: null, validation: { errors: [], warnings: [] }, geom: null, dirty: true,
   workers: Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1)), nestedWorkers: true,
   decisions: [], showOverlay: 'warpage', cutDirty: true,
 };
@@ -200,7 +200,7 @@ function estimateRun(cfg, preset) {
     const memMB = perWorkerMB + (nw - 1) * (perWorkerMB * 0.7);
     const perSolve = inf.nDof / 28000 * 0.9; // s per solve, measured scaling (Node, this container)
     const nEval = 41;
-    return { info: inf, warnings: C.meshWarnings(mesh), memMB, perWorkerMB, previewS: 3 * perSolve, fullS: (3 + nEval / nw + 1) * perSolve + 8 };
+    return { info: inf, warnings: C.meshWarnings(mesh), memMB, perWorkerMB, previewS: 4 * perSolve /* stage solves, 25 °C and the chip-join state */, fullS: (3 + nEval / nw + 1) * perSolve + 8 };
   } catch (e) { return { error: e.message }; }
 }
 

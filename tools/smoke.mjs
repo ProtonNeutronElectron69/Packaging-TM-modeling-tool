@@ -25,13 +25,13 @@ await page.route(/three(\.min)?\.js/, route => route.fulfill({ status: 200, cont
 await page.goto(file);
 await page.waitForSelector('#floorplan', { timeout: 20000 });
 console.log('page loaded; steps:', await page.locator('.step').count(), 'errors so far:', errors.length);
-// quick preview through the UI path
+// Draft preview (the step 6 Quick preview path)
 const t0 = Date.now();
 const preview = await page.evaluate(() => new Promise((resolve, reject) => {
   const t = performance.now();
-  worker.send({ type: 'run', cfg: app.cfg, preset: 'draft', evaluations: 'preview', quick: true }).then(r => resolve({ ms: performance.now() - t, dof: r.meshInfo.nDof, w: r.at25.warpage.signed * 1000, iters: r.solverLog.map(x => x.iters) })).catch(e => reject(e.message));
+  worker.send({ type: 'run', cfg: app.cfg, preset: 'draft', evaluations: 'preview' }).then(r => resolve({ ms: performance.now() - t, dof: r.meshInfo.nDof, w: r.at25.warpage.signed * 1000, iters: r.solverLog.map(x => x.iters) })).catch(e => reject(e.message));
 }));
-console.log('drag preview (Draft, quick):', JSON.stringify(preview));
+console.log('Draft preview:', JSON.stringify(preview));
 if (args.includes('--full')) {
   const full = await page.evaluate(([preset, workers]) => new Promise((resolve, reject) => {
     const t = performance.now();

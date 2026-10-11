@@ -109,7 +109,7 @@ const TIPS = {
   K3: 'Darveaux crack growth: da/dN = K3 ΔW^K4. No default: K3 depends on element size and averaging scheme.',
   K4: 'Darveaux crack growth exponent.',
   // ---- step 6 ----
-  workers: 'The temperature sweep and the bump submodels are split over this many Web Workers. Each holds its own copy of the model, so memory scales with the count; 1 keeps everything in one worker.',
+  workers: 'The temperature sweep, the bump submodels and the sensitivity cases are split over this many Web Workers. Each holds its own copy of the model, so memory scales with the count; 1 keeps everything in one worker. The most offered is your CPU core count divided by 1.5, rounded down.',
   runFull: 'Process stages, as-assembled state at 25 °C, chip-join state, reflow sweep, cycling samples, bump screening and 3D fields, at the selected fidelity.',
   quickPreview: 'Draft mesh, stages and the 25 °C state only; fast look at the warpage overlay. Edits never start an analysis on their own.',
   pinBaseline: 'Keep the current results as the baseline; later runs show deltas and ratios against it.',
@@ -193,7 +193,7 @@ const TIPS = {
   partToggle: 'Show or hide this part.',
   // sensitivity
   sensInput: 'Input moved to the low and high end of its range in the tornado run. "est." marks Estimated database values.',
-  sensRun: 'Runs 2 × (inputs) + 1 Draft analyses on the worker pool; results are cached by configuration hash.',
+  sensRun: 'Runs 2 × (inputs) + 1 Draft analyses on the number of workers chosen under Parallel workers (step 6); results are cached by configuration hash.',
   tornado: 'Blue: input at its low end; orange: at its high end. Bar length is the change of the output from the base value.',
   // verification
   verifyFast: 'Run the quick tests (unit checks, element tests, plate and laminate benchmarks, Anand, JEITA, round trip).',

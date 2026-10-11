@@ -27,7 +27,7 @@ Configurations are saved and loaded as JSON files. `localStorage` holds only con
 
 ## Project status
 
-The specification in `CLAUDE.md` is implemented in full. Eight pull requests are merged on `main`:
+The specification in `CLAUDE.md` is implemented in full. Ten pull requests are merged on `main`:
 
 | PR | Merged | Content |
 |---|---|---|
@@ -39,6 +39,8 @@ The specification in `CLAUDE.md` is implemented in full. Eight pull requests are
 | [#6](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/6) | 2026-10-10 | Resizable panes (side panels, floorplan and cross-section split, 3D view, plot edges) with content that follows the size; auto-solve on die release and the drag preview removed; floorplan overlay hidden while the geometry differs from the results |
 | [#7](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/7) | 2026-10-10 | Mouse-wheel zoom, drag pan and double-click reset on every results plot and map; rainbow colour scale by default with a colorblind-safe option |
 | [#8](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/8) | 2026-10-10 | Materials database expanded from 20 to 49 materials (solders, underfills, build-up films, cores, solder resist, adhesives, TIMs, lid and stiffener metals) with a sanity pass on the original entries; PRs 5 to 7 added to the status tables |
+| [#9](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/9) | 2026-10-10 | Materials database second pass from primary sources, 49 to 101 materials (SAC105 and SAC405 Anand sets, MGC, Panasonic, Resonac and Shengyi cores, more underfills, build-up films, solder resists, lid adhesives and metals) with corrections to existing entries; PR 8 added to the status tables |
+| [#10](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/10) | 2026-10-11 | Parallel worker count offered up to CPU cores / 1.5 (rounded down); the sensitivity run uses the chosen worker count |
 
 Open items are listed under "Known issues and next steps" below. The largest is performance against the Section 13 targets.
 

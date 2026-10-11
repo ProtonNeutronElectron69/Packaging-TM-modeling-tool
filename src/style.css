@@ -56,7 +56,7 @@ h4 { font-size: 12px; margin: 10px 0 4px; }
 .field.err input { border-color: var(--err); }
 .help { display: inline-flex; width: 15px; height: 15px; border-radius: 50%; border: 1px solid var(--muted); color: var(--muted); font-size: 10px; align-items: center; justify-content: center; cursor: help; margin-left: 4px; vertical-align: middle; }
 .help:hover, .help:focus { border-color: var(--accent); color: var(--accent); outline: none; }
-#tooltip { position: fixed; z-index: 100; display: none; max-width: 340px; padding: 7px 10px; border-radius: 6px; background: var(--text); color: var(--bg); font-size: 12px; line-height: 1.4; box-shadow: 0 2px 8px rgba(0,0,0,.25); pointer-events: none; white-space: normal; }
+#tooltip { position: fixed; z-index: 100; display: none; max-width: 340px; padding: 7px 10px; border-radius: 6px; background: var(--text); color: var(--bg); font-size: 12px; line-height: 1.4; box-shadow: 0 2px 8px rgba(0,0,0,.25); pointer-events: none; white-space: pre-line; }
 [data-tip] { cursor: inherit; }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 4px 0; }
 button { font: inherit; padding: 5px 10px; border-radius: 5px; border: 1px solid var(--border); background: var(--panel2); color: var(--text); cursor: pointer; }
@@ -164,3 +164,11 @@ td input[type=number], td input[type=text] { field-sizing: content; min-width: 4
 .fp-toolbar input.cut-pos { flex: 0 1 80px; width: 80px; min-width: 50px; }
 .row select, .fp-toolbar select, #context select, #context input[type=text] { max-width: 100%; min-width: 0; }
 .row > label { min-width: 0; }
+/* glossary terms and window */
+.gl { text-decoration: underline dotted; text-decoration-color: var(--muted); text-underline-offset: 2px; cursor: help; }
+.gl:hover { color: var(--accent); text-decoration-color: var(--accent); }
+.gl-list { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; }
+.gl-entry { display: grid; grid-template-columns: minmax(90px, 160px) minmax(140px, 1fr) 2fr; gap: 10px; padding: 4px 6px; border-radius: 4px; }
+.gl-entry:nth-child(odd) { background: var(--panel2); }
+.gl-entry.gl-hit { outline: 2px solid var(--accent); }
+@media (max-width: 700px) { .gl-entry { grid-template-columns: 1fr; gap: 2px; } }

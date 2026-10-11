@@ -23,6 +23,8 @@ Every pane can be resized by dragging: the step list and the context panel (vert
 
 In the Results area every plot, contour map and tornado chart zooms with the mouse wheel about the pointer; drag to pan once zoomed and double-click to show everything again (the page scrolls normally when the pointer is outside a plot). Contour maps, bump maps, the floorplan overlay and the 3D view use a rainbow colour scale by default (purple for low values through blue, green, yellow and orange to red for high; signed quantities put zero at mid-scale). The "colors" dropdown in the Results bar switches to the colorblind-safe scales (viridis and blue-white-red).
 
+A glossary ("A–Z" in the top bar, or "Glossary" under the step list) spells out every technical acronym and variable symbol with a short description; trade-name acronyms of materials are not listed. Wherever such a term appears in the tool it is underlined with dots: hovering it shows its meaning, and clicking it opens the glossary at that entry. Terms drawn inside plots and maps (canvas text) are not linked. The printable report ends with the glossary.
+
 Configurations are saved and loaded as JSON files. `localStorage` holds only conveniences: the theme, the last step and tab, the pane sizes and the colour scale.
 
 ## Project status
@@ -218,7 +220,7 @@ Sources were read directly where the publisher allows it: manufacturer data shee
 | `src/core/13-fatigue.js` | Anand point integrator, cycle history, screening, `BumpSubmodel`, Syed and Darveaux life models |
 | `src/core/14-sensitivity.js`, `15-verify.js` | Tornado inputs, bounds and cases; verification tests V1 to V15 |
 | `src/worker.js` | Worker driver and nested helper workers (parallel sweep and submodels) |
-| `src/ui/00-app.js`, `00b-tips.js`, `00c-layout.js`, `01-plot.js` | App state, worker client, field helpers, tooltip dictionary and element, resizable panes and plot edge grips, 2D plots and colour maps |
+| `src/ui/00-app.js`, `00b-tips.js`, `00c-layout.js`, `00d-glossary.js`, `01-plot.js` | App state, worker client, field helpers, tooltip dictionary and element, resizable panes and plot edge grips, glossary and automatic term linking, 2D plots and colour maps |
 | `src/ui/02-floorplan.js`, `03-panels.js`, `04-results.js`, `05-main.js` | Floorplan and cross-section editor, the six step panels, results views and report, shell and wiring |
 | `tools/build.mjs` | Concatenates `src/` into the single HTML file |
 | `tools/verify.mjs` | Extracts the core block from the built file and runs the suite in Node |

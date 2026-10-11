@@ -179,7 +179,7 @@ function paramRows(m, obj, prefix, out) {
 function paramLabel(path) {
   const map = { 'elastic.E.E': 'E', 'elastic.E.Eg': 'E glassy', 'elastic.E.Er': 'E rubbery', 'elastic.E.TgDMA': 'Tg (DMA) for E(T)', 'elastic.E.w': 'E(T) transition width', 'elastic.nu': 'ν', 'elastic.C11': 'C11', 'elastic.C12': 'C12', 'elastic.C44': 'C44', 'elastic.E_iso': 'E (isotropic option)', 'elastic.nu_iso': 'ν (isotropic option)', 'elastic.Ex': 'E_x', 'elastic.Ey': 'E_y', 'elastic.Ez': 'E_z', 'elastic.Gxy': 'G_xy', 'elastic.Gxz': 'G_xz', 'elastic.Gyz': 'G_yz', 'elastic.nuxy': 'ν_xy', 'elastic.nuxz': 'ν_xz', 'elastic.nuyz': 'ν_yz', 'elastic.rubberyRatio': 'rubbery ratio', 'elastic.TgDMA': 'Tg (DMA)', 'elastic.w': 'transition width', 'cte.a': 'CTE', 'cte.a1': 'α1 (below Tg)', 'cte.a2': 'α2 (above Tg)', 'cte.TgTMA': 'Tg (TMA)', 'cte.delta': 'CTE smoothing', 'cteXY.a': 'CTE x,y', 'cteZ.a1': 'CTE z below Tg', 'cteZ.a2': 'CTE z above Tg', 'cteZ.TgTMA': 'Tg (TMA) for CTE z', 'cteZ.delta': 'CTE z smoothing', 'cure': 'cure temperature', 'solidus': 'solidus', 'elastic.E': 'E(T) table', 'cte': 'CTE table' };
   if (map[path]) return map[path];
-  if (path.startsWith('anand.')) return 'Anand ' + path.slice(6);
+  if (path.startsWith('anand.')) { const k = path.slice(6); return 'Anand ' + ({ QR: 'Q/R', xi: 'ξ', shat: '\u015D' }[k] || k); }
   return path;
 }
 function renderMaterialsPanel(root) {

@@ -2,7 +2,7 @@
 
 ## Project status (read this first)
 
-The build specification that follows (from "Build Prompt" onward) has been **implemented in full** and merged to `main` through seven pull requests (three of code and two of documentation for the build, then two UI updates requested by the user). A new session should treat it as the reference design of an existing, working application, not as a task to start.
+The build specification that follows (from "Build Prompt" onward) has been **implemented in full** and merged to `main` through eight pull requests (three of code and two of documentation for the build, then two UI updates and a materials database expansion requested by the user). A new session should treat it as the reference design of an existing, working application, not as a task to start.
 
 | PR | Merged | Content |
 |---|---|---|
@@ -13,12 +13,13 @@ The build specification that follows (from "Build Prompt" onward) has been **imp
 | #5 | 2026-10-09 | Documentation: listed the documentation PR in the status tables |
 | #6 | 2026-10-10 | Resizable panes (side panels, floorplan and cross-section split, 3D view, plot edges) with content that follows the size; auto-solve on die release and the drag preview removed; floorplan overlay hidden while the geometry differs from the results |
 | #7 | 2026-10-10 | Mouse-wheel zoom, drag pan and double-click reset on every results plot and map; rainbow colour scale by default with a colorblind-safe option |
+| #8 | 2026-10-10 | Materials database expanded from 20 to 49 materials with a sanity pass on the original entries; PRs 5 to 7 added to the status tables |
 
 Current state on `main`:
 
 - Verification suite: **15/15 pass** headless in Node (`dist/verification.json` holds the last run with measured values).
 - Performance (Chromium, 4-core container, 3 workers): full Standard analysis 147 s (target 90 s), screening 7 s (target 10 s), four submodels 286 s (target 120 s). The remaining gaps are the main open item; see README "Known issues and next steps". The drag preview and auto-solve of Section 4.3 were removed at the user's request (README deviations).
-- Deliverable: `dist/fcbga_thermomech_tool.html` (about 500 kB, committed; rebuilt from `src/` by `node tools/build.mjs`).
+- Deliverable: `dist/fcbga_thermomech_tool.html` (about 630 kB, committed; rebuilt from `src/` by `node tools/build.mjs`).
 
 `README.md` carries the detailed status: verification table, measured timings, every deviation from the specification, known issues, repository layout and development workflow.
 
@@ -28,7 +29,7 @@ Current state on `main`:
 - **Physics core** (`src/core/*.js`, concatenated in filename order) must stay free of DOM references: the same block runs on the UI thread, in the Web Worker and headless in Node. All constants live in `CONST` (`src/core/00-constants.js`); no magic numbers elsewhere. Large data in typed arrays only.
 - **UI** (`src/ui/*.js`, concatenated in filename order) uses the small `h()` element helper; every control gets a tooltip through `tip()`, `helpTip()` or `kl()` from `src/ui/00b-tips.js` (dictionary `TIPS`). Numeric inputs go through `numField()` so bounds and plausibility ranges apply.
 - **Resizable panes** live in `src/ui/00c-layout.js` (splitters bound to `app.layout`, persisted through `prefs`). Plots and maps use `class: 'plot'` or `'map'` and draw through `linePlot()`, `tornadoPlot()` or `autoRedraw()` (`src/ui/01-plot.js`) so they redraw when their pane is resized; avoid fixed pixel widths on inputs (use `class: 'grow'` in rows). Plots in the Results area also zoom and pan through `plotZoom()`: a draw stores its mapping in `canvas.__tx` and reads the zoomed range from `canvas.__view`. Colour scales come from `makeScale()`, which follows `app.colorMap` (rainbow default, colorblind-safe option).
-- **Materials database** is `src/materials-db.json` (49 materials, references R1 to R46). Every leaf parameter is `{v, u, c, s, r, n}`: value, unit, confidence (Datasheet, Literature, Handbook, Estimated), source reference ids, datasheet range, note. A material's `category` decides which dropdowns offer it (`die`, `solder`, `buildup`, `core`, `resist`, `underfill`, `adhesive`, `tim`, `metal`); solders need `solidus` and a full `anand` set. `presetOf` + `override` makes a variant of a full record (presets of presets are not supported, and inherited values keep the base's sources, so override anything that differs); `placeholderOf` copies a record and flags it all Estimated. Substrate copper is always the `cu` record. Never present an assumed value as Datasheet: mark it Estimated with a note.
+- **Materials database** is `src/materials-db.json` (101 materials, references R1 to R72). Every leaf parameter is `{v, u, c, s, r, n}`: value, unit, confidence (Datasheet, Literature, Handbook, Estimated), source reference ids, datasheet range, note. A material's `category` decides which dropdowns offer it (`die`, `solder`, `buildup`, `core`, `resist`, `underfill`, `adhesive`, `tim`, `metal`); solders need `solidus` and a full `anand` set. `presetOf` + `override` makes a variant of a full record (presets of presets are not supported, and inherited values keep the base's sources, so override anything that differs); `placeholderOf` copies a record and flags it all Estimated. Substrate copper is always the `cu` record. Never present an assumed value as Datasheet: mark it Estimated with a note.
 - **Worker protocol** is in `src/worker.js` (message types `init`, `run`, `evalSubset`, `submodelRemote`, `submodels`, `fieldsAt`, `submodel`, `sensitivityCase`, `verify`, `meshInfo`). Nested helper workers are spawned from inside the main worker; keep a sequential fallback for every parallel path.
 - **Before pushing**: `node tools/build.mjs`, then `node tools/verify.mjs` (full suite, about 4 minutes; V10 dominates) and `node tools/smoke.mjs --full` (Playwright and Chromium; three.js is served from a local stub because CDNs are blocked in the cloud sandbox). Quick checks: `node tools/verify.mjs V1,V2,V13` and `node tools/smoke.mjs`.
 - **Git**: develop on the designated feature branch, open a pull request to `main`, and keep each PR focused. The repository has no CI workflows; the headless suite and the smoke test are the gate.

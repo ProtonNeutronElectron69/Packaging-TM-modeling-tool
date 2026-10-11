@@ -10,9 +10,9 @@
   "references": {
     "R1": {"cite": "S. Tatsumi, S. Fujishima, H. Sakauchi (Ajinomoto), \"Advanced Build-up Materials for High Speed Transmission Application,\" IMAPS 51st International Symposium on Microelectronics, 2018, Tables 1 and 2.", "url": "https://imapsource.org/article/55935-advanced-build-up-materials-for-high-speed-transmission-application.pdf"},
     "R2": {"cite": "Resonac, MCL-E-795G product page, characteristics table (t0.4 mm laminate; flexural modulus at 800 um) and warpage TEG description.", "url": "https://www.resonac.com/products/pwb-materials/base/005.html"},
-    "R3": {"cite": "Resonac, MCL-E-705G product page (Tg, CTE z); PCB Directory summary of the MCL-E-705G datasheet (CTE x,y 5 to 7 ppm/degC, flexural modulus 32 to 34 GPa).", "url": "https://eu.resonac.com/project/e705g/"},
-    "R4": {"cite": "Taiyo America, PSR-4000 AUS703 technical data sheet.", "url": "https://taiyo-america.com/docs/files/3913/8256/2650/TDS_PSR-4000_AUS703_022005.pdf"},
-    "R5": {"cite": "Henkel, LOCTITE ECCOBOND UF 9000AE technical data sheet, February 2024 (distributed by CAPLINQ).", "url": ""},
+    "R3": {"cite": "Resonac, MCL-E-705G product page: Tg (TMA, DMA), CTE x,y for the standard, Type X, Type L and Type LH grades, CTE z below and above Tg, flexural modulus (t0.8 mm).", "url": "https://www.resonac.com/products/pwb-materials/base/003.html"},
+    "R4": {"cite": "Taiyo America, PSR-4000 AUS703 technical data sheet, February 2005 (Tg 105 degC by TMA; CTE 55 / 140 ppm/degC; final cure 135 to 149 degC for 45 to 60 min); archived copy.", "url": "https://web.archive.org/web/2020id_/https://taiyo-america.com/docs/files/3913/8256/2650/TDS_PSR-4000_AUS703_022005.pdf"},
+    "R5": {"cite": "Henkel, LOCTITE ECCOBOND UF 9000AE technical data sheet, November 2024 (values unchanged from the February 2024 issue distributed by CAPLINQ).", "url": "https://datasheets.tdx.henkel.com/LOCTITE-ECCOBOND-UF-9000AE-en_GL.pdf"},
     "R6": {"cite": "Henkel, LOCTITE ECCOBOND 3005 technical data sheet, August 2012.", "url": "https://datasheets.tdx.henkel.com/LOCTITE-ECCOBOND-3005-en_GL.pdf"},
     "R7": {"cite": "CPS Technologies, AlSiC material properties sheet, 2025.", "url": "https://cpstechnologysolutions.com/wp-content/uploads/2025/09/CPS-Alsic-2025-Final.pdf"},
     "R8": {"cite": "Y. Xu, J. Xian, S. Stoyanov, C. Bailey, R. J. Coyle, C. M. Gourlay, F. P. E. Dunne, \"A multi-scale approach to microstructure-sensitive thermal fatigue in solder joints,\" arXiv:2204.05583, Tables 1 and 2.", "url": "https://arxiv.org/abs/2204.05583"},
@@ -33,27 +33,53 @@
     "R23": {"cite": "CAPLINQ, SAC387 (Sn95.5Ag3.8Cu0.7) solder sphere data: solidus 217 degC, liquidus 219 degC.", "url": "https://storefront.caplinq.com/products/sac387"},
     "R24": {"cite": "US Patent 6,246,011, solder joint reliability: 63Sn37Pb elastic modulus 34.9 GPa at 270 K falling to 19.7 GPa at 370 K.", "url": "https://image-ppubs.uspto.gov/dirsearch-public/print/downloadPdf/6246011"},
     "R25": {"cite": "Topline, CCGA material properties table (Sn63Pb37: solidus and liquidus 183 degC, CTE 24.0 ppm/degC); vendor data for information only.", "url": "https://www.topline.tv/CCGA_Material.html"},
-    "R26": {"cite": "Henkel, LOCTITE ECCOBOND UF 8830S product page (Tg 118 degC, CTE 25 / 100 ppm/degC, DMA storage modulus 11.5 GPa at 25 degC); CAPLINQ listing for the cure schedule (2.5 h at 150 degC).", "url": "https://next.henkel-adhesives.com/us/en/products/industrial-adhesives/central-pdp.html/loctite-eccobond-uf-8830s/SAP_IB-108897.html"},
+    "R26": {"cite": "Henkel, LOCTITE ECCOBOND UF 8830S technical data sheet, January 2017 (CTE 25 / 100 ppm/degC; Tg 118 degC by TMA and 126.5 degC by DMA; DMA storage modulus 11.5 GPa at 25 degC; cure 30 min ramp to 150 degC, 2 h at 150 degC).", "url": "https://datasheets.tdx.henkel.com/LOCTITE-ECCOBOND-UF-8830S-en_GL.pdf"},
     "R27": {"cite": "Henkel, LOCTITE ECCOBOND FP4549 technical data sheet, January 2015.", "url": "https://www.mouser.com/datasheet/2/773/ECCOBOND_FP4549_EN-2328322.pdf"},
     "R28": {"cite": "Henkel, LOCTITE ECCOBOND FP4530 technical data sheet, December 2014.", "url": "https://datasheets.tdx.henkel.com/LOCTITE-ECCOBOND-FP4530-en_GL.pdf"},
-    "R29": {"cite": "NAMICS, flip chip underfill product table (U8410 series: Tg, elastic modulus, CTE below Tg).", "url": "https://www.namics.co.jp/en/products/underfill-flipchip/"},
+    "R29": {"cite": "NAMICS, flip chip underfill product table (U8443, U8410 and U8439 series: Tg, modulus of elasticity, CTE below Tg, application notes).", "url": "https://www.namics.co.jp/en/products/underfill-flipchip/"},
     "R30": {"cite": "MacDermid Alpha, ALPHA HiTech CU21-3240 underfill technical bulletin (November 2020) and technical data sheet (December 2023).", "url": "https://www.macdermidalpha.com/sites/default/files/2025-01/ALPHA-HITECH-CU21-3240-PRF-TDS-GL-EN-04Dec2023.pdf"},
     "R31": {"cite": "Resonac, MCL-E-770G (Type R) product page: CTE x,y, Tg (TMA, DMA) and flexural modulus for Type R and Type RLH.", "url": "https://www.resonac.com/products/pwb-materials/base/004.html"},
     "R32": {"cite": "Panasonic Industry, R-1515W (MEGTRON GX / LEXCM GX) high-elasticity low-CTE IC substrate material: Tg (DMA) 250 degC, CTE x,y 8 to 10 ppm/degC, flexural modulus 35 GPa at 25 degC and 21 GPa at 250 degC.", "url": "https://industrial.panasonic.com/ww/products/electronic-materials/circuit-board-materials/megtron-gx/megtrongxr1515w"},
     "R33": {"cite": "Panasonic Industry, R-1515A (MEGTRON GX / LEXCM GX) low-CTE IC substrate material: Tg (DMA) 205 degC, CTE x,y 11 to 13 ppm/degC, flexural modulus 27 GPa at 25 degC and 10 GPa at 250 degC.", "url": "https://industrial.panasonic.com/ww/products/electronic-materials/circuit-board-materials/megtron-gx/megtrongxr1515a"},
-    "R34": {"cite": "Mitsubishi Gas Chemical, non-halogenated low-CTE BT resin laminates for IC plastic packages (flexural modulus: HL832NS 27 GPa, HL832NX-A 28 GPa); distributor table (Hibex) for Tg (DMA) 255 degC; older M-QFN reference table (Mirror Semiconductor) for CTE 11 / 11 / 25 ppm/degC.", "url": "https://www.mgc.co.jp/eng/products/sc/btprint/lineup/hfbt.html"},
+    "R34": {"cite": "Mitsubishi Gas Chemical, non-halogenated low-CTE BT resin laminates for IC plastic packages, line-up table (as of May 2018): Tg (DMA, TMA), CTE x,y alpha1 and alpha2, flexural and Young's modulus and Poisson ratio for HL832NX type A, HL832NS (types, LC), HL832NSR (LC, LCA), HL832NSF (LCA), HL832NSA LCA, HL972LF LD and HL972LFG. No z-axis CTE is given.", "url": "https://www.mgc.co.jp/eng/products/sc/btprint/lineup/hfbt.html"},
     "R35": {"cite": "Taiyo America, PSR-4000 AUS320 liquid photoimageable solder mask technical data sheet, 2006 (Tg 114 degC by TMA; CTE 60 / 130 ppm/degC).", "url": "https://taiyo-america.com/docs/files/8913/8256/1981/TDS_PSR-4000_AUS320_032006.pdf"},
     "R36": {"cite": "Alliance, aluminum 6061-T6 data sheet (E 68.9 GPa, Poisson 0.33, CTE 23.6 ppm/degC).", "url": "https://www.allianceorg.com/pdfs/alumext/6061t6.pdf"},
     "R37": {"cite": "Combined Metals, 430 stainless steel alloy data sheet, 2024 (E 200 GPa; mean CTE 10.4 ppm/degC from 20 to 300 degC).", "url": "https://www.combmet.com/wp-content/uploads/2024/01/430-Stainless-Steel-Alloy-Data-Sheet-2024-01-11.pdf"},
-    "R38": {"cite": "Carpenter Technology, Kovar alloy data sheet (ASTM F-15; modulus of elasticity 20.0 x 10^3 ksi = 138 GPa); MatWeb, Kinetics MIM F15 (CTE 5.1 to 5.5 ppm/degC, 20 to 450 degC).", "url": "https://carpentertechnology.com/hubfs/7407324/Material%20Saftey%20Data%20Sheets/Kovar.pdf"},
+    "R38": {"cite": "Carpenter Technology, Kovar alloy data sheet, 1990 edition (modulus of elasticity 20.0 x 10^3 ksi = 138 GPa; mean CTE annealed 3.25 x 10^-6 /degF = 5.85 ppm/degC from 25 to 100 degC and 2.89 x 10^-6 /degF = 5.20 ppm/degC from 25 to 200 degC); MatWeb, Kinetics MIM F15 (5.1 to 5.5 ppm/degC, 20 to 450 degC).", "url": "https://carpentertechnology.com/hubfs/7407324/Material%20Saftey%20Data%20Sheets/Kovar.pdf"},
     "R39": {"cite": "Plansee, thermal management flyer, July 2024 (WCu10: CTE 6.6 to 7.0 ppm/K; WCu15: 8.0 to 8.2 ppm/K, RT to 400 degC).", "url": "https://cdn.plansee-group.com/is/content/planseemedia/plansee/downloads/messen/Flyer_Thermal%20Management_25.07.2024_online.pdf"},
     "R40": {"cite": "Tungsten-copper heat sink supplier table (Young's modulus: W90Cu10 325 GPa, W85Cu15 305 GPa, W80Cu20 278 GPa; wt%).", "url": "http://www.tungstencopper.net/W85Cu15-heat-sinks/default.htm"},
     "R41": {"cite": "MakeItFrom, UNS C10200 oxygen-free copper (E 120 GPa, Poisson 0.34, CTE 17 ppm/K); same values listed for C11000.", "url": "https://www.makeitfrom.com/material-properties/UNS-C10200-CW008A-Oxygen-Free-Copper"},
     "R42": {"cite": "Dow, DOWSIL EA-7100 adhesive technical data sheet (tensile modulus 1.1 MPa, CTE 247 ppm/degC, cure 15 min at 100 degC).", "url": "https://webaps.ellsworth.com/edl/Actions/GetLibraryFile.aspx?document=23519&language=en"},
-    "R43": {"cite": "Henkel, LOCTITE ABLESTIK 8700E technical data sheet (Tg 160 degC; CTE 45 / 120 ppm/degC; DMTA tensile modulus 4414 MPa at 25 degC).", "url": "https://datasheets.tdx.henkel.com/LOCTITE-ABLESTIK-8700E-en_GL.pdf"},
+    "R43": {"cite": "Henkel, LOCTITE ABLESTIK 8700E technical data sheet, October 2014 (Tg 160 degC, method not stated; CTE 45 / 120 ppm/degC; DMTA tensile modulus 4414 MPa at 25 degC; cure 2 h at 160 degC).", "url": "https://datasheets.tdx.henkel.com/LOCTITE-ABLESTIK-8700E-en_GL.pdf"},
     "R44": {"cite": "US Patent 6,251,707, attaching heat sinks directly to flip chips (typical epoxies: Tg about 140 to 150 degC, modulus near 1,000,000 psi; silicone preferred above 130 degC); Henkel LOCTITE ABLESTIK 2300 (CTE 60 / 129 ppm/degC, DMTA modulus about 1.8 GPa).", "url": "https://image-ppubs.uspto.gov/dirsearch-public/print/downloadPdf/6251707"},
     "R45": {"cite": "US Patent 7,906,857, molded IC package with compressible TIM: Young's modulus about 0.35 to 15 MPa at 25 degC, Tg about -35 to -5 degC, CTE about 110 to 200 ppm/degC.", "url": "https://image-ppubs.uspto.gov/dirsearch-public/print/downloadPdf/7906857"},
-    "R46": {"cite": "Indium Corporation, physical constants of pure indium (tensile modulus 10.6 GPa; elastic modulus 12.74 GPa in tension at 20 degC; Poisson ratio 0.4498; CTE 24.8 ppm/K) and Indalloy 4 data sheet (CTE 29 ppm/degC); handbook value 32.1 ppm/K (WebElements).", "url": "https://documents.indium.com/qdynamo/download.php?docid=317"}
+    "R46": {"cite": "Indium Corporation, physical constants of pure indium (tensile modulus 10.6 GPa; elastic modulus 12.74 GPa in tension at 20 degC; Poisson ratio 0.4498; CTE 24.8 ppm/K) and Indalloy 4 data sheet (CTE 29 ppm/degC); handbook value 32.1 ppm/K (WebElements).", "url": "https://documents.indium.com/qdynamo/download.php?docid=317"},
+    "R47": {"cite": "Henkel, LOCTITE ECCOBOND UF 9000AG technical data sheet (CTE 19 / 62 ppm/degC; Tg 135 degC by TMA and 160 degC by DMA; DMA storage modulus 15 GPa at 25 degC and 0.4 GPa at 250 degC; cure 100 degC 90 min plus 165 degC 2 h).", "url": "https://datasheets.tdx.henkel.com/LOCTITE-ECCOBOND-UF-9000AG-en_GL.pdf"},
+    "R48": {"cite": "Henkel, LOCTITE ECCOBOND FP4531 technical data sheet (CTE 28 / 104 ppm/degC; Tg 161 degC by TMA; flexural modulus 7600 N/mm2; snap cure 7 min at 160 degC).", "url": "https://datasheets.tdx.henkel.com/LOCTITE-ECCOBOND-FP4531-en_GL.pdf"},
+    "R49": {"cite": "Henkel, LOCTITE ECCOBOND UF 8807 technical data sheet (CTE 28 / 83 ppm/degC; Tg by TMA at least 130 degC; DMTA flexural modulus 10,700 N/mm2 at 25 degC and 7,900 N/mm2 at 150 degC; cure 15 min ramp plus 30 min at 165 degC).", "url": "https://datasheets.tdx.henkel.com/LOCTITE-ECCOBOND-UF-8807-en_GL.pdf"},
+    "R50": {"cite": "Resonac, MCL-E-700G (Type R) product page: Tg (TMA, DMA), CTE x,y and z, flexural modulus (t0.8 mm).", "url": "https://www.resonac.com/products/pwb-materials/base/010.html"},
+    "R51": {"cite": "M. Basit, M. Motalab, J. C. Roberts, J. C. Suhling, P. Lall, \"The Effects of Silver Content and Solidification Profile on the Anand Constitutive Model for SAC Lead Free Solders,\" 14th IEEE ITherm, 2014, Tables 3 (water quenched) and 4 (reflowed), SAC105 to SAC405 (the SAC305 reflowed column equals the default set). See also M. Motalab, PhD dissertation, Auburn University, 2013.", "url": "https://smtnet.com/library/files/upload/The_effects_of_silver_content_and_solidi.pdf"},
+    "R52": {"cite": "P. Lall, V. Yadav, J. Suhling, D. Locker, Journal of Electronic Packaging 144(2), 021116, 2022: Young's modulus of non-aged and aged SAC105 at 25 to 125 degC and an aged-SAC105 Anand set, as tabulated by M. A. Gharaibeh, Annales de Chimie Science des Materiaux 47(6), 2023, Tables 1 and 2.", "url": "https://www.iieta.org/download/file/fid/114634"},
+    "R53": {"cite": "NIST / J.-P. Clech, Sn-Pb solder pages: Poisson ratio 0.4 for near-eutectic Sn-Pb and E(GPa) = 32 - 0.088 T(degC) (Eq. 12a); typical eutectic Sn-Pb CTE 24 ppm/degC (Sn-Ag-Cu page).", "url": "https://www.metallurgy.nist.gov/solder/clech/Sn-Pb_Creep.htm"},
+    "R54": {"cite": "MacDermid Alpha, ALPHA VACULOY SAC305 / SAC387 / SAC405 solder technical data sheet, September 2023 (melting 217 to 219 degC; TCE 20 to 100 degC: SAC305 21.9, SAC387 and SAC405 21.4 um/m/degC).", "url": "https://www.macdermidalpha.com/sites/default/files/2025-01/ALPHA-VACULOY-SAC-300-305-350-380-387-400-405-SLD-TDS-GL-EN-06Sep2023.pdf"},
+    "R55": {"cite": "Solder sphere and alloy vendor tables for SAC105 (Sn98.5Ag1.0Cu0.5): solidus 215 degC, liquidus 227 degC (EasySpheres; Invacu alloy table).", "url": "https://www.easyspheres.com/sn98-5ag1cu0-5/"},
+    "R56": {"cite": "Taiyo Ink, PSR-4000 AUS308 technical data sheet, March 2004 (Tg 100 degC by TMA; CTE 60 / 130 ppm/degC; post cure 150 degC for 60 min).", "url": "https://www.lensuo.com/images/download/AUS308.pdf"},
+    "R57": {"cite": "Taiyo Ink, NEPCON 2015 product sheet: AUS AZ1 liquid solder resist for FC-xGA (Tg 150 to 160 degC by TMA, CTE 35 to 40 ppm, Young's modulus 3.5 to 4.0 GPa) and AUS SR3 dry film for FC-CSP and memory (Tg 150 to 160 degC, CTE 15 to 20 ppm, 9.0 to 10.0 GPa); Taiyo Ink products guide 2023 (AUS SR3: alpha2 70 to 80 ppm, 8.5 to 9.5 GPa; cure 170 degC for 60 min).", "url": "https://web.archive.org/web/2020id_/https://www.taiyo-hd.co.jp/_cms/wp-content/uploads/2016/02/nepcon2015_5.pdf"},
+    "R58": {"cite": "Resonac, photosensitive solder resist for package substrates SR7300 / SR-F series (Tg 130 to 140 degC by TMA; CTE alpha1 38 ppm/degC; elastic modulus 5000 MPa by DMA at 23 degC).", "url": "https://www.resonac.com/products/pwb-materials/196/022.html"},
+    "R59": {"cite": "S. Nimbalkar et al., \"A Review of Polymer Dielectrics for Redistribution Layers in Interposers and Package Substrates,\" Polymers 15, 3895, 2023, Table 2 (compiled from data sheets: elastic modulus, CTE, Tg and cure temperature of Ajinomoto ABF and Sekisui build-up films). Its Tg matches the DMA Tg of the grades also listed in R1.", "url": "https://www.mdpi.com/2073-4360/15/19/3895"},
+    "R60": {"cite": "Resonac, copper clad laminates and prepregs for semiconductor packages, product lineup table (CTE x,y and z, Tg); gives larger CTE x,y values than the individual product pages, without stating the method.", "url": "https://www.resonac.com/products/pwb-materials/195/022.html"},
+    "R61": {"cite": "Panasonic Industry, LEXCM GX series IC substrate materials data sheet, July 2024 (Tg by DMA; CTE x,y; flexural modulus at 25 and 250 degC, JIS C 6481, 0.8 mm) for R-1515V, R-1515K, R-151YE (R-1515E), R-1515W and R-1515A; archived copy.", "url": "https://web.archive.org/web/20250326160154/https://industrial.panasonic.com/content/data/EM/PDF/DataS_LEXCMGX_Series_new_en_202407.pdf"},
+    "R62": {"cite": "Panasonic Industry, R-1515E IPC data sheet (CTE x,y 8 to 10 ppm/degC; CTE z 22 / 95 ppm/degC; Tg 270 degC by DMA; tensile modulus 27 GPa by ASTM D3039; Poisson ratio 0.2; flexural modulus 33 GPa at 25 degC and 18 GPa at 250 degC); archived copy.", "url": "https://web.archive.org/web/20211021114244/https://industrial.panasonic.com/content/data/EM/PDF/ipcdatasheet_R-1515E.pdf"},
+    "R63": {"cite": "Shengyi Technology SI10U and SI10U LC IC substrate laminates (Tg 270 degC by DMA; CTE x,y below Tg 10 and 7 ppm/degC; flexural modulus 30 and 32 GPa), as reproduced from the manufacturer's site by a third-party product portal; verify against the Shengyi data sheet.", "url": "https://sykj.cnpowder.com.cn/product_172303.html"},
+    "R64": {"cite": "Panasonic Industry, semiconductor encapsulation materials catalog, 2021: CV5300 and CV5350 capillary underfills (CTE 33 and 30 ppm/degC; Tg by TMA 110 and 150 degC; modulus 7 and 10 GPa, flexural at 25 degC per the Japanese CV5300 sheet); archived copy.", "url": "https://web.archive.org/web/20211209141053/https://industrial.panasonic.com/content/data/EM/PDF/emscatalog_sem_all.pdf"},
+    "R65": {"cite": "Henkel (Liu et al.), \"Development of Virtual Material Approach for Modeling Viscoelasticity of Underfill in Flip Chip Packages,\" IMAPS 2024: parameter study over underfill DMA modulus 5 to 20 GPa at 25 degC and 0.1 to 0.8 GPa at 250 degC, Tg 80 to 140 degC (ranges studied, not measurements).", "url": "https://imapsource.org/article/129748.pdf"},
+    "R66": {"cite": "Outokumpu, Steel grades, properties and global standards, 2013, Table 13 (4301 / 304 and 4401 / 316: E 200 GPa at 20 degC and 172 GPa at 400 degC; mean CTE from 20 degC 16.0 ppm/degC to 100 degC and 17.5 ppm/degC to 400 degC).", "url": "https://www.outokumpu.com/-/media/from-sharepoint/documents/product/outokumpu-steel-grades-properties-global-standards.pdf"},
+    "R67": {"cite": "Special Metals, NILO alloys technical bulletin SMC-031, 2004 (NILO alloy 42: E 150 GPa, mean CTE 5.3 ppm/degC from 20 to 100 degC; NILO alloy K: 130 GPa, 6.0 ppm/degC) and Nickel 200 bulletin SMC-061, 2006 (E 205 GPa, Poisson 0.29 at 26 degC; mean CTE from 21 degC 13.3 ppm/degC to 100 degC and 13.9 to 200 degC).", "url": "https://www.specialmetals.com/documents/technical-bulletins/nilo-alloys.pdf"},
+    "R68": {"cite": "Kyocera, heat spreader material properties (CTE RT to 400 degC; Young's modulus): OFHC Cu 19.0 ppm/K, 117 GPa; CuW 10/90 to 25/75 (wt%) 7.0 to 9.5 ppm/K, 313 to 225 GPa; CuMo 35/65 to 60/40 8.1 to 10.8 ppm/K, 208 to 157 GPa; A.L.M.T. CPC141 (Cu/CuMo/Cu) 7.8 ppm/K, 160 GPa.", "url": "https://global.kyocera.com/prdct/semicon/search_material/detail/weldable_metal.html"},
+    "R69": {"cite": "Aalco, aluminium alloy data sheets 6063-T6 (E 69.5 GPa, CTE 23.5 ppm/K) and 1050A-H14 (E 71 GPa, CTE 24 ppm/K); stockist data.", "url": "https://www.aalco.co.uk/datasheets/Aluminium-Alloy-6063-T6-Extrusions_158.ashx"},
+    "R70": {"cite": "Dow Corning, EA-6700 microelectronic adhesive technical data sheet, 2008 (one-part heat-cure silicone for lid and substrate attachment; tensile modulus 560 psi = 3.9 MPa; cure 35 min at 100 degC, 7 min at 125 degC or 5 min at 150 degC).", "url": "https://webaps.ellsworth.com/edl/Actions/GetLibraryFile.aspx?language=en&document=33025"},
+    "R71": {"cite": "Dow, DOWSIL 3-6265 Thixotropic adhesive technical data sheet, 2023 (tensile modulus 420 psi = 2.9 MPa; linear CTE by TMA 275 ppm/degC; cure 60 min at 125 degC or 30 min at 150 degC); DOWSIL Q3-6611 (CTE 250 ppm/degC) and 3-6265 HP (215 ppm/degC) for the silicone CTE range.", "url": "https://webaps.ellsworth.com/edl/Actions/GetLibraryFile.aspx?language=en&document=23594"},
+    "R72": {"cite": "Dow, DOWSIL TC-4515 thermally conductive gap filler technical data sheet, 2018 (E-modulus 0.3 MPa by DMA in shear mode; CTE 160 ppm/K from -50 to 150 degC; cure 150 min at 25 degC or 30 min at 80 degC).", "url": "https://webaps.ellsworth.com/edl/Actions/GetLibraryFile.aspx?language=en&document=49204"}
   },
   "materials": [
     {
@@ -99,8 +125,29 @@
       "notes": "Anand constants are bulk-specimen values (Motalab et al. 2012); small C4 joints with a different microstructure and aging state can deviate."
     },
     {
-      "id": "sac105", "name": "SAC105 (enter data)", "grade": "Sn-1.0Ag-0.5Cu", "category": "solder", "placeholderOf": "sac305",
-      "notes": "No reliable SAC105 data set (elastic and Anand) could be verified for this release. Values are copied from SAC305 as placeholders and flagged Estimated; enter alloy data before use."
+      "id": "sac105", "name": "SAC105", "grade": "Sn-1.0Ag-0.5Cu (low silver, drop-shock grade)", "category": "solder",
+      "elastic": {
+        "type": "iso",
+        "E": {"type": "table", "T": [25, 50, 75, 100, 125], "v": [36.0, 32.5, 28.4, 25.0, 21.2], "interp": "linear", "extrap": "linear", "u": "GPa", "c": "Literature", "s": ["R52"], "n": "Non-aged bulk specimens; extrapolated linearly outside 25 to 125 degC. Aging lowers it strongly (19.4 GPa at 25 degC after 180 days)."},
+        "nu": {"v": 0.4, "u": "-", "c": "Estimated", "n": "SAC305 value assumed; no SAC105 measurement found (NIST reports none for SAC alloys)."}
+      },
+      "cte": {
+        "type": "const",
+        "a": {"v": 22.5, "u": "ppm/°C", "c": "Estimated", "r": [21.4, 22.5], "n": "Not published for SAC105; SAC305 value assumed (SAC305, SAC387 and SAC405 range 21.4 to 22.5 ppm/degC)."}
+      },
+      "solidus": {"v": 215, "u": "°C", "c": "Handbook", "s": ["R55"], "n": "Liquidus 227 degC."},
+      "anand": {
+        "A": {"v": 6900, "u": "1/s", "c": "Literature", "s": ["R51"]},
+        "QR": {"v": 8850, "u": "K", "c": "Literature", "s": ["R51"]},
+        "xi": {"v": 4, "u": "-", "c": "Literature", "s": ["R51"]},
+        "m": {"v": 0.215, "u": "-", "c": "Literature", "s": ["R51"]},
+        "shat": {"v": 25.1, "u": "MPa", "c": "Literature", "s": ["R51"]},
+        "n": {"v": 0.0062, "u": "-", "c": "Literature", "s": ["R51"]},
+        "h0": {"v": 137500, "u": "MPa", "c": "Literature", "s": ["R51"]},
+        "a": {"v": 1.96, "u": "-", "c": "Literature", "s": ["R51"]},
+        "s0": {"v": 7.5, "u": "MPa", "c": "Literature", "s": ["R51"], "n": "Reflowed bulk specimens, not aged (same laboratory and procedure as the SAC305 default). Another published non-aged set (Lall et al. 2022) differs strongly (xi 8, m 0.69), which shows the spread between fits."}
+      },
+      "notes": "Low-silver alloy: lower modulus and strength than SAC305. The Anand set is the reflowed, non-aged fit of Basit et al. (2014). Lives from the bundled Syed constants (fitted for SAC305-class joints) are best used as ratios."
     },
     {
       "id": "sac387", "name": "SAC387", "grade": "Sn-3.8Ag-0.7Cu", "category": "solder",
@@ -111,21 +158,21 @@
       },
       "cte": {
         "type": "const",
-        "a": {"v": 22.5, "u": "ppm/°C", "c": "Estimated", "r": [21, 23], "n": "SAC305 value assumed (Sn-Ag-Cu alloys are about 21 to 23 ppm/degC)."}
+        "a": {"v": 21.4, "u": "ppm/°C", "c": "Datasheet", "s": ["R54"], "n": "20 to 100 degC."}
       },
-      "solidus": {"v": 217, "u": "°C", "c": "Datasheet", "s": ["R23"], "n": "Liquidus 219 degC."},
+      "solidus": {"v": 217, "u": "°C", "c": "Datasheet", "s": ["R23", "R54"], "n": "Melting range 217 to 219 degC."},
       "anand": {
-        "A": {"v": 3501, "u": "1/s", "c": "Estimated", "s": null, "n": "SAC305 constants (Motalab et al. 2012) used as placeholders; no SAC387 set could be verified. Replace before using fatigue results."},
-        "QR": {"v": 9320, "u": "K", "c": "Estimated", "s": null, "n": "SAC305 constants (Motalab et al. 2012) used as placeholders; no SAC387 set could be verified. Replace before using fatigue results."},
-        "xi": {"v": 4.0, "u": "-", "c": "Estimated", "s": null, "n": "SAC305 constants (Motalab et al. 2012) used as placeholders; no SAC387 set could be verified. Replace before using fatigue results."},
-        "m": {"v": 0.25, "u": "-", "c": "Estimated", "s": null, "n": "SAC305 constants (Motalab et al. 2012) used as placeholders; no SAC387 set could be verified. Replace before using fatigue results."},
-        "shat": {"v": 30.2, "u": "MPa", "c": "Estimated", "s": null, "n": "SAC305 constants (Motalab et al. 2012) used as placeholders; no SAC387 set could be verified. Replace before using fatigue results."},
-        "n": {"v": 0.01, "u": "-", "c": "Estimated", "s": null, "n": "SAC305 constants (Motalab et al. 2012) used as placeholders; no SAC387 set could be verified. Replace before using fatigue results."},
-        "h0": {"v": 180000, "u": "MPa", "c": "Estimated", "s": null, "n": "SAC305 constants (Motalab et al. 2012) used as placeholders; no SAC387 set could be verified. Replace before using fatigue results."},
-        "a": {"v": 1.78, "u": "-", "c": "Estimated", "s": null, "n": "SAC305 constants (Motalab et al. 2012) used as placeholders; no SAC387 set could be verified. Replace before using fatigue results."},
-        "s0": {"v": 21.0, "u": "MPa", "c": "Estimated", "s": null, "n": "SAC305 constants (Motalab et al. 2012) used as placeholders; no SAC387 set could be verified. Replace before using fatigue results."}
+        "A": {"v": 3501, "u": "1/s", "c": "Estimated", "s": null, "n": "SAC305 reflowed constants (Motalab et al. 2012) used as a placeholder; no SAC387 set could be verified. The SAC405 entry carries a water-quenched set of a near-identical composition, which is stronger than reflowed bumps."},
+        "QR": {"v": 9320, "u": "K", "c": "Estimated", "s": null, "n": "SAC305 reflowed constants (Motalab et al. 2012) used as a placeholder; no SAC387 set could be verified. The SAC405 entry carries a water-quenched set of a near-identical composition, which is stronger than reflowed bumps."},
+        "xi": {"v": 4.0, "u": "-", "c": "Estimated", "s": null, "n": "SAC305 reflowed constants (Motalab et al. 2012) used as a placeholder; no SAC387 set could be verified. The SAC405 entry carries a water-quenched set of a near-identical composition, which is stronger than reflowed bumps."},
+        "m": {"v": 0.25, "u": "-", "c": "Estimated", "s": null, "n": "SAC305 reflowed constants (Motalab et al. 2012) used as a placeholder; no SAC387 set could be verified. The SAC405 entry carries a water-quenched set of a near-identical composition, which is stronger than reflowed bumps."},
+        "shat": {"v": 30.2, "u": "MPa", "c": "Estimated", "s": null, "n": "SAC305 reflowed constants (Motalab et al. 2012) used as a placeholder; no SAC387 set could be verified. The SAC405 entry carries a water-quenched set of a near-identical composition, which is stronger than reflowed bumps."},
+        "n": {"v": 0.01, "u": "-", "c": "Estimated", "s": null, "n": "SAC305 reflowed constants (Motalab et al. 2012) used as a placeholder; no SAC387 set could be verified. The SAC405 entry carries a water-quenched set of a near-identical composition, which is stronger than reflowed bumps."},
+        "h0": {"v": 180000, "u": "MPa", "c": "Estimated", "s": null, "n": "SAC305 reflowed constants (Motalab et al. 2012) used as a placeholder; no SAC387 set could be verified. The SAC405 entry carries a water-quenched set of a near-identical composition, which is stronger than reflowed bumps."},
+        "a": {"v": 1.78, "u": "-", "c": "Estimated", "s": null, "n": "SAC305 reflowed constants (Motalab et al. 2012) used as a placeholder; no SAC387 set could be verified. The SAC405 entry carries a water-quenched set of a near-identical composition, which is stronger than reflowed bumps."},
+        "s0": {"v": 21.0, "u": "MPa", "c": "Estimated", "s": null, "n": "SAC305 reflowed constants (Motalab et al. 2012) used as a placeholder; no SAC387 set could be verified. The SAC405 entry carries a water-quenched set of a near-identical composition, which is stronger than reflowed bumps."}
       },
-      "notes": "Elastic modulus and solidus are measured SAC387 values; CTE, Poisson ratio and the Anand constants are SAC305 placeholders flagged Estimated."
+      "notes": "Elastic modulus, CTE and solidus are SAC387 data; the Poisson ratio and Anand constants are SAC305 placeholders flagged Estimated."
     },
     {
       "id": "sn35ag", "name": "Sn-3.5Ag", "grade": "96.5Sn-3.5Ag eutectic (C4 bumps, Cu pillar caps)", "category": "solder",
@@ -156,12 +203,12 @@
       "id": "snpb_eut", "name": "Sn-Pb eutectic", "grade": "63Sn-37Pb (legacy C4 and BGA reference)", "category": "solder",
       "elastic": {
         "type": "iso",
-        "E": {"type": "table", "T": [-3, 97], "v": [34.9, 19.7], "interp": "linear", "extrap": "linear", "u": "GPa", "c": "Literature", "s": ["R24"], "n": "34.9 GPa at 270 K and 19.7 GPa at 370 K; extrapolated linearly."},
-        "nu": {"v": 0.4, "u": "-", "c": "Handbook"}
+        "E": {"type": "table", "T": [-40, 25, 125], "v": [35.52, 29.8, 21.0], "interp": "linear", "extrap": "linear", "u": "GPa", "c": "Literature", "s": ["R53"], "n": "E = 32 - 0.088 T(degC) GPa (NIST review, near-eutectic Sn-Pb). A patent source gives 34.9 GPa at 270 K and 19.7 GPa at 370 K (R24)."},
+        "nu": {"v": 0.4, "u": "-", "c": "Literature", "s": ["R53"]}
       },
       "cte": {
         "type": "const",
-        "a": {"v": 24.0, "u": "ppm/°C", "c": "Handbook", "s": ["R25"]}
+        "a": {"v": 24.0, "u": "ppm/°C", "c": "Literature", "s": ["R53", "R25"]}
       },
       "solidus": {"v": 183, "u": "°C", "c": "Handbook", "s": ["R25"], "n": "Eutectic melting point."},
       "anand": {
@@ -176,6 +223,31 @@
         "s0": {"v": 12.41, "u": "MPa", "c": "Literature", "s": ["R18", "R19"], "n": "62Sn36Pb2Ag set (near eutectic). s0 and Q/R confirmed in a secondary table."}
       },
       "notes": "Legacy reference alloy. Anand constants are the near-eutectic 62Sn36Pb2Ag set of Wang et al. (2001). The bundled Syed life constants were fitted for SAC; use lives only as ratios. The solder is molten above 183 degC, so reflow states above that are flagged."
+    },
+    {
+      "id": "sac405", "name": "SAC405", "grade": "Sn-4.0Ag-0.5Cu", "category": "solder",
+      "elastic": {
+        "type": "iso",
+        "E": {"type": "table", "T": [35, 80, 125], "v": [55, 51, 48], "interp": "linear", "extrap": "linear", "u": "GPa", "c": "Estimated", "s": ["R22"], "n": "Measured for SAC387 (Sn-3.8Ag-0.7Cu), a near-identical composition; no SAC405 modulus data found."},
+        "nu": {"v": 0.4, "u": "-", "c": "Estimated", "n": "SAC305 value assumed; no SAC405 measurement found."}
+      },
+      "cte": {
+        "type": "const",
+        "a": {"v": 21.4, "u": "ppm/°C", "c": "Datasheet", "s": ["R54"], "n": "20 to 100 degC."}
+      },
+      "solidus": {"v": 217, "u": "°C", "c": "Datasheet", "s": ["R54"], "n": "Melting range 217 to 219 degC."},
+      "anand": {
+        "A": {"v": 2650, "u": "1/s", "c": "Literature", "s": ["R51"], "n": "Water-quenched bulk specimens (fine microstructure); the reflowed SAC405 column is not published. Water quenching raises strength (SAC305: s0 32.2 MPa quenched versus 21.0 MPa reflowed), so this set overstates the resistance of reflowed bumps."},
+        "QR": {"v": 9560, "u": "K", "c": "Literature", "s": ["R51"], "n": "Water-quenched bulk specimens (fine microstructure); the reflowed SAC405 column is not published. Water quenching raises strength (SAC305: s0 32.2 MPa quenched versus 21.0 MPa reflowed), so this set overstates the resistance of reflowed bumps."},
+        "xi": {"v": 4, "u": "-", "c": "Literature", "s": ["R51"], "n": "Water-quenched bulk specimens (fine microstructure); the reflowed SAC405 column is not published. Water quenching raises strength (SAC305: s0 32.2 MPa quenched versus 21.0 MPa reflowed), so this set overstates the resistance of reflowed bumps."},
+        "m": {"v": 0.3, "u": "-", "c": "Literature", "s": ["R51"], "n": "Water-quenched bulk specimens (fine microstructure); the reflowed SAC405 column is not published. Water quenching raises strength (SAC305: s0 32.2 MPa quenched versus 21.0 MPa reflowed), so this set overstates the resistance of reflowed bumps."},
+        "shat": {"v": 45.51, "u": "MPa", "c": "Literature", "s": ["R51"], "n": "Water-quenched bulk specimens (fine microstructure); the reflowed SAC405 column is not published. Water quenching raises strength (SAC305: s0 32.2 MPa quenched versus 21.0 MPa reflowed), so this set overstates the resistance of reflowed bumps."},
+        "n": {"v": 0.0123, "u": "-", "c": "Literature", "s": ["R51"], "n": "Water-quenched bulk specimens (fine microstructure); the reflowed SAC405 column is not published. Water quenching raises strength (SAC305: s0 32.2 MPa quenched versus 21.0 MPa reflowed), so this set overstates the resistance of reflowed bumps."},
+        "h0": {"v": 192000, "u": "MPa", "c": "Literature", "s": ["R51"], "n": "Water-quenched bulk specimens (fine microstructure); the reflowed SAC405 column is not published. Water quenching raises strength (SAC305: s0 32.2 MPa quenched versus 21.0 MPa reflowed), so this set overstates the resistance of reflowed bumps."},
+        "a": {"v": 1.7, "u": "-", "c": "Literature", "s": ["R51"], "n": "Water-quenched bulk specimens (fine microstructure); the reflowed SAC405 column is not published. Water quenching raises strength (SAC305: s0 32.2 MPa quenched versus 21.0 MPa reflowed), so this set overstates the resistance of reflowed bumps."},
+        "s0": {"v": 34.35, "u": "MPa", "c": "Literature", "s": ["R51"], "n": "Water-quenched bulk specimens (fine microstructure); the reflowed SAC405 column is not published. Water quenching raises strength (SAC305: s0 32.2 MPa quenched versus 21.0 MPa reflowed), so this set overstates the resistance of reflowed bumps."}
+      },
+      "notes": "High-silver alloy. The Anand set is from water-quenched specimens: it reproduces their measured 25 degC tensile strength (81.7 MPa, about twice the reflowed SAC305 default), so it is much stronger than reflowed bumps. Compare designs with the same alloy entry; lives are order-of-magnitude and best used as ratios."
     },
     {
       "id": "cu", "name": "Copper", "grade": "Electroplated / foil; Ni-plated for lids", "category": "metal",
@@ -226,7 +298,7 @@
         "TgTMA": {"v": 154, "u": "°C", "c": "Datasheet", "s": ["R1"]},
         "delta": {"v": 3, "u": "°C", "c": "Estimated"}
       },
-      "cure": {"v": 200, "u": "°C", "c": "Estimated", "n": "Not stated by the source; ABF GL value assumed."}
+      "cure": {"v": 170, "u": "°C", "c": "Literature", "s": ["R59"]}
     },
     {
       "id": "abf_gx92", "name": "ABF GX92", "grade": "GX92", "category": "buildup", "family": "abf",
@@ -242,7 +314,7 @@
         "TgTMA": {"v": 153, "u": "°C", "c": "Datasheet", "s": ["R1"]},
         "delta": {"v": 3, "u": "°C", "c": "Estimated"}
       },
-      "cure": {"v": 200, "u": "°C", "c": "Estimated", "n": "Not stated by the source; ABF GL value assumed."}
+      "cure": {"v": 180, "u": "°C", "c": "Literature", "s": ["R59"]}
     },
     {
       "id": "abf_gx13", "name": "ABF GX13", "grade": "GX13 (earlier general-purpose grade)", "category": "buildup", "family": "abf",
@@ -254,11 +326,11 @@
       "cte": {
         "type": "bilinear",
         "a1": {"v": 46, "u": "ppm/°C", "c": "Datasheet", "s": ["R1"], "n": "25 to 150 degC, tensile TMA."},
-        "a2": {"v": 138, "u": "ppm/°C", "c": "Estimated", "n": "Not found; assumed 3 x alpha1 (other ABF grades: 2.5 to 3.4 x)."},
+        "a2": {"v": 120, "u": "ppm/°C", "c": "Datasheet", "s": ["R1"], "n": "150 to 240 degC, tensile TMA."},
         "TgTMA": {"v": 156, "u": "°C", "c": "Datasheet", "s": ["R1"]},
         "delta": {"v": 3, "u": "°C", "c": "Estimated"}
       },
-      "cure": {"v": 200, "u": "°C", "c": "Estimated", "n": "Not stated by the source; ABF GL value assumed."},
+      "cure": {"v": 200, "u": "°C", "c": "Estimated", "n": "Not stated by the source (GZ and GY grades cure at 190 degC, GL at 200 degC); ABF GL value assumed."},
       "notes": "High-CTE, low-modulus grade; useful as a bounding case."
     },
     {
@@ -271,12 +343,148 @@
       "cte": {
         "type": "bilinear",
         "a1": {"v": 20, "u": "ppm/°C", "c": "Datasheet", "s": ["R1"], "n": "25 to 150 degC, tensile TMA."},
-        "a2": {"v": 60, "u": "ppm/°C", "c": "Estimated", "n": "Not found; assumed 3 x alpha1 (other ABF grades: 2.5 to 3.4 x)."},
+        "a2": {"v": 67, "u": "ppm/°C", "c": "Datasheet", "s": ["R1"], "n": "150 to 240 degC, tensile TMA."},
         "TgTMA": {"v": 176, "u": "°C", "c": "Datasheet", "s": ["R1"]},
         "delta": {"v": 3, "u": "°C", "c": "Estimated"}
       },
       "cure": {"v": 190, "u": "°C", "c": "Datasheet", "s": ["R1"], "n": "190 degC, 90 min."},
       "notes": "Cyanate ester and epoxy based, about half the loss tangent of GX-T31."
+    },
+    {
+      "id": "abf_gy11", "name": "ABF GY11", "grade": "GY11 (lowest-loss grade, active-ester cure)", "category": "buildup", "family": "abf",
+      "elastic": {
+        "type": "iso",
+        "E": {"type": "sigmoid", "Eg": {"v": 8.9, "u": "GPa", "c": "Datasheet", "s": ["R1"]}, "Er": {"v": 0.712, "u": "GPa", "c": "Estimated", "n": "0.08 x E_g, as for the other ABF grades."}, "TgDMA": {"v": 165, "u": "°C", "c": "Datasheet", "s": ["R1"]}, "w": {"v": 8, "u": "°C", "c": "Estimated"}},
+        "nu": {"v": 0.3, "u": "-", "c": "Estimated"}
+      },
+      "cte": {
+        "type": "bilinear",
+        "a1": {"v": 26, "u": "ppm/°C", "c": "Datasheet", "s": ["R1"], "n": "25 to 150 degC, tensile TMA."},
+        "a2": {"v": 81, "u": "ppm/°C", "c": "Datasheet", "s": ["R1"], "n": "150 to 240 degC, tensile TMA."},
+        "TgTMA": {"v": 155, "u": "°C", "c": "Datasheet", "s": ["R1"]},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "cure": {"v": 190, "u": "°C", "c": "Datasheet", "s": ["R1"], "n": "90 min at 190 degC."},
+      "notes": "Low dielectric loss grade for high-speed substrates; mechanically between GX-T31 and GL."
+    },
+    {
+      "id": "abf_gxe4", "name": "ABF GX-E4", "grade": "GX-E4 (low-CTE, high-modulus grade)", "category": "buildup", "family": "abf",
+      "elastic": {
+        "type": "iso",
+        "E": {"type": "sigmoid", "Eg": {"v": 13, "u": "GPa", "c": "Literature", "s": ["R59"]}, "Er": {"v": 1.04, "u": "GPa", "c": "Estimated", "n": "0.08 x E_g, as for the other ABF grades."}, "TgDMA": {"v": 180, "u": "°C", "c": "Literature", "s": ["R59"], "n": "Tg as listed by the review (it matches the DMA Tg for the grades also in R1)."}, "w": {"v": 8, "u": "°C", "c": "Estimated"}},
+        "nu": {"v": 0.3, "u": "-", "c": "Estimated"}
+      },
+      "cte": {
+        "type": "bilinear",
+        "a1": {"v": 12, "u": "ppm/°C", "c": "Literature", "s": ["R59"], "n": "Single CTE listed (below Tg)."},
+        "a2": {"v": 36, "u": "ppm/°C", "c": "Estimated", "n": "Not published; assumed 3 x alpha1 (ABF grades in R1: 2.5 to 3.4 x)."},
+        "TgTMA": {"v": 163, "u": "°C", "c": "Estimated", "n": "Not published; assumed 17 degC below the DMA Tg (ABF grades in R1: 14 to 22 degC)."},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "cure": {"v": 190, "u": "°C", "c": "Estimated", "n": "Not stated by the source."},
+      "notes": "Low-CTE, high-modulus grade; values from a review compiled from data sheets."
+    },
+    {
+      "id": "abf_gxe5", "name": "ABF GX-E5", "grade": "GX-E5 (lowest-CTE grade)", "category": "buildup", "family": "abf",
+      "elastic": {
+        "type": "iso",
+        "E": {"type": "sigmoid", "Eg": {"v": 17, "u": "GPa", "c": "Literature", "s": ["R59"]}, "Er": {"v": 1.36, "u": "GPa", "c": "Estimated", "n": "0.08 x E_g, as for the other ABF grades."}, "TgDMA": {"v": 212, "u": "°C", "c": "Literature", "s": ["R59"], "n": "Tg as listed by the review (it matches the DMA Tg for the grades also in R1)."}, "w": {"v": 8, "u": "°C", "c": "Estimated"}},
+        "nu": {"v": 0.3, "u": "-", "c": "Estimated"}
+      },
+      "cte": {
+        "type": "bilinear",
+        "a1": {"v": 10, "u": "ppm/°C", "c": "Literature", "s": ["R59"], "n": "Single CTE listed (below Tg)."},
+        "a2": {"v": 30, "u": "ppm/°C", "c": "Estimated", "n": "Not published; assumed 3 x alpha1 (ABF grades in R1: 2.5 to 3.4 x)."},
+        "TgTMA": {"v": 195, "u": "°C", "c": "Estimated", "n": "Not published; assumed 17 degC below the DMA Tg (ABF grades in R1: 14 to 22 degC)."},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "cure": {"v": 190, "u": "°C", "c": "Estimated", "n": "Not stated by the source."},
+      "notes": "Lowest-CTE ABF grade listed; values from a review compiled from data sheets."
+    },
+    {
+      "id": "abf_gz22", "name": "ABF GZ22", "grade": "GZ22 (cyanate ester cure)", "category": "buildup", "family": "abf",
+      "elastic": {
+        "type": "iso",
+        "E": {"type": "sigmoid", "Eg": {"v": 6.4, "u": "GPa", "c": "Literature", "s": ["R59"]}, "Er": {"v": 0.512, "u": "GPa", "c": "Estimated", "n": "0.08 x E_g, as for the other ABF grades."}, "TgDMA": {"v": 192, "u": "°C", "c": "Literature", "s": ["R59"], "n": "Tg as listed by the review (it matches the DMA Tg for the grades also in R1)."}, "w": {"v": 8, "u": "°C", "c": "Estimated"}},
+        "nu": {"v": 0.3, "u": "-", "c": "Estimated"}
+      },
+      "cte": {
+        "type": "bilinear",
+        "a1": {"v": 31, "u": "ppm/°C", "c": "Literature", "s": ["R59"], "n": "Single CTE listed (below Tg)."},
+        "a2": {"v": 93, "u": "ppm/°C", "c": "Estimated", "n": "Not published; assumed 3 x alpha1 (ABF grades in R1: 2.5 to 3.4 x)."},
+        "TgTMA": {"v": 175, "u": "°C", "c": "Estimated", "n": "Not published; assumed 17 degC below the DMA Tg (ABF grades in R1: 14 to 22 degC)."},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "cure": {"v": 190, "u": "°C", "c": "Estimated", "n": "Not stated by the source."},
+      "notes": "Values from a review compiled from data sheets."
+    },
+    {
+      "id": "sek_nq07x", "name": "Sekisui NQ07X", "grade": "Sekisui Chemical build-up film, low loss", "category": "buildup", "family": "sekisui",
+      "elastic": {
+        "type": "iso",
+        "E": {"type": "sigmoid", "Eg": {"v": 10, "u": "GPa", "c": "Literature", "s": ["R59"]}, "Er": {"v": 0.8, "u": "GPa", "c": "Estimated", "n": "0.08 x E_g, as for the other ABF grades."}, "TgDMA": {"v": 183, "u": "°C", "c": "Literature", "s": ["R59"], "n": "Tg as listed by the review (it matches the DMA Tg for the grades also in R1)."}, "w": {"v": 8, "u": "°C", "c": "Estimated"}},
+        "nu": {"v": 0.3, "u": "-", "c": "Estimated"}
+      },
+      "cte": {
+        "type": "bilinear",
+        "a1": {"v": 27, "u": "ppm/°C", "c": "Literature", "s": ["R59"], "n": "Single CTE listed (below Tg)."},
+        "a2": {"v": 81, "u": "ppm/°C", "c": "Estimated", "n": "Not published; assumed 3 x alpha1 (ABF grades in R1: 2.5 to 3.4 x)."},
+        "TgTMA": {"v": 166, "u": "°C", "c": "Estimated", "n": "Not published; assumed 17 degC below the DMA Tg (ABF grades in R1: 14 to 22 degC)."},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "cure": {"v": 190, "u": "°C", "c": "Estimated", "n": "Not stated by the source."},
+      "notes": "Sekisui build-up film; values from a review compiled from data sheets."
+    },
+    {
+      "id": "sek_nx04h", "name": "Sekisui NX04H", "grade": "Sekisui Chemical build-up film", "category": "buildup", "family": "sekisui",
+      "elastic": {
+        "type": "iso",
+        "E": {"type": "sigmoid", "Eg": {"v": 8.0, "u": "GPa", "c": "Literature", "s": ["R59"]}, "Er": {"v": 0.64, "u": "GPa", "c": "Estimated", "n": "0.08 x E_g, as for the other ABF grades."}, "TgDMA": {"v": 205, "u": "°C", "c": "Literature", "s": ["R59"], "n": "Tg as listed by the review (it matches the DMA Tg for the grades also in R1)."}, "w": {"v": 8, "u": "°C", "c": "Estimated"}},
+        "nu": {"v": 0.3, "u": "-", "c": "Estimated"}
+      },
+      "cte": {
+        "type": "bilinear",
+        "a1": {"v": 24.5, "u": "ppm/°C", "c": "Literature", "s": ["R59"], "n": "Single CTE listed (below Tg)."},
+        "a2": {"v": 74, "u": "ppm/°C", "c": "Estimated", "n": "Not published; assumed 3 x alpha1 (ABF grades in R1: 2.5 to 3.4 x)."},
+        "TgTMA": {"v": 188, "u": "°C", "c": "Estimated", "n": "Not published; assumed 17 degC below the DMA Tg (ABF grades in R1: 14 to 22 degC)."},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "cure": {"v": 190, "u": "°C", "c": "Estimated", "n": "Not stated by the source."},
+      "notes": "Sekisui build-up film; values from a review compiled from data sheets."
+    },
+    {
+      "id": "sek_nr11", "name": "Sekisui NR11", "grade": "Sekisui Chemical build-up film, low CTE", "category": "buildup", "family": "sekisui",
+      "elastic": {
+        "type": "iso",
+        "E": {"type": "sigmoid", "Eg": {"v": 12.5, "u": "GPa", "c": "Literature", "s": ["R59"]}, "Er": {"v": 1.0, "u": "GPa", "c": "Estimated", "n": "0.08 x E_g, as for the other ABF grades."}, "TgDMA": {"v": 195, "u": "°C", "c": "Literature", "s": ["R59"], "n": "Tg as listed by the review (it matches the DMA Tg for the grades also in R1)."}, "w": {"v": 8, "u": "°C", "c": "Estimated"}},
+        "nu": {"v": 0.3, "u": "-", "c": "Estimated"}
+      },
+      "cte": {
+        "type": "bilinear",
+        "a1": {"v": 17, "u": "ppm/°C", "c": "Literature", "s": ["R59"], "n": "Single CTE listed (below Tg)."},
+        "a2": {"v": 51, "u": "ppm/°C", "c": "Estimated", "n": "Not published; assumed 3 x alpha1 (ABF grades in R1: 2.5 to 3.4 x)."},
+        "TgTMA": {"v": 178, "u": "°C", "c": "Estimated", "n": "Not published; assumed 17 degC below the DMA Tg (ABF grades in R1: 14 to 22 degC)."},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "cure": {"v": 190, "u": "°C", "c": "Estimated", "n": "Not stated by the source."},
+      "notes": "Sekisui build-up film; values from a review compiled from data sheets."
+    },
+    {
+      "id": "sek_nr50", "name": "Sekisui NR50", "grade": "Sekisui Chemical build-up film, thin (10 um)", "category": "buildup", "family": "sekisui",
+      "elastic": {
+        "type": "iso",
+        "E": {"type": "sigmoid", "Eg": {"v": 5.4, "u": "GPa", "c": "Literature", "s": ["R59"]}, "Er": {"v": 0.432, "u": "GPa", "c": "Estimated", "n": "0.08 x E_g, as for the other ABF grades."}, "TgDMA": {"v": 194, "u": "°C", "c": "Literature", "s": ["R59"], "n": "Tg as listed by the review (it matches the DMA Tg for the grades also in R1)."}, "w": {"v": 8, "u": "°C", "c": "Estimated"}},
+        "nu": {"v": 0.3, "u": "-", "c": "Estimated"}
+      },
+      "cte": {
+        "type": "bilinear",
+        "a1": {"v": 44, "u": "ppm/°C", "c": "Literature", "s": ["R59"], "n": "Single CTE listed (below Tg)."},
+        "a2": {"v": 132, "u": "ppm/°C", "c": "Estimated", "n": "Not published; assumed 3 x alpha1 (ABF grades in R1: 2.5 to 3.4 x)."},
+        "TgTMA": {"v": 177, "u": "°C", "c": "Estimated", "n": "Not published; assumed 17 degC below the DMA Tg (ABF grades in R1: 14 to 22 degC)."},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "cure": {"v": 190, "u": "°C", "c": "Estimated", "n": "Not stated by the source."},
+      "notes": "Sekisui build-up film; values from a review compiled from data sheets."
     },
     {
       "id": "mcl_e_795g", "name": "MCL-E-795G", "grade": "Standard type (default core)", "category": "core", "family": "core",
@@ -297,7 +505,7 @@
       },
       "cteXY": {
         "type": "const",
-        "a": {"v": 4.0, "u": "ppm/°C", "c": "Datasheet", "s": ["R2"], "r": [3.0, 5.0], "n": "30 to 120 degC."}
+        "a": {"v": 4.0, "u": "ppm/°C", "c": "Datasheet", "s": ["R2", "R60"], "r": [3.0, 5.0], "n": "30 to 120 degC (product page, t0.4 mm laminate). Resonac's lineup table lists 7 to 9 ppm/degC without stating the method (R60); the product-page value is used."}
       },
       "cteZ": {
         "type": "bilinear",
@@ -330,10 +538,10 @@
         "elastic.Ex": {"v": 33, "u": "GPa", "c": "Datasheet", "s": ["R3"], "r": [32, 34]},
         "elastic.Ey": {"v": 33, "u": "GPa", "c": "Datasheet", "s": ["R3"], "r": [32, 34]},
         "elastic.TgDMA": {"v": 300, "u": "°C", "c": "Datasheet", "s": ["R3"], "r": [295, 305]},
-        "cteXY.a": {"v": 6.0, "u": "ppm/°C", "c": "Datasheet", "s": ["R3"], "r": [5, 7]},
+        "cteXY.a": {"v": 6.0, "u": "ppm/°C", "c": "Datasheet", "s": ["R3"], "r": [5, 7], "n": "30 to 100 degC, tensile."},
         "cteZ.TgTMA": {"v": 260, "u": "°C", "c": "Datasheet", "s": ["R3"], "r": [250, 270]},
-        "cteZ.a1": {"v": 12.5, "u": "ppm/°C", "c": "Estimated", "n": "Not given for MCL-E-705G; MCL-E-795G value assumed."},
-        "cteZ.a2": {"v": 85, "u": "ppm/°C", "c": "Estimated", "n": "Not given for MCL-E-705G; MCL-E-795G value assumed."}
+        "cteZ.a1": {"v": 12.5, "u": "ppm/°C", "c": "Datasheet", "s": ["R3"], "r": [10, 15], "n": "Below Tg; measured at t0.8 mm."},
+        "cteZ.a2": {"v": 85, "u": "ppm/°C", "c": "Datasheet", "s": ["R3"], "r": [70, 100], "n": "Above Tg; measured at t0.8 mm."}
       }
     },
     {
@@ -344,8 +552,8 @@
         "elastic.TgDMA": {"v": 300, "u": "°C", "c": "Datasheet", "s": ["R3"], "r": [295, 305]},
         "cteXY.a": {"v": 3.0, "u": "ppm/°C", "c": "Datasheet", "s": ["R3"], "r": [2.5, 3.5], "n": "30 to 100 degC."},
         "cteZ.TgTMA": {"v": 260, "u": "°C", "c": "Datasheet", "s": ["R3"], "r": [250, 270]},
-        "cteZ.a1": {"v": 12.5, "u": "ppm/°C", "c": "Estimated", "n": "Not given for MCL-E-705G; MCL-E-795G value assumed."},
-        "cteZ.a2": {"v": 85, "u": "ppm/°C", "c": "Estimated", "n": "Not given for MCL-E-705G; MCL-E-795G value assumed."}
+        "cteZ.a1": {"v": 12.5, "u": "ppm/°C", "c": "Datasheet", "s": ["R3"], "r": [10, 15], "n": "Below Tg; measured at t0.8 mm."},
+        "cteZ.a2": {"v": 85, "u": "ppm/°C", "c": "Datasheet", "s": ["R3"], "r": [70, 100], "n": "Above Tg; measured at t0.8 mm."}
       }
     },
     {
@@ -436,8 +644,74 @@
       "id": "hl832ns", "name": "MGC HL832NS", "grade": "Mitsubishi Gas Chemical BT laminate, low CTE", "category": "core", "family": "core",
       "elastic": {
         "type": "ortho",
-        "Ex": {"v": 27, "u": "GPa", "c": "Datasheet", "s": ["R34"], "n": "Flexural modulus, used as in-plane modulus (approximation); an older table gives 26 GPa at 25 degC."},
+        "Ex": {"v": 27, "u": "GPa", "c": "Datasheet", "s": ["R34"], "n": "Young's modulus (equal to the flexural modulus in the source)."},
         "Ey": {"v": 27, "u": "GPa", "c": "Datasheet", "s": ["R34"], "n": "Taken equal to Ex."},
+        "Ez": {"v": 12, "u": "GPa", "c": "Estimated", "n": "Not published; typical laminate ratio as for MCL-E-795G."},
+        "Gxy": {"v": 8, "u": "GPa", "c": "Estimated"},
+        "Gxz": {"v": 5, "u": "GPa", "c": "Estimated"},
+        "Gyz": {"v": 5, "u": "GPa", "c": "Estimated"},
+        "nuxy": {"v": 0.18, "u": "-", "c": "Datasheet", "s": ["R34"], "n": "In-plane value assumed; the source does not state the plane."},
+        "nuxz": {"v": 0.3, "u": "-", "c": "Estimated"},
+        "nuyz": {"v": 0.3, "u": "-", "c": "Estimated"},
+        "rubberyRatio": {"v": 0.3, "u": "-", "c": "Estimated", "n": "Not published; MCL-E-795G value assumed."},
+        "TgDMA": {"v": 255, "u": "°C", "c": "Datasheet", "s": ["R34"]},
+        "w": {"v": 8, "u": "°C", "c": "Estimated"}
+      },
+      "cteXY": {
+        "type": "const",
+        "a": {"v": 10, "u": "ppm/°C", "c": "Datasheet", "s": ["R34"], "n": "alpha1. Above Tg (TMA 230 degC) the source gives 3 ppm/degC; the model keeps alpha1 (constant in-plane CTE)."}
+      },
+      "cteZ": {
+        "type": "bilinear",
+        "a1": {"v": 25, "u": "ppm/°C", "c": "Estimated", "n": "Not published by MGC; HL832NS older reference value assumed."},
+        "a2": {"v": 100, "u": "ppm/°C", "c": "Estimated", "n": "Not published; assumed."},
+        "TgTMA": {"v": 230, "u": "°C", "c": "Datasheet", "s": ["R34"]},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "notes": "BT (bismaleimide triazine) core; the de facto standard low-CTE package laminate. Values from the manufacturer line-up table; z-axis CTE not published."
+    },
+    {
+      "id": "mcl_e_705g_x", "name": "MCL-E-705G Type X", "grade": "Low CTE type X", "category": "core", "family": "core", "presetOf": "mcl_e_795g",
+      "override": {
+        "elastic.Ex": {"v": 34, "u": "GPa", "c": "Datasheet", "s": ["R3"], "r": [33, 35]},
+        "elastic.Ey": {"v": 34, "u": "GPa", "c": "Datasheet", "s": ["R3"], "r": [33, 35]},
+        "elastic.TgDMA": {"v": 300, "u": "°C", "c": "Datasheet", "s": ["R3"], "r": [295, 305]},
+        "cteXY.a": {"v": 5.0, "u": "ppm/°C", "c": "Datasheet", "s": ["R3"], "r": [4, 6], "n": "30 to 100 degC, tensile."},
+        "cteZ.TgTMA": {"v": 260, "u": "°C", "c": "Datasheet", "s": ["R3"], "r": [250, 270]},
+        "cteZ.a1": {"v": 12.5, "u": "ppm/°C", "c": "Datasheet", "s": ["R3"], "r": [10, 15], "n": "Below Tg; measured at t0.8 mm."},
+        "cteZ.a2": {"v": 85, "u": "ppm/°C", "c": "Datasheet", "s": ["R3"], "r": [70, 100], "n": "Above Tg; measured at t0.8 mm."}
+      }
+    },
+    {
+      "id": "mcl_e_705g_l", "name": "MCL-E-705G Type L", "grade": "Low CTE type L (low-CTE glass cloth)", "category": "core", "family": "core", "presetOf": "mcl_e_795g",
+      "override": {
+        "elastic.Ex": {"v": 35, "u": "GPa", "c": "Datasheet", "s": ["R3"], "r": [34, 36]},
+        "elastic.Ey": {"v": 35, "u": "GPa", "c": "Datasheet", "s": ["R3"], "r": [34, 36]},
+        "elastic.TgDMA": {"v": 300, "u": "°C", "c": "Datasheet", "s": ["R3"], "r": [295, 305]},
+        "cteXY.a": {"v": 3.5, "u": "ppm/°C", "c": "Datasheet", "s": ["R3"], "r": [3, 4], "n": "30 to 100 degC, tensile."},
+        "cteZ.TgTMA": {"v": 260, "u": "°C", "c": "Datasheet", "s": ["R3"], "r": [250, 270]},
+        "cteZ.a1": {"v": 12.5, "u": "ppm/°C", "c": "Datasheet", "s": ["R3"], "r": [10, 15], "n": "Below Tg; measured at t0.8 mm."},
+        "cteZ.a2": {"v": 85, "u": "ppm/°C", "c": "Datasheet", "s": ["R3"], "r": [70, 100], "n": "Above Tg; measured at t0.8 mm."}
+      }
+    },
+    {
+      "id": "mcl_e_700g_r", "name": "MCL-E-700G Type R", "grade": "Standard-CTE FC-BGA and FC-CSP core, good drillability", "category": "core", "family": "core", "presetOf": "mcl_e_795g",
+      "override": {
+        "elastic.Ex": {"v": 33, "u": "GPa", "c": "Datasheet", "s": ["R50"], "r": [32, 34], "n": "Flexural modulus lengthwise at t0.8 mm, used as in-plane modulus (approximation)."},
+        "elastic.Ey": {"v": 33, "u": "GPa", "c": "Datasheet", "s": ["R50"], "r": [32, 34], "n": "Taken equal to Ex."},
+        "elastic.TgDMA": {"v": 300, "u": "°C", "c": "Datasheet", "s": ["R50"], "r": [295, 305]},
+        "cteXY.a": {"v": 9.0, "u": "ppm/°C", "c": "Datasheet", "s": ["R50"], "r": [8, 10], "n": "30 to 120 degC."},
+        "cteZ.TgTMA": {"v": 260, "u": "°C", "c": "Datasheet", "s": ["R50"], "r": [250, 270]},
+        "cteZ.a1": {"v": 20, "u": "ppm/°C", "c": "Datasheet", "s": ["R50"], "r": [15, 25], "n": "Below Tg."},
+        "cteZ.a2": {"v": 105, "u": "ppm/°C", "c": "Datasheet", "s": ["R50"], "r": [90, 120], "n": "Above Tg."}
+      }
+    },
+    {
+      "id": "r1515v", "name": "Panasonic R-1515V", "grade": "LEXCM GX, low-CTE glass cloth", "category": "core", "family": "core",
+      "elastic": {
+        "type": "ortho",
+        "Ex": {"v": 30, "u": "GPa", "c": "Datasheet", "s": ["R61"], "n": "Flexural modulus at 25 degC, used as in-plane modulus (approximation)."},
+        "Ey": {"v": 30, "u": "GPa", "c": "Datasheet", "s": ["R61"], "n": "Taken equal to Ex."},
         "Ez": {"v": 12, "u": "GPa", "c": "Estimated", "n": "Not published; typical laminate ratio as for MCL-E-795G."},
         "Gxy": {"v": 8, "u": "GPa", "c": "Estimated"},
         "Gxz": {"v": 5, "u": "GPa", "c": "Estimated"},
@@ -445,22 +719,442 @@
         "nuxy": {"v": 0.15, "u": "-", "c": "Estimated"},
         "nuxz": {"v": 0.3, "u": "-", "c": "Estimated"},
         "nuyz": {"v": 0.3, "u": "-", "c": "Estimated"},
-        "rubberyRatio": {"v": 0.3, "u": "-", "c": "Estimated", "n": "MCL-E-795G value assumed."},
-        "TgDMA": {"v": 255, "u": "°C", "c": "Handbook", "s": ["R34"], "n": "Distributor table; verify with the MGC data sheet."},
+        "rubberyRatio": {"v": 0.3, "u": "-", "c": "Estimated", "n": "Not published; MCL-E-795G value assumed."},
+        "TgDMA": {"v": 241, "u": "°C", "c": "Estimated", "s": ["R61"], "n": "Modulus transition midpoint fitted so that E(250 degC) / E(25 degC) = 0.47 as published; the DMA Tg is 260 degC (the laminate softens gradually below its DMA Tg)."},
         "w": {"v": 8, "u": "°C", "c": "Estimated"}
       },
       "cteXY": {
         "type": "const",
-        "a": {"v": 11, "u": "ppm/°C", "c": "Handbook", "s": ["R34"], "r": [10, 11], "n": "Older reference table and a patent (10 to 11 ppm/degC)."}
+        "a": {"v": 4.0, "u": "ppm/°C", "c": "Datasheet", "s": ["R61"], "r": [3, 5]}
       },
       "cteZ": {
         "type": "bilinear",
-        "a1": {"v": 25, "u": "ppm/°C", "c": "Handbook", "s": ["R34"], "n": "Older reference table, below Tg."},
-        "a2": {"v": 100, "u": "ppm/°C", "c": "Estimated", "n": "Not published."},
-        "TgTMA": {"v": 235, "u": "°C", "c": "Estimated", "n": "Not published; assumed 20 degC below Tg (DMA)."},
+        "a1": {"v": 12.5, "u": "ppm/°C", "c": "Estimated", "n": "Not published; MCL-E-795G value assumed."},
+        "a2": {"v": 85, "u": "ppm/°C", "c": "Estimated", "n": "Not published; MCL-E-795G value assumed."},
+        "TgTMA": {"v": 240, "u": "°C", "c": "Estimated", "n": "Not published; assumed 20 degC below Tg (DMA)."},
         "delta": {"v": 3, "u": "°C", "c": "Estimated"}
       },
-      "notes": "BT (bismaleimide triazine) core. Values come from a mix of manufacturer, distributor and older reference tables; verify against the current MGC data sheet."
+      "notes": "Low-CTE glass cloth grade; the modulus at 250 degC is 14 GPa (47 % of 25 degC)."
+    },
+    {
+      "id": "r1515k", "name": "Panasonic R-1515K", "grade": "LEXCM GX, low-CTE core", "category": "core", "family": "core",
+      "elastic": {
+        "type": "ortho",
+        "Ex": {"v": 27, "u": "GPa", "c": "Datasheet", "s": ["R61"], "n": "Flexural modulus at 25 degC, used as in-plane modulus (approximation)."},
+        "Ey": {"v": 27, "u": "GPa", "c": "Datasheet", "s": ["R61"], "n": "Taken equal to Ex."},
+        "Ez": {"v": 12, "u": "GPa", "c": "Estimated", "n": "Not published; typical laminate ratio as for MCL-E-795G."},
+        "Gxy": {"v": 8, "u": "GPa", "c": "Estimated"},
+        "Gxz": {"v": 5, "u": "GPa", "c": "Estimated"},
+        "Gyz": {"v": 5, "u": "GPa", "c": "Estimated"},
+        "nuxy": {"v": 0.15, "u": "-", "c": "Estimated"},
+        "nuxz": {"v": 0.3, "u": "-", "c": "Estimated"},
+        "nuyz": {"v": 0.3, "u": "-", "c": "Estimated"},
+        "rubberyRatio": {"v": 0.3, "u": "-", "c": "Estimated", "n": "Not published; MCL-E-795G value assumed."},
+        "TgDMA": {"v": 239, "u": "°C", "c": "Estimated", "s": ["R61"], "n": "Modulus transition midpoint fitted so that E(250 degC) / E(25 degC) = 0.44 as published; the DMA Tg is 260 degC (the laminate softens gradually below its DMA Tg)."},
+        "w": {"v": 8, "u": "°C", "c": "Estimated"}
+      },
+      "cteXY": {
+        "type": "const",
+        "a": {"v": 7, "u": "ppm/°C", "c": "Datasheet", "s": ["R61"]}
+      },
+      "cteZ": {
+        "type": "bilinear",
+        "a1": {"v": 12.5, "u": "ppm/°C", "c": "Estimated", "n": "Not published; MCL-E-795G value assumed."},
+        "a2": {"v": 85, "u": "ppm/°C", "c": "Estimated", "n": "Not published; MCL-E-795G value assumed."},
+        "TgTMA": {"v": 240, "u": "°C", "c": "Estimated", "n": "Not published; assumed 20 degC below Tg (DMA)."},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "notes": "The modulus at 250 degC is 12 GPa (44 % of 25 degC)."
+    },
+    {
+      "id": "r1515e", "name": "Panasonic R-1515E (R-151YE)", "grade": "LEXCM GX, high-elasticity low-CTE ultra-thin core", "category": "core", "family": "core",
+      "elastic": {
+        "type": "ortho",
+        "Ex": {"v": 27, "u": "GPa", "c": "Datasheet", "s": ["R62", "R61"], "n": "Tensile modulus at 25 degC (ASTM D3039); the flexural modulus is 33 GPa."},
+        "Ey": {"v": 27, "u": "GPa", "c": "Datasheet", "s": ["R62", "R61"], "n": "Taken equal to Ex."},
+        "Ez": {"v": 12, "u": "GPa", "c": "Estimated", "n": "Not published; typical laminate ratio as for MCL-E-795G."},
+        "Gxy": {"v": 8, "u": "GPa", "c": "Estimated"},
+        "Gxz": {"v": 5, "u": "GPa", "c": "Estimated"},
+        "Gyz": {"v": 5, "u": "GPa", "c": "Estimated"},
+        "nuxy": {"v": 0.2, "u": "-", "c": "Datasheet", "s": ["R62"], "n": "0.8 mm sample; plane not stated."},
+        "nuxz": {"v": 0.3, "u": "-", "c": "Estimated"},
+        "nuyz": {"v": 0.3, "u": "-", "c": "Estimated"},
+        "rubberyRatio": {"v": 0.3, "u": "-", "c": "Estimated", "n": "Not published; MCL-E-795G value assumed."},
+        "TgDMA": {"v": 245, "u": "°C", "c": "Estimated", "s": ["R62", "R61"], "n": "Modulus transition midpoint fitted so that E(250 degC) / E(25 degC) = 0.55 as published; the DMA Tg is 270 degC (the laminate softens gradually below its DMA Tg)."},
+        "w": {"v": 8, "u": "°C", "c": "Estimated"}
+      },
+      "cteXY": {
+        "type": "const",
+        "a": {"v": 9, "u": "ppm/°C", "c": "Datasheet", "s": ["R62", "R61"], "r": [8, 10]}
+      },
+      "cteZ": {
+        "type": "bilinear",
+        "a1": {"v": 22, "u": "ppm/°C", "c": "Datasheet", "s": ["R62"], "n": "Below Tg, 0.8 mm sample."},
+        "a2": {"v": 95, "u": "ppm/°C", "c": "Datasheet", "s": ["R62"], "n": "Above Tg, 0.8 mm sample."},
+        "TgTMA": {"v": 250, "u": "°C", "c": "Estimated", "n": "Not published; assumed 20 degC below Tg (DMA)."},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "notes": "The only core here with a published z-axis CTE above Tg and a Poisson ratio."
+    },
+    {
+      "id": "hl832nx_a", "name": "MGC HL832NX type A", "grade": "BT laminate, halogen free (standard)", "category": "core", "family": "core",
+      "elastic": {
+        "type": "ortho",
+        "Ex": {"v": 28, "u": "GPa", "c": "Datasheet", "s": ["R34"], "n": "Young's modulus (equal to the flexural modulus in the source)."},
+        "Ey": {"v": 28, "u": "GPa", "c": "Datasheet", "s": ["R34"], "n": "Taken equal to Ex."},
+        "Ez": {"v": 12, "u": "GPa", "c": "Estimated", "n": "Not published; typical laminate ratio as for MCL-E-795G."},
+        "Gxy": {"v": 8, "u": "GPa", "c": "Estimated"},
+        "Gxz": {"v": 5, "u": "GPa", "c": "Estimated"},
+        "Gyz": {"v": 5, "u": "GPa", "c": "Estimated"},
+        "nuxy": {"v": 0.19, "u": "-", "c": "Datasheet", "s": ["R34"], "n": "In-plane value assumed; the source does not state the plane."},
+        "nuxz": {"v": 0.3, "u": "-", "c": "Estimated"},
+        "nuyz": {"v": 0.3, "u": "-", "c": "Estimated"},
+        "rubberyRatio": {"v": 0.3, "u": "-", "c": "Estimated", "n": "Not published; MCL-E-795G value assumed."},
+        "TgDMA": {"v": 230, "u": "°C", "c": "Datasheet", "s": ["R34"]},
+        "w": {"v": 8, "u": "°C", "c": "Estimated"}
+      },
+      "cteXY": {
+        "type": "const",
+        "a": {"v": 14, "u": "ppm/°C", "c": "Datasheet", "s": ["R34"], "n": "alpha1. Above Tg (TMA 200 degC) the source gives 5 ppm/degC; the model keeps alpha1 (constant in-plane CTE)."}
+      },
+      "cteZ": {
+        "type": "bilinear",
+        "a1": {"v": 25, "u": "ppm/°C", "c": "Estimated", "n": "Not published by MGC; HL832NS older reference value assumed."},
+        "a2": {"v": 100, "u": "ppm/°C", "c": "Estimated", "n": "Not published; assumed."},
+        "TgTMA": {"v": 200, "u": "°C", "c": "Datasheet", "s": ["R34"]},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "notes": "Halogen-free BT laminate for CSP, BGA and flip chip; higher CTE than the NS family."
+    },
+    {
+      "id": "hl832ns_lc", "name": "MGC HL832NS type LC", "grade": "BT laminate, low-CTE glass", "category": "core", "family": "core",
+      "elastic": {
+        "type": "ortho",
+        "Ex": {"v": 30, "u": "GPa", "c": "Datasheet", "s": ["R34"], "n": "Young's modulus (equal to the flexural modulus in the source)."},
+        "Ey": {"v": 30, "u": "GPa", "c": "Datasheet", "s": ["R34"], "n": "Taken equal to Ex."},
+        "Ez": {"v": 12, "u": "GPa", "c": "Estimated", "n": "Not published; typical laminate ratio as for MCL-E-795G."},
+        "Gxy": {"v": 8, "u": "GPa", "c": "Estimated"},
+        "Gxz": {"v": 5, "u": "GPa", "c": "Estimated"},
+        "Gyz": {"v": 5, "u": "GPa", "c": "Estimated"},
+        "nuxy": {"v": 0.18, "u": "-", "c": "Datasheet", "s": ["R34"], "n": "In-plane value assumed; the source does not state the plane."},
+        "nuxz": {"v": 0.3, "u": "-", "c": "Estimated"},
+        "nuyz": {"v": 0.3, "u": "-", "c": "Estimated"},
+        "rubberyRatio": {"v": 0.3, "u": "-", "c": "Estimated", "n": "Not published; MCL-E-795G value assumed."},
+        "TgDMA": {"v": 255, "u": "°C", "c": "Datasheet", "s": ["R34"]},
+        "w": {"v": 8, "u": "°C", "c": "Estimated"}
+      },
+      "cteXY": {
+        "type": "const",
+        "a": {"v": 7, "u": "ppm/°C", "c": "Datasheet", "s": ["R34"], "n": "alpha1. Above Tg (TMA 230 degC) the source gives 3 ppm/degC; the model keeps alpha1 (constant in-plane CTE)."}
+      },
+      "cteZ": {
+        "type": "bilinear",
+        "a1": {"v": 25, "u": "ppm/°C", "c": "Estimated", "n": "Not published by MGC; HL832NS older reference value assumed."},
+        "a2": {"v": 100, "u": "ppm/°C", "c": "Estimated", "n": "Not published; assumed."},
+        "TgTMA": {"v": 230, "u": "°C", "c": "Datasheet", "s": ["R34"]},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "notes": "HL832NS with low-CTE glass cloth."
+    },
+    {
+      "id": "hl832nsr", "name": "MGC HL832NSR", "grade": "BT laminate, low CTE, low shrinkage", "category": "core", "family": "core",
+      "elastic": {
+        "type": "ortho",
+        "Ex": {"v": 30, "u": "GPa", "c": "Datasheet", "s": ["R34"], "n": "Young's modulus (equal to the flexural modulus in the source)."},
+        "Ey": {"v": 30, "u": "GPa", "c": "Datasheet", "s": ["R34"], "n": "Taken equal to Ex."},
+        "Ez": {"v": 12, "u": "GPa", "c": "Estimated", "n": "Not published; typical laminate ratio as for MCL-E-795G."},
+        "Gxy": {"v": 8, "u": "GPa", "c": "Estimated"},
+        "Gxz": {"v": 5, "u": "GPa", "c": "Estimated"},
+        "Gyz": {"v": 5, "u": "GPa", "c": "Estimated"},
+        "nuxy": {"v": 0.18, "u": "-", "c": "Datasheet", "s": ["R34"], "n": "In-plane value assumed; the source does not state the plane."},
+        "nuxz": {"v": 0.3, "u": "-", "c": "Estimated"},
+        "nuyz": {"v": 0.3, "u": "-", "c": "Estimated"},
+        "rubberyRatio": {"v": 0.3, "u": "-", "c": "Estimated", "n": "Not published; MCL-E-795G value assumed."},
+        "TgDMA": {"v": 230, "u": "°C", "c": "Datasheet", "s": ["R34"]},
+        "w": {"v": 8, "u": "°C", "c": "Estimated"}
+      },
+      "cteXY": {
+        "type": "const",
+        "a": {"v": 8, "u": "ppm/°C", "c": "Datasheet", "s": ["R34"], "n": "alpha1. Above Tg (TMA 210 degC) the source gives 3 ppm/degC; the model keeps alpha1 (constant in-plane CTE)."}
+      },
+      "cteZ": {
+        "type": "bilinear",
+        "a1": {"v": 25, "u": "ppm/°C", "c": "Estimated", "n": "Not published by MGC; HL832NS older reference value assumed."},
+        "a2": {"v": 100, "u": "ppm/°C", "c": "Estimated", "n": "Not published; assumed."},
+        "TgTMA": {"v": 210, "u": "°C", "c": "Datasheet", "s": ["R34"]},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "notes": "Low-shrinkage BT laminate, also used in coreless builds."
+    },
+    {
+      "id": "hl832nsr_lca", "name": "MGC HL832NSR type LCA", "grade": "BT laminate, ultra-low CTE", "category": "core", "family": "core",
+      "elastic": {
+        "type": "ortho",
+        "Ex": {"v": 33, "u": "GPa", "c": "Datasheet", "s": ["R34"], "n": "Young's modulus (equal to the flexural modulus in the source)."},
+        "Ey": {"v": 33, "u": "GPa", "c": "Datasheet", "s": ["R34"], "n": "Taken equal to Ex."},
+        "Ez": {"v": 12, "u": "GPa", "c": "Estimated", "n": "Not published; typical laminate ratio as for MCL-E-795G."},
+        "Gxy": {"v": 8, "u": "GPa", "c": "Estimated"},
+        "Gxz": {"v": 5, "u": "GPa", "c": "Estimated"},
+        "Gyz": {"v": 5, "u": "GPa", "c": "Estimated"},
+        "nuxy": {"v": 0.18, "u": "-", "c": "Datasheet", "s": ["R34"], "n": "In-plane value assumed; the source does not state the plane."},
+        "nuxz": {"v": 0.3, "u": "-", "c": "Estimated"},
+        "nuyz": {"v": 0.3, "u": "-", "c": "Estimated"},
+        "rubberyRatio": {"v": 0.3, "u": "-", "c": "Estimated", "n": "Not published; MCL-E-795G value assumed."},
+        "TgDMA": {"v": 230, "u": "°C", "c": "Datasheet", "s": ["R34"]},
+        "w": {"v": 8, "u": "°C", "c": "Estimated"}
+      },
+      "cteXY": {
+        "type": "const",
+        "a": {"v": 4.5, "u": "ppm/°C", "c": "Datasheet", "s": ["R34"], "n": "alpha1. Above Tg (TMA 210 degC) the source gives 2 ppm/degC; the model keeps alpha1 (constant in-plane CTE)."}
+      },
+      "cteZ": {
+        "type": "bilinear",
+        "a1": {"v": 25, "u": "ppm/°C", "c": "Estimated", "n": "Not published by MGC; HL832NS older reference value assumed."},
+        "a2": {"v": 100, "u": "ppm/°C", "c": "Estimated", "n": "Not published; assumed."},
+        "TgTMA": {"v": 210, "u": "°C", "c": "Datasheet", "s": ["R34"]},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "notes": "Ultra-low-CTE BT laminate."
+    },
+    {
+      "id": "hl832nsf", "name": "MGC HL832NSF", "grade": "BT laminate, high Tg, low CTE", "category": "core", "family": "core",
+      "elastic": {
+        "type": "ortho",
+        "Ex": {"v": 32, "u": "GPa", "c": "Datasheet", "s": ["R34"], "n": "Young's modulus (equal to the flexural modulus in the source)."},
+        "Ey": {"v": 32, "u": "GPa", "c": "Datasheet", "s": ["R34"], "n": "Taken equal to Ex."},
+        "Ez": {"v": 12, "u": "GPa", "c": "Estimated", "n": "Not published; typical laminate ratio as for MCL-E-795G."},
+        "Gxy": {"v": 8, "u": "GPa", "c": "Estimated"},
+        "Gxz": {"v": 5, "u": "GPa", "c": "Estimated"},
+        "Gyz": {"v": 5, "u": "GPa", "c": "Estimated"},
+        "nuxy": {"v": 0.19, "u": "-", "c": "Datasheet", "s": ["R34"], "n": "In-plane value assumed; the source does not state the plane."},
+        "nuxz": {"v": 0.3, "u": "-", "c": "Estimated"},
+        "nuyz": {"v": 0.3, "u": "-", "c": "Estimated"},
+        "rubberyRatio": {"v": 0.3, "u": "-", "c": "Estimated", "n": "Not published; MCL-E-795G value assumed."},
+        "TgDMA": {"v": 300, "u": "°C", "c": "Datasheet", "s": ["R34"]},
+        "w": {"v": 8, "u": "°C", "c": "Estimated"}
+      },
+      "cteXY": {
+        "type": "const",
+        "a": {"v": 5, "u": "ppm/°C", "c": "Datasheet", "s": ["R34"], "n": "alpha1. Above Tg (TMA 270 degC) the source gives 3 ppm/degC; the model keeps alpha1 (constant in-plane CTE)."}
+      },
+      "cteZ": {
+        "type": "bilinear",
+        "a1": {"v": 25, "u": "ppm/°C", "c": "Estimated", "n": "Not published by MGC; HL832NS older reference value assumed."},
+        "a2": {"v": 100, "u": "ppm/°C", "c": "Estimated", "n": "Not published; assumed."},
+        "TgTMA": {"v": 270, "u": "°C", "c": "Datasheet", "s": ["R34"]},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "notes": "High-Tg BT laminate."
+    },
+    {
+      "id": "hl832nsf_lca", "name": "MGC HL832NSF type LCA", "grade": "BT laminate, high Tg, super-low CTE", "category": "core", "family": "core",
+      "elastic": {
+        "type": "ortho",
+        "Ex": {"v": 34, "u": "GPa", "c": "Datasheet", "s": ["R34"], "n": "Young's modulus (equal to the flexural modulus in the source)."},
+        "Ey": {"v": 34, "u": "GPa", "c": "Datasheet", "s": ["R34"], "n": "Taken equal to Ex."},
+        "Ez": {"v": 12, "u": "GPa", "c": "Estimated", "n": "Not published; typical laminate ratio as for MCL-E-795G."},
+        "Gxy": {"v": 8, "u": "GPa", "c": "Estimated"},
+        "Gxz": {"v": 5, "u": "GPa", "c": "Estimated"},
+        "Gyz": {"v": 5, "u": "GPa", "c": "Estimated"},
+        "nuxy": {"v": 0.18, "u": "-", "c": "Datasheet", "s": ["R34"], "n": "In-plane value assumed; the source does not state the plane."},
+        "nuxz": {"v": 0.3, "u": "-", "c": "Estimated"},
+        "nuyz": {"v": 0.3, "u": "-", "c": "Estimated"},
+        "rubberyRatio": {"v": 0.3, "u": "-", "c": "Estimated", "n": "Not published; MCL-E-795G value assumed."},
+        "TgDMA": {"v": 300, "u": "°C", "c": "Datasheet", "s": ["R34"]},
+        "w": {"v": 8, "u": "°C", "c": "Estimated"}
+      },
+      "cteXY": {
+        "type": "const",
+        "a": {"v": 3, "u": "ppm/°C", "c": "Datasheet", "s": ["R34"], "n": "alpha1. Above Tg (TMA 270 degC) the source gives 2 ppm/degC; the model keeps alpha1 (constant in-plane CTE)."}
+      },
+      "cteZ": {
+        "type": "bilinear",
+        "a1": {"v": 25, "u": "ppm/°C", "c": "Estimated", "n": "Not published by MGC; HL832NS older reference value assumed."},
+        "a2": {"v": 100, "u": "ppm/°C", "c": "Estimated", "n": "Not published; assumed."},
+        "TgTMA": {"v": 270, "u": "°C", "c": "Datasheet", "s": ["R34"]},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "notes": "High-Tg, super-low-CTE BT laminate, mainly for flip chip packages."
+    },
+    {
+      "id": "hl832nsa_lca", "name": "MGC HL832NSA type LCA", "grade": "BT laminate, very high Tg, near-zero CTE", "category": "core", "family": "core",
+      "elastic": {
+        "type": "ortho",
+        "Ex": {"v": 31, "u": "GPa", "c": "Datasheet", "s": ["R34"], "n": "Young's modulus (equal to the flexural modulus in the source)."},
+        "Ey": {"v": 31, "u": "GPa", "c": "Datasheet", "s": ["R34"], "n": "Taken equal to Ex."},
+        "Ez": {"v": 12, "u": "GPa", "c": "Estimated", "n": "Not published; typical laminate ratio as for MCL-E-795G."},
+        "Gxy": {"v": 8, "u": "GPa", "c": "Estimated"},
+        "Gxz": {"v": 5, "u": "GPa", "c": "Estimated"},
+        "Gyz": {"v": 5, "u": "GPa", "c": "Estimated"},
+        "nuxy": {"v": 0.15, "u": "-", "c": "Datasheet", "s": ["R34"], "n": "In-plane value assumed; the source does not state the plane."},
+        "nuxz": {"v": 0.3, "u": "-", "c": "Estimated"},
+        "nuyz": {"v": 0.3, "u": "-", "c": "Estimated"},
+        "rubberyRatio": {"v": 0.3, "u": "-", "c": "Estimated", "n": "Not published; MCL-E-795G value assumed."},
+        "TgDMA": {"v": 350, "u": "°C", "c": "Datasheet", "s": ["R34"], "n": ">350 degC in the source."},
+        "w": {"v": 8, "u": "°C", "c": "Estimated"}
+      },
+      "cteXY": {
+        "type": "const",
+        "a": {"v": 1, "u": "ppm/°C", "c": "Datasheet", "s": ["R34"], "n": "alpha1. Above Tg (TMA 270 degC) the source gives 0.5 ppm/degC; the model keeps alpha1 (constant in-plane CTE)."}
+      },
+      "cteZ": {
+        "type": "bilinear",
+        "a1": {"v": 25, "u": "ppm/°C", "c": "Estimated", "n": "Not published by MGC; HL832NS older reference value assumed."},
+        "a2": {"v": 100, "u": "ppm/°C", "c": "Estimated", "n": "Not published; assumed."},
+        "TgTMA": {"v": 270, "u": "°C", "c": "Datasheet", "s": ["R34"]},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "notes": "Latest low-CTE, high-Tg BT laminate (CTE x,y 1 ppm/degC)."
+    },
+    {
+      "id": "hl972lf_ld", "name": "MGC HL972LF type LD", "grade": "Low-Dk laminate for packages", "category": "core", "family": "core",
+      "elastic": {
+        "type": "ortho",
+        "Ex": {"v": 25, "u": "GPa", "c": "Datasheet", "s": ["R34"], "n": "Young's modulus (equal to the flexural modulus in the source)."},
+        "Ey": {"v": 25, "u": "GPa", "c": "Datasheet", "s": ["R34"], "n": "Taken equal to Ex."},
+        "Ez": {"v": 12, "u": "GPa", "c": "Estimated", "n": "Not published; typical laminate ratio as for MCL-E-795G."},
+        "Gxy": {"v": 8, "u": "GPa", "c": "Estimated"},
+        "Gxz": {"v": 5, "u": "GPa", "c": "Estimated"},
+        "Gyz": {"v": 5, "u": "GPa", "c": "Estimated"},
+        "nuxy": {"v": 0.2, "u": "-", "c": "Datasheet", "s": ["R34"], "n": "In-plane value assumed; the source does not state the plane."},
+        "nuxz": {"v": 0.3, "u": "-", "c": "Estimated"},
+        "nuyz": {"v": 0.3, "u": "-", "c": "Estimated"},
+        "rubberyRatio": {"v": 0.3, "u": "-", "c": "Estimated", "n": "Not published; MCL-E-795G value assumed."},
+        "TgDMA": {"v": 270, "u": "°C", "c": "Datasheet", "s": ["R34"]},
+        "w": {"v": 8, "u": "°C", "c": "Estimated"}
+      },
+      "cteXY": {
+        "type": "const",
+        "a": {"v": 10, "u": "ppm/°C", "c": "Datasheet", "s": ["R34"], "n": "alpha1. Above Tg (TMA 240 degC) the source gives 4 ppm/degC; the model keeps alpha1 (constant in-plane CTE)."}
+      },
+      "cteZ": {
+        "type": "bilinear",
+        "a1": {"v": 25, "u": "ppm/°C", "c": "Estimated", "n": "Not published by MGC; HL832NS older reference value assumed."},
+        "a2": {"v": 100, "u": "ppm/°C", "c": "Estimated", "n": "Not published; assumed."},
+        "TgTMA": {"v": 240, "u": "°C", "c": "Datasheet", "s": ["R34"]},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "notes": "Low-dielectric-constant package laminate."
+    },
+    {
+      "id": "hl972lfg", "name": "MGC HL972LFG", "grade": "Low-Dk laminate for packages", "category": "core", "family": "core",
+      "elastic": {
+        "type": "ortho",
+        "Ex": {"v": 23, "u": "GPa", "c": "Datasheet", "s": ["R34"], "n": "Young's modulus (equal to the flexural modulus in the source)."},
+        "Ey": {"v": 23, "u": "GPa", "c": "Datasheet", "s": ["R34"], "n": "Taken equal to Ex."},
+        "Ez": {"v": 12, "u": "GPa", "c": "Estimated", "n": "Not published; typical laminate ratio as for MCL-E-795G."},
+        "Gxy": {"v": 8, "u": "GPa", "c": "Estimated"},
+        "Gxz": {"v": 5, "u": "GPa", "c": "Estimated"},
+        "Gyz": {"v": 5, "u": "GPa", "c": "Estimated"},
+        "nuxy": {"v": 0.15, "u": "-", "c": "Estimated"},
+        "nuxz": {"v": 0.3, "u": "-", "c": "Estimated"},
+        "nuyz": {"v": 0.3, "u": "-", "c": "Estimated"},
+        "rubberyRatio": {"v": 0.3, "u": "-", "c": "Estimated", "n": "Not published; MCL-E-795G value assumed."},
+        "TgDMA": {"v": 215, "u": "°C", "c": "Datasheet", "s": ["R34"]},
+        "w": {"v": 8, "u": "°C", "c": "Estimated"}
+      },
+      "cteXY": {
+        "type": "const",
+        "a": {"v": 11, "u": "ppm/°C", "c": "Datasheet", "s": ["R34"], "n": "alpha1. Above Tg (TMA 200 degC) the source gives 4 ppm/degC; the model keeps alpha1 (constant in-plane CTE)."}
+      },
+      "cteZ": {
+        "type": "bilinear",
+        "a1": {"v": 25, "u": "ppm/°C", "c": "Estimated", "n": "Not published by MGC; HL832NS older reference value assumed."},
+        "a2": {"v": 100, "u": "ppm/°C", "c": "Estimated", "n": "Not published; assumed."},
+        "TgTMA": {"v": 200, "u": "°C", "c": "Datasheet", "s": ["R34"]},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "notes": "Low-dielectric-constant package laminate; Poisson ratio not published."
+    },
+    {
+      "id": "hl972lfg_ld", "name": "MGC HL972LFG type LD", "grade": "Low-Dk laminate for packages", "category": "core", "family": "core",
+      "elastic": {
+        "type": "ortho",
+        "Ex": {"v": 21, "u": "GPa", "c": "Datasheet", "s": ["R34"], "n": "Young's modulus (equal to the flexural modulus in the source)."},
+        "Ey": {"v": 21, "u": "GPa", "c": "Datasheet", "s": ["R34"], "n": "Taken equal to Ex."},
+        "Ez": {"v": 12, "u": "GPa", "c": "Estimated", "n": "Not published; typical laminate ratio as for MCL-E-795G."},
+        "Gxy": {"v": 8, "u": "GPa", "c": "Estimated"},
+        "Gxz": {"v": 5, "u": "GPa", "c": "Estimated"},
+        "Gyz": {"v": 5, "u": "GPa", "c": "Estimated"},
+        "nuxy": {"v": 0.15, "u": "-", "c": "Estimated"},
+        "nuxz": {"v": 0.3, "u": "-", "c": "Estimated"},
+        "nuyz": {"v": 0.3, "u": "-", "c": "Estimated"},
+        "rubberyRatio": {"v": 0.3, "u": "-", "c": "Estimated", "n": "Not published; MCL-E-795G value assumed."},
+        "TgDMA": {"v": 215, "u": "°C", "c": "Datasheet", "s": ["R34"]},
+        "w": {"v": 8, "u": "°C", "c": "Estimated"}
+      },
+      "cteXY": {
+        "type": "const",
+        "a": {"v": 10, "u": "ppm/°C", "c": "Datasheet", "s": ["R34"], "n": "alpha1. Above Tg (TMA 200 degC) the source gives 4 ppm/degC; the model keeps alpha1 (constant in-plane CTE)."}
+      },
+      "cteZ": {
+        "type": "bilinear",
+        "a1": {"v": 25, "u": "ppm/°C", "c": "Estimated", "n": "Not published by MGC; HL832NS older reference value assumed."},
+        "a2": {"v": 100, "u": "ppm/°C", "c": "Estimated", "n": "Not published; assumed."},
+        "TgTMA": {"v": 200, "u": "°C", "c": "Datasheet", "s": ["R34"]},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "notes": "Low-dielectric-constant package laminate; Poisson ratio not published."
+    },
+    {
+      "id": "si10u", "name": "Shengyi SI10U", "grade": "IC substrate laminate", "category": "core", "family": "core",
+      "elastic": {
+        "type": "ortho",
+        "Ex": {"v": 30, "u": "GPa", "c": "Handbook", "s": ["R63"], "n": "Flexural modulus (0.8 mm), used as in-plane modulus (approximation)."},
+        "Ey": {"v": 30, "u": "GPa", "c": "Handbook", "s": ["R63"], "n": "Taken equal to Ex."},
+        "Ez": {"v": 12, "u": "GPa", "c": "Estimated", "n": "Not published; typical laminate ratio as for MCL-E-795G."},
+        "Gxy": {"v": 8, "u": "GPa", "c": "Estimated"},
+        "Gxz": {"v": 5, "u": "GPa", "c": "Estimated"},
+        "Gyz": {"v": 5, "u": "GPa", "c": "Estimated"},
+        "nuxy": {"v": 0.15, "u": "-", "c": "Estimated"},
+        "nuxz": {"v": 0.3, "u": "-", "c": "Estimated"},
+        "nuyz": {"v": 0.3, "u": "-", "c": "Estimated"},
+        "rubberyRatio": {"v": 0.3, "u": "-", "c": "Estimated", "n": "Not published; MCL-E-795G value assumed."},
+        "TgDMA": {"v": 270, "u": "°C", "c": "Handbook", "s": ["R63"]},
+        "w": {"v": 8, "u": "°C", "c": "Estimated"}
+      },
+      "cteXY": {
+        "type": "const",
+        "a": {"v": 10, "u": "ppm/°C", "c": "Handbook", "s": ["R63"], "n": "Below Tg, 0.1 mm laminate."}
+      },
+      "cteZ": {
+        "type": "bilinear",
+        "a1": {"v": 12.5, "u": "ppm/°C", "c": "Estimated", "n": "Not published; MCL-E-795G value assumed."},
+        "a2": {"v": 85, "u": "ppm/°C", "c": "Estimated", "n": "Not published; MCL-E-795G value assumed."},
+        "TgTMA": {"v": 250, "u": "°C", "c": "Estimated", "n": "Not published; assumed 20 degC below Tg (DMA)."},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "notes": "Values from a third-party reproduction of the manufacturer's table (Handbook); z-axis CTE not published."
+    },
+    {
+      "id": "si10u_lc", "name": "Shengyi SI10U LC", "grade": "IC substrate laminate, low CTE", "category": "core", "family": "core",
+      "elastic": {
+        "type": "ortho",
+        "Ex": {"v": 32, "u": "GPa", "c": "Handbook", "s": ["R63"], "n": "Flexural modulus (0.8 mm), used as in-plane modulus (approximation)."},
+        "Ey": {"v": 32, "u": "GPa", "c": "Handbook", "s": ["R63"], "n": "Taken equal to Ex."},
+        "Ez": {"v": 12, "u": "GPa", "c": "Estimated", "n": "Not published; typical laminate ratio as for MCL-E-795G."},
+        "Gxy": {"v": 8, "u": "GPa", "c": "Estimated"},
+        "Gxz": {"v": 5, "u": "GPa", "c": "Estimated"},
+        "Gyz": {"v": 5, "u": "GPa", "c": "Estimated"},
+        "nuxy": {"v": 0.15, "u": "-", "c": "Estimated"},
+        "nuxz": {"v": 0.3, "u": "-", "c": "Estimated"},
+        "nuyz": {"v": 0.3, "u": "-", "c": "Estimated"},
+        "rubberyRatio": {"v": 0.3, "u": "-", "c": "Estimated", "n": "Not published; MCL-E-795G value assumed."},
+        "TgDMA": {"v": 270, "u": "°C", "c": "Handbook", "s": ["R63"]},
+        "w": {"v": 8, "u": "°C", "c": "Estimated"}
+      },
+      "cteXY": {
+        "type": "const",
+        "a": {"v": 7, "u": "ppm/°C", "c": "Handbook", "s": ["R63"], "n": "Below Tg, 0.1 mm laminate."}
+      },
+      "cteZ": {
+        "type": "bilinear",
+        "a1": {"v": 12.5, "u": "ppm/°C", "c": "Estimated", "n": "Not published; MCL-E-795G value assumed."},
+        "a2": {"v": 85, "u": "ppm/°C", "c": "Estimated", "n": "Not published; MCL-E-795G value assumed."},
+        "TgTMA": {"v": 250, "u": "°C", "c": "Estimated", "n": "Not published; assumed 20 degC below Tg (DMA)."},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "notes": "Values from a third-party reproduction of the manufacturer's table (Handbook); z-axis CTE not published."
     },
     {
       "id": "psr4000", "name": "PSR-4000 AUS703", "grade": "Taiyo, FC package grade", "category": "resist",
@@ -475,7 +1169,8 @@
         "a2": {"v": 140, "u": "ppm/°C", "c": "Datasheet", "s": ["R4"]},
         "TgTMA": {"v": 105, "u": "°C", "c": "Datasheet", "s": ["R4"]},
         "delta": {"v": 3, "u": "°C", "c": "Estimated"}
-      }
+      },
+      "cure": {"v": 142, "u": "°C", "c": "Datasheet", "s": ["R4"], "r": [135, 149], "n": "135 to 149 degC for 45 to 60 min, after UV exposure."}
     },
     {
       "id": "psr4000_aus320", "name": "PSR-4000 AUS320", "grade": "Taiyo, liquid photoimageable", "category": "resist",
@@ -491,6 +1186,89 @@
         "TgTMA": {"v": 114, "u": "°C", "c": "Datasheet", "s": ["R35"]},
         "delta": {"v": 3, "u": "°C", "c": "Estimated"}
       }
+    },
+    {
+      "id": "psr4000_aus308", "name": "PSR-4000 AUS308", "grade": "Taiyo, liquid photoimageable (package substrate)", "category": "resist",
+      "elastic": {
+        "type": "iso",
+        "E": {"type": "sigmoid", "Eg": {"v": 3.0, "u": "GPa", "c": "Estimated", "n": "Not published; published packaging inputs place liquid solder resist moduli around 2 to 4 GPa."}, "Er": {"v": 0.1, "u": "GPa", "c": "Estimated"}, "TgDMA": {"v": 100, "u": "°C", "c": "Estimated", "s": ["R56"], "n": "Only the TMA Tg is published; used for the modulus transition."}, "w": {"v": 8, "u": "°C", "c": "Estimated"}},
+        "nu": {"v": 0.3, "u": "-", "c": "Estimated"}
+      },
+      "cte": {
+        "type": "bilinear",
+        "a1": {"v": 60, "u": "ppm/°C", "c": "Datasheet", "s": ["R56"]},
+        "a2": {"v": 130, "u": "ppm/°C", "c": "Datasheet", "s": ["R56"]},
+        "TgTMA": {"v": 100, "u": "°C", "c": "Datasheet", "s": ["R56"]},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "cure": {"v": 150, "u": "°C", "c": "Datasheet", "s": ["R56"], "n": "Post cure 60 min at 150 degC."},
+      "notes": "Older liquid package resist; modulus not published."
+    },
+    {
+      "id": "aus_az1", "name": "Taiyo AUS AZ1", "grade": "Liquid solder resist for FC-xGA", "category": "resist",
+      "elastic": {
+        "type": "iso",
+        "E": {"type": "sigmoid", "Eg": {"v": 3.75, "u": "GPa", "c": "Datasheet", "s": ["R57"], "r": [3.5, 4.0]}, "Er": {"v": 0.124, "u": "GPa", "c": "Estimated", "n": "Not published; assumed about 3 % of the glassy modulus, as for PSR-4000 AUS703."}, "TgDMA": {"v": 155, "u": "°C", "c": "Estimated", "s": ["R57"], "n": "Only the TMA Tg is published; used for the modulus transition."}, "w": {"v": 8, "u": "°C", "c": "Estimated"}},
+        "nu": {"v": 0.3, "u": "-", "c": "Estimated"}
+      },
+      "cte": {
+        "type": "bilinear",
+        "a1": {"v": 37.5, "u": "ppm/°C", "c": "Datasheet", "s": ["R57"], "r": [35, 40]},
+        "a2": {"v": 90, "u": "ppm/°C", "c": "Estimated", "n": "Not published; assumed 2.4 x alpha1 (liquid resists in this database: 2.2 to 2.5 x)."},
+        "TgTMA": {"v": 155, "u": "°C", "c": "Datasheet", "s": ["R57"], "r": [150, 160]},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "notes": "High-Tg liquid resist for flip chip BGA substrates; only alpha1, Tg and modulus are published."
+    },
+    {
+      "id": "aus_sr3", "name": "Taiyo PSR-800 AUS SR3", "grade": "Dry film, high modulus, low CTE (FC-CSP, memory)", "category": "resist",
+      "elastic": {
+        "type": "iso",
+        "E": {"type": "sigmoid", "Eg": {"v": 9.0, "u": "GPa", "c": "Datasheet", "s": ["R57"], "r": [8.5, 10.0], "n": "9.0 to 10.0 GPa (2015 sheet); 8.5 to 9.5 GPa (2023 guide)."}, "Er": {"v": 0.72, "u": "GPa", "c": "Estimated", "n": "Not published; 0.08 x E_g assumed as for highly filled ABF films."}, "TgDMA": {"v": 155, "u": "°C", "c": "Estimated", "s": ["R57"], "n": "Only the TMA Tg is published; used for the modulus transition."}, "w": {"v": 8, "u": "°C", "c": "Estimated"}},
+        "nu": {"v": 0.3, "u": "-", "c": "Estimated"}
+      },
+      "cte": {
+        "type": "bilinear",
+        "a1": {"v": 17.5, "u": "ppm/°C", "c": "Datasheet", "s": ["R57"], "r": [15, 20]},
+        "a2": {"v": 75, "u": "ppm/°C", "c": "Datasheet", "s": ["R57"], "r": [70, 80]},
+        "TgTMA": {"v": 155, "u": "°C", "c": "Datasheet", "s": ["R57"], "r": [150, 160]},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "cure": {"v": 170, "u": "°C", "c": "Datasheet", "s": ["R57"], "n": "170 degC for 60 min."},
+      "notes": "Highly filled dry-film resist; its modulus and CTE are close to a build-up film, which reduces the stiffness asymmetry of the outer layers."
+    },
+    {
+      "id": "sr7300", "name": "Resonac SR7300 / SR-F", "grade": "Photosensitive solder resist for package substrates (liquid or film)", "category": "resist",
+      "elastic": {
+        "type": "iso",
+        "E": {"type": "sigmoid", "Eg": {"v": 5.0, "u": "GPa", "c": "Datasheet", "s": ["R58"], "n": "DMA at 23 degC."}, "Er": {"v": 0.165, "u": "GPa", "c": "Estimated", "n": "Not published; assumed about 3 % of the glassy modulus, as for PSR-4000 AUS703."}, "TgDMA": {"v": 135, "u": "°C", "c": "Estimated", "s": ["R58"], "n": "Only the TMA Tg is published; used for the modulus transition."}, "w": {"v": 8, "u": "°C", "c": "Estimated"}},
+        "nu": {"v": 0.3, "u": "-", "c": "Estimated"}
+      },
+      "cte": {
+        "type": "bilinear",
+        "a1": {"v": 38, "u": "ppm/°C", "c": "Datasheet", "s": ["R58"]},
+        "a2": {"v": 91, "u": "ppm/°C", "c": "Estimated", "n": "Not published; assumed 2.4 x alpha1 (liquid resists in this database: 2.2 to 2.5 x)."},
+        "TgTMA": {"v": 135, "u": "°C", "c": "Datasheet", "s": ["R58"], "r": [130, 140]},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "notes": "Flip chip substrate resist; only alpha1, Tg and modulus are published."
+    },
+    {
+      "id": "resist_typical", "name": "Typical package solder resist", "grade": "Generic liquid photoimageable epoxy-acrylate resist", "category": "resist",
+      "elastic": {
+        "type": "iso",
+        "E": {"type": "sigmoid", "Eg": {"v": 3.5, "u": "GPa", "c": "Handbook", "s": ["R4", "R57", "R58"], "r": [2.0, 5.0], "n": "Liquid package resists; highly filled dry films reach 9 GPa (AUS SR3)."}, "Er": {"v": 0.1, "u": "GPa", "c": "Handbook", "r": [0.05, 0.3], "n": "Rubbery modulus; no measured value found, so this is a representative estimate. Strongly affects reflow-temperature results."}, "TgDMA": {"v": 120, "u": "°C", "c": "Handbook", "s": ["R4", "R35", "R57", "R58"], "r": [100, 160]}, "w": {"v": 8, "u": "°C", "c": "Estimated"}},
+        "nu": {"v": 0.3, "u": "-", "c": "Estimated"}
+      },
+      "cte": {
+        "type": "bilinear",
+        "a1": {"v": 50, "u": "ppm/°C", "c": "Handbook", "s": ["R4", "R35", "R56", "R58"], "r": [35, 60]},
+        "a2": {"v": 130, "u": "ppm/°C", "c": "Handbook", "s": ["R4", "R35", "R56"], "r": [120, 140]},
+        "TgTMA": {"v": 120, "u": "°C", "c": "Handbook", "s": ["R4", "R35", "R57", "R58"], "r": [100, 160]},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "cure": {"v": 150, "u": "°C", "c": "Handbook", "s": ["R4", "R56"], "r": [135, 170]},
+      "notes": "Representative values drawn from the bundled solder resist data. Use for trend studies; replace with your product's data for decisions."
     },
     {
       "id": "uf9000ae", "name": "ECCOBOND UF 9000AE", "grade": "Henkel LOCTITE, large-die FCBGA capillary underfill", "category": "underfill",
@@ -512,7 +1290,7 @@
       "id": "uf8830s", "name": "ECCOBOND UF 8830S", "grade": "Henkel LOCTITE, flip chip capillary underfill (MSL 2a/3)", "category": "underfill",
       "elastic": {
         "type": "iso",
-        "E": {"type": "sigmoid", "Eg": {"v": 11.5, "u": "GPa", "c": "Datasheet", "s": ["R26"], "n": "DMA storage modulus at 25 degC."}, "Er": {"v": 0.23, "u": "GPa", "c": "Estimated", "n": "Rubbery modulus not published; assumed 2 % of the glassy modulus (UF 9000AE measures 1 %; filled epoxies range about 1 to 5 %). Strongly affects reflow-temperature results; replace with DMA data."}, "TgDMA": {"v": 118, "u": "°C", "c": "Estimated", "s": ["R26"], "n": "Only one Tg is published; used for the modulus transition as well."}, "w": {"v": 8, "u": "°C", "c": "Estimated"}},
+        "E": {"type": "sigmoid", "Eg": {"v": 11.5, "u": "GPa", "c": "Datasheet", "s": ["R26"], "n": "DMA storage modulus at 25 degC."}, "Er": {"v": 0.23, "u": "GPa", "c": "Estimated", "n": "Rubbery modulus not published; assumed 2 % of the glassy modulus (UF 9000AE measures 1 %; filled epoxies range about 1 to 5 %). Strongly affects reflow-temperature results; replace with DMA data."}, "TgDMA": {"v": 126.5, "u": "°C", "c": "Datasheet", "s": ["R26"]}, "w": {"v": 8, "u": "°C", "c": "Estimated"}},
         "nu": {"v": 0.3, "u": "-", "c": "Estimated"}
       },
       "cte": {
@@ -522,7 +1300,7 @@
         "TgTMA": {"v": 118, "u": "°C", "c": "Datasheet", "s": ["R26"]},
         "delta": {"v": 3, "u": "°C", "c": "Estimated"}
       },
-      "cure": {"v": 150, "u": "°C", "c": "Datasheet", "s": ["R26"], "n": "2.5 h at 150 degC."},
+      "cure": {"v": 150, "u": "°C", "c": "Datasheet", "s": ["R26"], "n": "30 min ramp to 150 degC, then 2 h at 150 degC."},
       "notes": "Henkel flip chip underfill, a lower-Tg relative of UF 9000AE."
     },
     {
@@ -560,7 +1338,7 @@
       "notes": "Snap-cure, lower filler loading; typical of small-die flip chip."
     },
     {
-      "id": "u8410_73c", "name": "NAMICS U8410-73C", "grade": "Low-k and Pb-free bumps, tight gaps", "category": "underfill",
+      "id": "u8410_73c", "name": "NAMICS U8410-73C", "grade": "For low-k, Pb-free bumps and tight spaces", "category": "underfill",
       "elastic": {
         "type": "iso",
         "E": {"type": "sigmoid", "Eg": {"v": 11.5, "u": "GPa", "c": "Datasheet", "s": ["R29"]}, "Er": {"v": 0.23, "u": "GPa", "c": "Estimated", "n": "Rubbery modulus not published; assumed 2 % of the glassy modulus (UF 9000AE measures 1 %; filled epoxies range about 1 to 5 %). Strongly affects reflow-temperature results; replace with DMA data."}, "TgDMA": {"v": 88, "u": "°C", "c": "Estimated", "s": ["R29"], "n": "Only one Tg is published; used for the modulus transition as well."}, "w": {"v": 8, "u": "°C", "c": "Estimated"}},
@@ -577,7 +1355,7 @@
       "notes": "NAMICS flip chip underfill; only Tg, modulus and alpha1 are published in the product table."
     },
     {
-      "id": "u8410_302", "name": "NAMICS U8410-302", "grade": "Cu pillar and Pb-free bumps", "category": "underfill",
+      "id": "u8410_302", "name": "NAMICS U8410-302", "grade": "For low-k, Cu pillar and Pb-free bumps", "category": "underfill",
       "elastic": {
         "type": "iso",
         "E": {"type": "sigmoid", "Eg": {"v": 12, "u": "GPa", "c": "Datasheet", "s": ["R29"]}, "Er": {"v": 0.24, "u": "GPa", "c": "Estimated", "n": "Rubbery modulus not published; assumed 2 % of the glassy modulus (UF 9000AE measures 1 %; filled epoxies range about 1 to 5 %). Strongly affects reflow-temperature results; replace with DMA data."}, "TgDMA": {"v": 95, "u": "°C", "c": "Estimated", "s": ["R29"], "n": "Only one Tg is published; used for the modulus transition as well."}, "w": {"v": 8, "u": "°C", "c": "Estimated"}},
@@ -594,7 +1372,7 @@
       "notes": "NAMICS flip chip underfill; only Tg, modulus and alpha1 are published in the product table."
     },
     {
-      "id": "u8410_377", "name": "NAMICS U8410-377", "grade": "Low viscosity", "category": "underfill",
+      "id": "u8410_377", "name": "NAMICS U8410-377", "grade": "Low viscosity; for tight spaces", "category": "underfill",
       "elastic": {
         "type": "iso",
         "E": {"type": "sigmoid", "Eg": {"v": 8.6, "u": "GPa", "c": "Datasheet", "s": ["R29"]}, "Er": {"v": 0.17, "u": "GPa", "c": "Estimated", "n": "Rubbery modulus not published; assumed 2 % of the glassy modulus (UF 9000AE measures 1 %; filled epoxies range about 1 to 5 %). Strongly affects reflow-temperature results; replace with DMA data."}, "TgDMA": {"v": 128, "u": "°C", "c": "Estimated", "s": ["R29"], "n": "Only one Tg is published; used for the modulus transition as well."}, "w": {"v": 8, "u": "°C", "c": "Estimated"}},
@@ -631,7 +1409,7 @@
       "id": "uf_typical", "name": "Typical FCBGA capillary underfill", "grade": "Generic silica-filled epoxy (about 50 to 70 wt% filler)", "category": "underfill",
       "elastic": {
         "type": "iso",
-        "E": {"type": "sigmoid", "Eg": {"v": 10, "u": "GPa", "c": "Handbook", "s": ["R5", "R26", "R29"], "r": [5.5, 13.5], "n": "Range of the bundled flip chip underfill data sheets."}, "Er": {"v": 0.15, "u": "GPa", "c": "Handbook", "s": ["R5"], "r": [0.1, 0.5], "n": "Above-Tg modulus; UF 9000AE measures 0.136 GPa at 250 degC."}, "TgDMA": {"v": 120, "u": "°C", "c": "Handbook", "s": ["R5", "R26", "R29"], "r": [90, 165]}, "w": {"v": 8, "u": "°C", "c": "Estimated"}},
+        "E": {"type": "sigmoid", "Eg": {"v": 10, "u": "GPa", "c": "Handbook", "s": ["R5", "R26", "R29"], "r": [5.5, 13.5], "n": "Range of the bundled flip chip underfill data sheets."}, "Er": {"v": 0.15, "u": "GPa", "c": "Handbook", "s": ["R5", "R65"], "r": [0.1, 0.8], "n": "Above-Tg modulus; UF 9000AE measures 0.136 GPa and UF 9000AG 0.4 GPa at 250 degC; a Henkel modelling study spans 0.1 to 0.8 GPa."}, "TgDMA": {"v": 120, "u": "°C", "c": "Handbook", "s": ["R5", "R26", "R29"], "r": [90, 165]}, "w": {"v": 8, "u": "°C", "c": "Estimated"}},
         "nu": {"v": 0.3, "u": "-", "c": "Estimated"}
       },
       "cte": {
@@ -643,6 +1421,176 @@
       },
       "cure": {"v": 160, "u": "°C", "c": "Handbook", "s": ["R5", "R26", "R27"], "r": [150, 165]},
       "notes": "Representative values for a large-die FCBGA capillary underfill, drawn from the bundled data sheets. Use for trend studies; replace with your product's data for decisions."
+    },
+    {
+      "id": "uf9000ag", "name": "ECCOBOND UF 9000AG", "grade": "Henkel LOCTITE, low-CTE high-Tg large-die FCBGA underfill", "category": "underfill",
+      "elastic": {
+        "type": "iso",
+        "E": {"type": "sigmoid", "Eg": {"v": 15, "u": "GPa", "c": "Datasheet", "s": ["R47"], "n": "DMA storage modulus at 25 degC."}, "Er": {"v": 0.4, "u": "GPa", "c": "Datasheet", "s": ["R47"], "n": "DMA storage modulus at 250 degC."}, "TgDMA": {"v": 160, "u": "°C", "c": "Datasheet", "s": ["R47"]}, "w": {"v": 8, "u": "°C", "c": "Estimated"}},
+        "nu": {"v": 0.3, "u": "-", "c": "Estimated"}
+      },
+      "cte": {
+        "type": "bilinear",
+        "a1": {"v": 19, "u": "ppm/°C", "c": "Datasheet", "s": ["R47"]},
+        "a2": {"v": 62, "u": "ppm/°C", "c": "Datasheet", "s": ["R47"]},
+        "TgTMA": {"v": 135, "u": "°C", "c": "Datasheet", "s": ["R47"]},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "cure": {"v": 165, "u": "°C", "c": "Datasheet", "s": ["R47"], "n": "100 degC for 90 min, then 165 degC for 2 h (alternate: 90 degC 4 h, then 150 degC 2 h)."},
+      "notes": "Higher filler loading than UF 9000AE: lower CTE, higher modulus and Tg."
+    },
+    {
+      "id": "uf8807", "name": "ECCOBOND UF 8807", "grade": "Henkel LOCTITE, high-Tg fast-cure flip chip underfill", "category": "underfill",
+      "elastic": {
+        "type": "iso",
+        "E": {"type": "sigmoid", "Eg": {"v": 10.7, "u": "GPa", "c": "Datasheet", "s": ["R49"], "n": "DMTA flexural modulus at 25 degC."}, "Er": {"v": 0.21, "u": "GPa", "c": "Estimated", "n": "Rubbery modulus not published; assumed 2 % of the glassy modulus (UF 9000AE measures 1 %; filled epoxies range about 1 to 5 %). Strongly affects reflow-temperature results; replace with DMA data."}, "TgDMA": {"v": 158, "u": "°C", "c": "Estimated", "s": ["R49"], "n": "Only a TMA Tg (at least 130 degC) is published, but the modulus is still 7.9 GPa at 150 degC. 158 degC places the sigmoid through that data point; verify with DMA."}, "w": {"v": 8, "u": "°C", "c": "Estimated"}},
+        "nu": {"v": 0.3, "u": "-", "c": "Estimated"}
+      },
+      "cte": {
+        "type": "bilinear",
+        "a1": {"v": 28, "u": "ppm/°C", "c": "Datasheet", "s": ["R49"]},
+        "a2": {"v": 83, "u": "ppm/°C", "c": "Datasheet", "s": ["R49"]},
+        "TgTMA": {"v": 130, "u": "°C", "c": "Datasheet", "s": ["R49"], "n": "Published as at least 130 degC."},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "cure": {"v": 165, "u": "°C", "c": "Datasheet", "s": ["R49"], "n": "15 min ramp, then 30 min at 165 degC (alternate: 3 h at 125 degC)."},
+      "notes": "Fast-curing flip chip underfill; the data sheet gives the modulus at 25 and 150 degC only."
+    },
+    {
+      "id": "fp4531", "name": "ECCOBOND FP4531", "grade": "Henkel LOCTITE, snap-cure flip chip underfill", "category": "underfill",
+      "elastic": {
+        "type": "iso",
+        "E": {"type": "sigmoid", "Eg": {"v": 7.6, "u": "GPa", "c": "Datasheet", "s": ["R48"], "n": "Flexural modulus (7600 N/mm2), used as the glassy modulus."}, "Er": {"v": 0.15, "u": "GPa", "c": "Estimated", "n": "Rubbery modulus not published; assumed 2 % of the glassy modulus (UF 9000AE measures 1 %; filled epoxies range about 1 to 5 %). Strongly affects reflow-temperature results; replace with DMA data."}, "TgDMA": {"v": 161, "u": "°C", "c": "Estimated", "s": ["R48"], "n": "Only one Tg is published; used for the modulus transition as well."}, "w": {"v": 8, "u": "°C", "c": "Estimated"}},
+        "nu": {"v": 0.3, "u": "-", "c": "Estimated"}
+      },
+      "cte": {
+        "type": "bilinear",
+        "a1": {"v": 28, "u": "ppm/°C", "c": "Datasheet", "s": ["R48"]},
+        "a2": {"v": 104, "u": "ppm/°C", "c": "Datasheet", "s": ["R48"]},
+        "TgTMA": {"v": 161, "u": "°C", "c": "Datasheet", "s": ["R48"]},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "cure": {"v": 160, "u": "°C", "c": "Datasheet", "s": ["R48"], "n": "Snap cure, 7 min at 160 degC."},
+      "notes": "Higher-filled relative of FP4530 (lower CTE, higher modulus and Tg)."
+    },
+    {
+      "id": "u8443_14", "name": "NAMICS U8443-14", "grade": "Low viscosity; for tight spaces", "category": "underfill",
+      "elastic": {
+        "type": "iso",
+        "E": {"type": "sigmoid", "Eg": {"v": 6.5, "u": "GPa", "c": "Datasheet", "s": ["R29"]}, "Er": {"v": 0.13, "u": "GPa", "c": "Estimated", "n": "Rubbery modulus not published; assumed 2 % of the glassy modulus (UF 9000AE measures 1 %; filled epoxies range about 1 to 5 %). Strongly affects reflow-temperature results; replace with DMA data."}, "TgDMA": {"v": 135, "u": "°C", "c": "Estimated", "s": ["R29"], "n": "Only one Tg is published; used for the modulus transition as well."}, "w": {"v": 8, "u": "°C", "c": "Estimated"}},
+        "nu": {"v": 0.3, "u": "-", "c": "Estimated"}
+      },
+      "cte": {
+        "type": "bilinear",
+        "a1": {"v": 42, "u": "ppm/°C", "c": "Datasheet", "s": ["R29"], "n": "CTE below Tg."},
+        "a2": {"v": 147, "u": "ppm/°C", "c": "Estimated", "n": "Not published; assumed 3.5 x alpha1 (bundled underfills range 3.2 to 4.0 x)."},
+        "TgTMA": {"v": 135, "u": "°C", "c": "Datasheet", "s": ["R29"]},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "cure": {"v": 150, "u": "°C", "c": "Estimated", "n": "Cure not stated in the source table."},
+      "notes": "NAMICS flip chip underfill; only Tg, modulus and alpha1 are published in the product table."
+    },
+    {
+      "id": "u8410_73cf3", "name": "NAMICS U8410-73CF3", "grade": "For low-k, Cu pillar and Pb-free bumps and tight spaces", "category": "underfill",
+      "elastic": {
+        "type": "iso",
+        "E": {"type": "sigmoid", "Eg": {"v": 8.8, "u": "GPa", "c": "Datasheet", "s": ["R29"]}, "Er": {"v": 0.176, "u": "GPa", "c": "Estimated", "n": "Rubbery modulus not published; assumed 2 % of the glassy modulus (UF 9000AE measures 1 %; filled epoxies range about 1 to 5 %). Strongly affects reflow-temperature results; replace with DMA data."}, "TgDMA": {"v": 88, "u": "°C", "c": "Estimated", "s": ["R29"], "n": "Only one Tg is published; used for the modulus transition as well."}, "w": {"v": 8, "u": "°C", "c": "Estimated"}},
+        "nu": {"v": 0.3, "u": "-", "c": "Estimated"}
+      },
+      "cte": {
+        "type": "bilinear",
+        "a1": {"v": 31, "u": "ppm/°C", "c": "Datasheet", "s": ["R29"], "n": "CTE below Tg."},
+        "a2": {"v": 108, "u": "ppm/°C", "c": "Estimated", "n": "Not published; assumed 3.5 x alpha1 (bundled underfills range 3.2 to 4.0 x)."},
+        "TgTMA": {"v": 88, "u": "°C", "c": "Datasheet", "s": ["R29"]},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "cure": {"v": 150, "u": "°C", "c": "Estimated", "n": "Cure not stated in the source table."},
+      "notes": "NAMICS flip chip underfill; only Tg, modulus and alpha1 are published in the product table."
+    },
+    {
+      "id": "u8410_99", "name": "NAMICS U8410-99", "grade": "For low-k, Pb-free bumps", "category": "underfill",
+      "elastic": {
+        "type": "iso",
+        "E": {"type": "sigmoid", "Eg": {"v": 11, "u": "GPa", "c": "Datasheet", "s": ["R29"]}, "Er": {"v": 0.22, "u": "GPa", "c": "Estimated", "n": "Rubbery modulus not published; assumed 2 % of the glassy modulus (UF 9000AE measures 1 %; filled epoxies range about 1 to 5 %). Strongly affects reflow-temperature results; replace with DMA data."}, "TgDMA": {"v": 100, "u": "°C", "c": "Estimated", "s": ["R29"], "n": "Only one Tg is published; used for the modulus transition as well."}, "w": {"v": 8, "u": "°C", "c": "Estimated"}},
+        "nu": {"v": 0.3, "u": "-", "c": "Estimated"}
+      },
+      "cte": {
+        "type": "bilinear",
+        "a1": {"v": 29, "u": "ppm/°C", "c": "Datasheet", "s": ["R29"], "n": "CTE below Tg."},
+        "a2": {"v": 102, "u": "ppm/°C", "c": "Estimated", "n": "Not published; assumed 3.5 x alpha1 (bundled underfills range 3.2 to 4.0 x)."},
+        "TgTMA": {"v": 100, "u": "°C", "c": "Datasheet", "s": ["R29"]},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "cure": {"v": 150, "u": "°C", "c": "Estimated", "n": "Cure not stated in the source table."},
+      "notes": "NAMICS flip chip underfill; only Tg, modulus and alpha1 are published in the product table."
+    },
+    {
+      "id": "u8439_1", "name": "NAMICS U8439-1", "grade": "For low-k and large ICs", "category": "underfill",
+      "elastic": {
+        "type": "iso",
+        "E": {"type": "sigmoid", "Eg": {"v": 8, "u": "GPa", "c": "Datasheet", "s": ["R29"]}, "Er": {"v": 0.16, "u": "GPa", "c": "Estimated", "n": "Rubbery modulus not published; assumed 2 % of the glassy modulus (UF 9000AE measures 1 %; filled epoxies range about 1 to 5 %). Strongly affects reflow-temperature results; replace with DMA data."}, "TgDMA": {"v": 70, "u": "°C", "c": "Estimated", "s": ["R29"], "n": "Only one Tg is published; used for the modulus transition as well."}, "w": {"v": 8, "u": "°C", "c": "Estimated"}},
+        "nu": {"v": 0.3, "u": "-", "c": "Estimated"}
+      },
+      "cte": {
+        "type": "bilinear",
+        "a1": {"v": 36, "u": "ppm/°C", "c": "Datasheet", "s": ["R29"], "n": "CTE below Tg."},
+        "a2": {"v": 126, "u": "ppm/°C", "c": "Estimated", "n": "Not published; assumed 3.5 x alpha1 (bundled underfills range 3.2 to 4.0 x)."},
+        "TgTMA": {"v": 70, "u": "°C", "c": "Datasheet", "s": ["R29"]},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "cure": {"v": 150, "u": "°C", "c": "Estimated", "n": "Cure not stated in the source table."},
+      "notes": "NAMICS flip chip underfill; only Tg, modulus and alpha1 are published in the product table."
+    },
+    {
+      "id": "u8439_105", "name": "NAMICS U8439-105", "grade": "For low-k, large ICs and tight spaces", "category": "underfill",
+      "elastic": {
+        "type": "iso",
+        "E": {"type": "sigmoid", "Eg": {"v": 8.5, "u": "GPa", "c": "Datasheet", "s": ["R29"]}, "Er": {"v": 0.17, "u": "GPa", "c": "Estimated", "n": "Rubbery modulus not published; assumed 2 % of the glassy modulus (UF 9000AE measures 1 %; filled epoxies range about 1 to 5 %). Strongly affects reflow-temperature results; replace with DMA data."}, "TgDMA": {"v": 70, "u": "°C", "c": "Estimated", "s": ["R29"], "n": "Only one Tg is published; used for the modulus transition as well."}, "w": {"v": 8, "u": "°C", "c": "Estimated"}},
+        "nu": {"v": 0.3, "u": "-", "c": "Estimated"}
+      },
+      "cte": {
+        "type": "bilinear",
+        "a1": {"v": 34, "u": "ppm/°C", "c": "Datasheet", "s": ["R29"], "n": "CTE below Tg."},
+        "a2": {"v": 119, "u": "ppm/°C", "c": "Estimated", "n": "Not published; assumed 3.5 x alpha1 (bundled underfills range 3.2 to 4.0 x)."},
+        "TgTMA": {"v": 70, "u": "°C", "c": "Datasheet", "s": ["R29"]},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "cure": {"v": 150, "u": "°C", "c": "Estimated", "n": "Cure not stated in the source table."},
+      "notes": "NAMICS flip chip underfill; only Tg, modulus and alpha1 are published in the product table."
+    },
+    {
+      "id": "cv5300", "name": "Panasonic CV5300", "grade": "Capillary underfill, narrow gap and pitch (1 um filler)", "category": "underfill",
+      "elastic": {
+        "type": "iso",
+        "E": {"type": "sigmoid", "Eg": {"v": 7, "u": "GPa", "c": "Datasheet", "s": ["R64"], "n": "Flexural modulus at 25 degC."}, "Er": {"v": 0.14, "u": "GPa", "c": "Estimated", "n": "Rubbery modulus not published; assumed 2 % of the glassy modulus (UF 9000AE measures 1 %; filled epoxies range about 1 to 5 %). Strongly affects reflow-temperature results; replace with DMA data."}, "TgDMA": {"v": 110, "u": "°C", "c": "Estimated", "s": ["R64"], "n": "Only one Tg is published; used for the modulus transition as well."}, "w": {"v": 8, "u": "°C", "c": "Estimated"}},
+        "nu": {"v": 0.3, "u": "-", "c": "Estimated"}
+      },
+      "cte": {
+        "type": "bilinear",
+        "a1": {"v": 33, "u": "ppm/°C", "c": "Datasheet", "s": ["R64"], "n": "CTE below Tg."},
+        "a2": {"v": 116, "u": "ppm/°C", "c": "Estimated", "n": "Not published; assumed 3.5 x alpha1 (bundled underfills range 3.2 to 4.0 x)."},
+        "TgTMA": {"v": 110, "u": "°C", "c": "Datasheet", "s": ["R64"]},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "cure": {"v": 150, "u": "°C", "c": "Estimated", "n": "Cure not stated in the source."},
+      "notes": "Panasonic flip chip capillary underfill; only CTE, Tg and modulus are published."
+    },
+    {
+      "id": "cv5350", "name": "Panasonic CV5350", "grade": "Capillary underfill, high Tg (5 um filler)", "category": "underfill",
+      "elastic": {
+        "type": "iso",
+        "E": {"type": "sigmoid", "Eg": {"v": 10, "u": "GPa", "c": "Datasheet", "s": ["R64"], "n": "Flexural modulus at 25 degC."}, "Er": {"v": 0.2, "u": "GPa", "c": "Estimated", "n": "Rubbery modulus not published; assumed 2 % of the glassy modulus (UF 9000AE measures 1 %; filled epoxies range about 1 to 5 %). Strongly affects reflow-temperature results; replace with DMA data."}, "TgDMA": {"v": 150, "u": "°C", "c": "Estimated", "s": ["R64"], "n": "Only one Tg is published; used for the modulus transition as well."}, "w": {"v": 8, "u": "°C", "c": "Estimated"}},
+        "nu": {"v": 0.3, "u": "-", "c": "Estimated"}
+      },
+      "cte": {
+        "type": "bilinear",
+        "a1": {"v": 30, "u": "ppm/°C", "c": "Datasheet", "s": ["R64"], "n": "CTE below Tg."},
+        "a2": {"v": 105, "u": "ppm/°C", "c": "Estimated", "n": "Not published; assumed 3.5 x alpha1 (bundled underfills range 3.2 to 4.0 x)."},
+        "TgTMA": {"v": 150, "u": "°C", "c": "Datasheet", "s": ["R64"]},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "cure": {"v": 150, "u": "°C", "c": "Estimated", "n": "Cure not stated in the source."},
+      "notes": "Panasonic flip chip capillary underfill; only CTE, Tg and modulus are published."
     },
     {
       "id": "eccobond3005", "name": "ECCOBOND 3005", "grade": "Henkel LOCTITE silicone lid / stiffener attach", "category": "adhesive",
@@ -678,17 +1626,17 @@
       "id": "abl8700e", "name": "ABLESTIK 8700E", "grade": "Henkel LOCTITE, Ag-filled epoxy (conductive lid or component attach)", "category": "adhesive",
       "elastic": {
         "type": "iso",
-        "E": {"type": "sigmoid", "Eg": {"v": 4.414, "u": "GPa", "c": "Datasheet", "s": ["R43"], "n": "DMTA tensile modulus at 25 degC."}, "Er": {"v": 0.13, "u": "GPa", "c": "Estimated", "n": "Not published; assumed 3 % of the glassy modulus."}, "TgDMA": {"v": 160, "u": "°C", "c": "Datasheet", "s": ["R43"]}, "w": {"v": 8, "u": "°C", "c": "Estimated"}},
+        "E": {"type": "sigmoid", "Eg": {"v": 4.414, "u": "GPa", "c": "Datasheet", "s": ["R43"], "n": "DMTA tensile modulus at 25 degC."}, "Er": {"v": 0.13, "u": "GPa", "c": "Estimated", "n": "Not published; assumed 3 % of the glassy modulus."}, "TgDMA": {"v": 160, "u": "°C", "c": "Datasheet", "s": ["R43"], "n": "Measurement method not stated; used for the modulus transition."}, "w": {"v": 8, "u": "°C", "c": "Estimated"}},
         "nu": {"v": 0.35, "u": "-", "c": "Estimated"}
       },
       "cte": {
         "type": "bilinear",
         "a1": {"v": 45, "u": "ppm/°C", "c": "Datasheet", "s": ["R43"]},
         "a2": {"v": 120, "u": "ppm/°C", "c": "Datasheet", "s": ["R43"]},
-        "TgTMA": {"v": 160, "u": "°C", "c": "Datasheet", "s": ["R43"]},
+        "TgTMA": {"v": 160, "u": "°C", "c": "Datasheet", "s": ["R43"], "n": "Measurement method not stated."},
         "delta": {"v": 3, "u": "°C", "c": "Estimated"}
       },
-      "cure": {"v": 150, "u": "°C", "c": "Estimated", "n": "Cure schedule not captured; replace with the data sheet value."},
+      "cure": {"v": 160, "u": "°C", "c": "Datasheet", "s": ["R43"], "n": "2 h at 160 degC (alternate: 1 h at 130 degC then 1 h at 160 degC)."},
       "notes": "Electrically conductive epoxy, used where the lid must be grounded."
     },
     {
@@ -707,6 +1655,34 @@
       },
       "cure": {"v": 150, "u": "°C", "c": "Handbook", "r": [125, 175]},
       "notes": "Representative rigid epoxy for stiffener attach, much stiffer than silicone lid adhesives; couples the stiffener strongly to the substrate."
+    },
+    {
+      "id": "ea6700", "name": "Dow Corning EA-6700", "grade": "One-part heat-cure silicone, microelectronic lid attach", "category": "adhesive",
+      "elastic": {
+        "type": "iso",
+        "E": {"type": "const", "E": {"v": 3.9, "u": "MPa", "c": "Datasheet", "s": ["R70"], "n": "Tensile modulus (560 psi)."}},
+        "nu": {"v": 0.49, "u": "-", "c": "Handbook", "n": "Rubber-like; clamped to 0.45 in the global model."}
+      },
+      "cte": {
+        "type": "const",
+        "a": {"v": 250, "u": "ppm/°C", "c": "Estimated", "s": ["R71"], "r": [215, 275], "n": "Not published for EA-6700; typical of Dow lid-seal silicones (215 to 275 ppm/degC by TMA)."}
+      },
+      "cure": {"v": 150, "u": "°C", "c": "Datasheet", "s": ["R70"], "n": "5 min at 150 degC (also 7 min at 125 or 35 min at 100 degC)."},
+      "notes": "Silicone lid attach; its Tg lies below every analysis temperature."
+    },
+    {
+      "id": "dowsil_3_6265", "name": "DOWSIL 3-6265 Thixotropic", "grade": "One-part heat-cure silicone lid seal adhesive", "category": "adhesive",
+      "elastic": {
+        "type": "iso",
+        "E": {"type": "const", "E": {"v": 2.9, "u": "MPa", "c": "Datasheet", "s": ["R71"], "n": "Tensile modulus (420 psi)."}},
+        "nu": {"v": 0.49, "u": "-", "c": "Handbook", "n": "Rubber-like; clamped to 0.45 in the global model."}
+      },
+      "cte": {
+        "type": "const",
+        "a": {"v": 275, "u": "ppm/°C", "c": "Datasheet", "s": ["R71"], "n": "Linear CTE by TMA."}
+      },
+      "cure": {"v": 150, "u": "°C", "c": "Datasheet", "s": ["R71"], "n": "30 min at 150 degC (or 60 min at 125 degC)."},
+      "notes": "Silicone lid seal; its Tg lies below every analysis temperature."
     },
     {
       "id": "tim_gel", "name": "Silicone gel TIM (generic)", "grade": "Generic", "category": "tim",
@@ -748,6 +1724,19 @@
       "notes": "Bounding case that nearly decouples the lid from the die (for example a grease or a phase-change pad such as Honeywell PTM7950, for which no mechanical data are published)."
     },
     {
+      "id": "tc4515", "name": "DOWSIL TC-4515", "grade": "Dow, soft thermally conductive gap filler", "category": "tim",
+      "elastic": {
+        "type": "iso",
+        "E": {"type": "const", "E": {"v": 0.3, "u": "MPa", "c": "Datasheet", "s": ["R72"], "n": "E-modulus by DMA in shear mode, as published."}},
+        "nu": {"v": 0.45, "u": "-", "c": "Estimated"}
+      },
+      "cte": {
+        "type": "const",
+        "a": {"v": 160, "u": "ppm/°C", "c": "Datasheet", "s": ["R72"], "n": "-50 to 150 degC."}
+      },
+      "notes": "Very soft cured silicone gap filler; nearly decouples the lid from the die. A gap filler is thicker than a TIM1 gel; check the bond line."
+    },
+    {
       "id": "alsic9", "name": "AlSiC-9", "grade": "CPS Technologies", "category": "metal",
       "elastic": {
         "type": "iso",
@@ -786,15 +1775,22 @@
       }
     },
     {
-      "id": "ss304", "name": "Stainless steel 304", "grade": "Stiffener option", "category": "metal",
+      "id": "ss304", "name": "Stainless steel 304", "grade": "Austenitic, stiffener option (EN 1.4301)", "category": "metal",
       "elastic": {
         "type": "iso",
-        "E": {"type": "const", "E": {"v": 193, "u": "GPa", "c": "Handbook"}},
+        "E": {"type": "const", "E": {"v": 200, "u": "GPa", "c": "Datasheet", "s": ["R66"], "n": "At 20 degC (172 GPa at 400 degC). The earlier handbook value was 193 GPa."}},
         "nu": {"v": 0.29, "u": "-", "c": "Handbook"}
       },
       "cte": {
-        "type": "const",
-        "a": {"v": 17.3, "u": "ppm/°C", "c": "Handbook", "n": "0 to 100 degC."}
+        "type": "secant",
+        "Tref": 20,
+        "T": [100, 400],
+        "v": [16.0, 17.5],
+        "extrap": "linear",
+        "u": "ppm/°C",
+        "c": "Datasheet",
+        "s": ["R66"],
+        "n": "Mean CTE from 20 degC. The earlier handbook value was 17.3 ppm/degC (0 to 100 degC)."
       }
     },
     {
@@ -838,12 +1834,19 @@
       "id": "kovar", "name": "Kovar (ASTM F-15)", "grade": "Fe-Ni-Co low-expansion alloy", "category": "metal",
       "elastic": {
         "type": "iso",
-        "E": {"type": "const", "E": {"v": 138, "u": "GPa", "c": "Datasheet", "s": ["R38"]}},
+        "E": {"type": "const", "E": {"v": 138, "u": "GPa", "c": "Datasheet", "s": ["R38"], "n": "20.0 x 10^3 ksi; NILO alloy K (same alloy) lists 130 GPa."}},
         "nu": {"v": 0.32, "u": "-", "c": "Handbook"}
       },
       "cte": {
-        "type": "const",
-        "a": {"v": 5.3, "u": "ppm/°C", "c": "Datasheet", "s": ["R38"], "r": [5.1, 5.5], "n": "Mean CTE; Kovar expansion is not linear (it rises above about 400 degC)."}
+        "type": "secant",
+        "Tref": 25,
+        "T": [100, 200],
+        "v": [5.85, 5.2],
+        "extrap": "linear",
+        "u": "ppm/°C",
+        "c": "Datasheet",
+        "s": ["R38"],
+        "n": "Mean CTE from 25 degC, annealed. Kovar expansion is not linear; its mean CTE falls to a minimum near 200 to 400 degC, then rises. Extrapolated linearly beyond 200 degC, which gives an instantaneous CTE of about 3.4 ppm/degC at 250 degC; treat reflow-temperature results with a Kovar lid as approximate."
       },
       "notes": "Low-expansion lid option, close to silicon and ceramic."
     },
@@ -851,7 +1854,7 @@
       "id": "wcu10", "name": "Copper-tungsten W90Cu10", "grade": "WCu10 heat spreader / lid", "category": "metal",
       "elastic": {
         "type": "iso",
-        "E": {"type": "const", "E": {"v": 325, "u": "GPa", "c": "Datasheet", "s": ["R40"]}},
+        "E": {"type": "const", "E": {"v": 325, "u": "GPa", "c": "Datasheet", "s": ["R40", "R68"], "r": [313, 325], "n": "Kyocera lists 313 GPa."}},
         "nu": {"v": 0.28, "u": "-", "c": "Estimated"}
       },
       "cte": {
@@ -864,7 +1867,7 @@
       "id": "wcu15", "name": "Copper-tungsten W85Cu15", "grade": "WCu15 heat spreader / lid", "category": "metal",
       "elastic": {
         "type": "iso",
-        "E": {"type": "const", "E": {"v": 305, "u": "GPa", "c": "Datasheet", "s": ["R40"]}},
+        "E": {"type": "const", "E": {"v": 305, "u": "GPa", "c": "Datasheet", "s": ["R40", "R68"], "r": [294, 305], "n": "Kyocera lists 294 GPa."}},
         "nu": {"v": 0.28, "u": "-", "c": "Estimated"}
       },
       "cte": {
@@ -872,6 +1875,109 @@
         "a": {"v": 8.1, "u": "ppm/°C", "c": "Datasheet", "s": ["R39"], "r": [8.0, 8.2], "n": "RT to 400 degC."}
       },
       "notes": "Composition in wt%. Elastic only."
+    },
+    {
+      "id": "ss316", "name": "Stainless steel 316", "grade": "Austenitic Mo-bearing (EN 1.4401), stiffener option", "category": "metal",
+      "elastic": {
+        "type": "iso",
+        "E": {"type": "const", "E": {"v": 200, "u": "GPa", "c": "Datasheet", "s": ["R66"], "n": "At 20 degC (172 GPa at 400 degC)."}},
+        "nu": {"v": 0.29, "u": "-", "c": "Handbook", "n": "304 value."}
+      },
+      "cte": {
+        "type": "secant",
+        "Tref": 20,
+        "T": [100, 400],
+        "v": [16.0, 17.5],
+        "extrap": "linear",
+        "u": "ppm/°C",
+        "c": "Datasheet",
+        "s": ["R66"],
+        "n": "Mean CTE from 20 degC."
+      }
+    },
+    {
+      "id": "alloy42", "name": "Alloy 42 (Fe-42Ni)", "grade": "Low-expansion alloy, lid or stiffener option", "category": "metal",
+      "elastic": {
+        "type": "iso",
+        "E": {"type": "const", "E": {"v": 150, "u": "GPa", "c": "Datasheet", "s": ["R67"]}},
+        "nu": {"v": 0.3, "u": "-", "c": "Estimated", "n": "Not published by the source."}
+      },
+      "cte": {
+        "type": "const",
+        "a": {"v": 5.3, "u": "ppm/°C", "c": "Datasheet", "s": ["R67"], "n": "Mean CTE, 20 to 100 degC (unchanged to 300 degC)."}
+      },
+      "notes": "NILO alloy 42 data; CTE close to silicon."
+    },
+    {
+      "id": "nickel200", "name": "Nickel 200", "grade": "Commercially pure nickel (reference for Ni-plated lids)", "category": "metal",
+      "elastic": {
+        "type": "iso",
+        "E": {"type": "const", "E": {"v": 205, "u": "GPa", "c": "Datasheet", "s": ["R67"], "n": "At 26 degC."}},
+        "nu": {"v": 0.29, "u": "-", "c": "Datasheet", "s": ["R67"]}
+      },
+      "cte": {
+        "type": "secant",
+        "Tref": 21,
+        "T": [100, 200],
+        "v": [13.3, 13.9],
+        "extrap": "linear",
+        "u": "ppm/°C",
+        "c": "Datasheet",
+        "s": ["R67"],
+        "n": "Mean CTE from 21 degC."
+      },
+      "notes": "Lid plating is a few micrometres thick and is not modelled separately; included for reference and for solid nickel parts."
+    },
+    {
+      "id": "cumo_35_65", "name": "Copper-molybdenum Cu35Mo65", "grade": "CuMo heat spreader or lid (wt%)", "category": "metal",
+      "elastic": {
+        "type": "iso",
+        "E": {"type": "const", "E": {"v": 208, "u": "GPa", "c": "Datasheet", "s": ["R68"]}},
+        "nu": {"v": 0.3, "u": "-", "c": "Estimated", "n": "Not published by the source."}
+      },
+      "cte": {
+        "type": "const",
+        "a": {"v": 8.1, "u": "ppm/°C", "c": "Datasheet", "s": ["R68"], "n": "Mean CTE, RT to 400 degC; may vary with rolling direction."}
+      },
+      "notes": "Lower density than CuW at a similar CTE. Elastic only."
+    },
+    {
+      "id": "cpc141", "name": "CPC141 (Cu / CuMo / Cu)", "grade": "A.L.M.T. laminated heat spreader", "category": "metal",
+      "elastic": {
+        "type": "iso",
+        "E": {"type": "const", "E": {"v": 160, "u": "GPa", "c": "Datasheet", "s": ["R68"], "n": "Effective value of the laminate."}},
+        "nu": {"v": 0.3, "u": "-", "c": "Estimated", "n": "Not published by the source."}
+      },
+      "cte": {
+        "type": "const",
+        "a": {"v": 7.8, "u": "ppm/°C", "c": "Datasheet", "s": ["R68"], "n": "Mean CTE, RT to 400 degC; may vary with rolling direction."}
+      },
+      "notes": "Laminated Cu-clad CuMo, modelled as a homogeneous isotropic plate (approximation)."
+    },
+    {
+      "id": "wcu20", "name": "Copper-tungsten W80Cu20", "grade": "WCu20 heat spreader / lid (wt%)", "category": "metal",
+      "elastic": {
+        "type": "iso",
+        "E": {"type": "const", "E": {"v": 265, "u": "GPa", "c": "Datasheet", "s": ["R68"]}},
+        "nu": {"v": 0.28, "u": "-", "c": "Estimated", "n": "As WCu10."}
+      },
+      "cte": {
+        "type": "const",
+        "a": {"v": 8.8, "u": "ppm/°C", "c": "Datasheet", "s": ["R68"], "n": "Mean CTE, RT to 400 degC."}
+      },
+      "notes": "Composition in wt%. Elastic only."
+    },
+    {
+      "id": "al6063", "name": "Aluminum 6063-T6", "grade": "Extruded stiffener option", "category": "metal",
+      "elastic": {
+        "type": "iso",
+        "E": {"type": "const", "E": {"v": 69.5, "u": "GPa", "c": "Datasheet", "s": ["R69"]}},
+        "nu": {"v": 0.33, "u": "-", "c": "Handbook", "n": "6061 value."}
+      },
+      "cte": {
+        "type": "const",
+        "a": {"v": 23.5, "u": "ppm/°C", "c": "Datasheet", "s": ["R69"]}
+      }
     }
   ]
 }

@@ -2,7 +2,7 @@
 
 ## Project status (read this first)
 
-The build specification that follows (from "Build Prompt" onward) has been **implemented in full** and merged to `main` through ten pull requests (three of code and two of documentation for the build, then UI updates, two materials database passes and a parallel-worker setting requested by the user). A new session should treat it as the reference design of an existing, working application, not as a task to start.
+The build specification that follows (from "Build Prompt" onward) has been **implemented in full** and merged to `main` through twelve pull requests (three of code and two of documentation for the build, then UI updates, two materials database passes, a parallel-worker setting, a legend fix and status updates requested by the user). A new session should treat it as the reference design of an existing, working application, not as a task to start.
 
 | PR | Merged | Content |
 |---|---|---|
@@ -16,6 +16,8 @@ The build specification that follows (from "Build Prompt" onward) has been **imp
 | #8 | 2026-10-10 | Materials database expanded from 20 to 49 materials with a sanity pass on the original entries; PRs 5 to 7 added to the status tables |
 | #9 | 2026-10-10 | Materials database second pass from primary sources, 49 to 101 materials, with corrections to existing entries; PR 8 added to the status tables |
 | #10 | 2026-10-11 | Parallel worker count offered up to CPU cores / 1.5 (rounded down); the sensitivity run uses the chosen worker count |
+| #11 | 2026-10-11 | Documentation: PRs 9 and 10 added to the status tables |
+| #12 | 2026-10-11 | Results map legends show enough decimals to keep narrow ranges distinct (the fatigue map read 0.2 at both ends); CLAUDE.md now picks verification subsets by the nature of a change |
 
 Current state on `main`:
 

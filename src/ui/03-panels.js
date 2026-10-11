@@ -13,6 +13,17 @@ function materialOptions(category) {
   return app.cfg.materials.filter(m => !category || (Array.isArray(category) ? category.includes(m.category) : m.category === category)).map(m => ({ value: m.id, label: m.name + (m.modified ? ' (modified)' : '') }));
 }
 
+/** Property groups of a solder that still hold Estimated (placeholder) values: elastic, CTE, solidus, Anand. */
+function solderEstimatedGroups(m) {
+  const out = [];
+  const has = obj => { let f = false; C.forEachParam(obj || {}, p => { if (p.c === 'Estimated') f = true; }); return f || (obj && obj.c === 'Estimated'); };
+  if (has(m.elastic)) out.push('elastic');
+  if (has(m.cte)) out.push('CTE');
+  if (m.solidus && m.solidus.c === 'Estimated') out.push('solidus');
+  if (has(m.anand)) out.push('Anand constants');
+  return out;
+}
+
 // ---- step 1: package ----
 function renderPackagePanel(root) {
   const cfg = app.cfg;
@@ -109,7 +120,7 @@ function renderDiesPanel(root) {
   root.append(numField('Maximum bump diameter', () => d.bump.dmax, v => { d.bump.dmax = v; }, { unit: 'µm', scale: 1000, min: 0.005, max: 1.5, help: 'dmax' }));
   root.append(h('h4', null, 'Package-global bump technology'));
   root.append(numField('Standoff height', () => cfg.bump.standoff, v => { cfg.bump.standoff = v; }, { unit: 'µm', scale: 1000, min: 0.02, max: 0.2, help: 'standoff' }));
-  root.append(selectField('Solder alloy', () => cfg.bump.solder, v => { cfg.bump.solder = v; if (v !== 'sac305') toast('Bundled data are SAC305 only; the selected alloy carries placeholder values flagged Estimated. Enter measured properties in the Materials step.', 'warn', 9000); }, materialOptions('solder'), { section: 'materials', help: 'solder' }));
+  root.append(selectField('Solder alloy', () => cfg.bump.solder, v => { cfg.bump.solder = v; const est = solderEstimatedGroups(C.findMaterial(cfg.materials, v)); if (est.length) toast('The ' + C.findMaterial(cfg.materials, v).name + ' data include placeholder values flagged Estimated (' + est.join(', ') + '). Replace them in the Materials step before relying on fatigue or bump results.', 'warn', 9000); }, materialOptions('solder'), { section: 'materials', help: 'solder' }));
   const gd = app.geom && app.geom.dies[app.selectedDie];
   if (gd) root.append(h('div', { class: 'kv' }, kl('d_eff (equal-volume cylinder)', 'deff'), h('span', null, fmt(gd.deff * 1000, 1) + ' µm'), kl('bumps', 'nbumps'), h('span', null, gd.nbx + ' × ' + gd.nby + (gd.peripheral ? ' peripheral' : '') + ' = ' + C.dieBumpSites(gd).x.length), kl('solder area fraction f_b', 'fb'), h('span', null, fmt(gd.density, 3)), h('span', { class: 'k' }, 'joint volume'), h('span', null, fmtE(gd.profile.volume, 3) + ' mm³')));
   renderValidation(root);

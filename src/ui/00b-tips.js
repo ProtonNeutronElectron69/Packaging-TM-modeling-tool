@@ -66,7 +66,7 @@ const TIPS = {
   rot: 'Rotation of the die about z (0 or 90°).',
   arrayType: 'Full-area bump array, or peripheral rows only (N rows from the edge of the field).',
   rows: 'Number of bump rows along the perimeter for a peripheral array.',
-  solder: 'Solder alloy of the bumps (package-global). Bundled data are SAC305; other alloys carry placeholders flagged Estimated.',
+  solder: 'Solder alloy of the bumps (package-global). SAC305 and Sn-3.5Ag carry complete cited data (elastic, CTE, solidus, Anand). Sn-Pb eutectic carries a literature Anand set; SAC387 has measured elastic and solidus data with SAC305 Anand placeholders; SAC105 is all placeholders. Estimated values are flagged in the Materials step.',
   deff: 'Diameter of the cylinder with the same height and volume as the truncated-sphere joint; used for the homogenized layer and the per-bump area.',
   nbumps: 'Bump count from the die size, keep-out and pitch.',
   fb: 'Solder area fraction of the homogenized bump layer: π d_eff² / (4 p_x p_y).',

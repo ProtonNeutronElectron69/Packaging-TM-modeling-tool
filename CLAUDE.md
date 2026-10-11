@@ -2,7 +2,7 @@
 
 ## Project status (read this first)
 
-The build specification that follows (from "Build Prompt" onward) has been **implemented in full** and merged to `main` through eight pull requests (three of code and two of documentation for the build, then two UI updates and a materials database expansion requested by the user). A new session should treat it as the reference design of an existing, working application, not as a task to start.
+The build specification that follows (from "Build Prompt" onward) has been **implemented in full** and merged to `main` through ten pull requests (three of code and two of documentation for the build, then UI updates, two materials database passes and a parallel-worker setting requested by the user). A new session should treat it as the reference design of an existing, working application, not as a task to start.
 
 | PR | Merged | Content |
 |---|---|---|
@@ -14,6 +14,8 @@ The build specification that follows (from "Build Prompt" onward) has been **imp
 | #6 | 2026-10-10 | Resizable panes (side panels, floorplan and cross-section split, 3D view, plot edges) with content that follows the size; auto-solve on die release and the drag preview removed; floorplan overlay hidden while the geometry differs from the results |
 | #7 | 2026-10-10 | Mouse-wheel zoom, drag pan and double-click reset on every results plot and map; rainbow colour scale by default with a colorblind-safe option |
 | #8 | 2026-10-10 | Materials database expanded from 20 to 49 materials with a sanity pass on the original entries; PRs 5 to 7 added to the status tables |
+| #9 | 2026-10-10 | Materials database second pass from primary sources, 49 to 101 materials, with corrections to existing entries; PR 8 added to the status tables |
+| #10 | 2026-10-11 | Parallel worker count offered up to CPU cores / 1.5 (rounded down); the sensitivity run uses the chosen worker count |
 
 Current state on `main`:
 

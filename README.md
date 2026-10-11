@@ -15,7 +15,7 @@ Workflow (left stepper):
 1. **Package**: substrate outline, layer stack (with an N-2-N generator), BGA field, configuration (bare die, lid, stiffener). Presets from Section 12 of the specification load in one click.
 2. **Dies and floorplan**: die list and properties, bump fields; drag dies on the floorplan (R rotates, Delete removes), with snapping and live clearances. Moving dies starts no analysis; the warpage overlay is hidden while the geometry differs from the last results. Run the analysis from step 6 (full, or Quick preview on the Draft mesh).
 3. **Underfill, lid, stiffener** geometry.
-4. **Materials**: the cited database (49 materials, see "Materials database" below) with confidence badges, datasheet ranges, source tooltips, E(T) and CTE(T) plots, duplicate / reset.
+4. **Materials**: the cited database (101 materials, see "Materials database" below) with confidence badges, datasheet ranges, source tooltips, E(T) and CTE(T) plots, duplicate / reset.
 5. **Process and loads**: stress-free temperatures, reflow sweep, JESD22-A104 cycling, limits and fatigue constants.
 6. **Run and results**: fidelity preset, parallel worker count with the memory estimate, estimated DOF / memory / runtime, run controls, baseline pinning, mesh sensitivity check, the list of Estimated inputs in use, CSV export and printable report. Results views (center area): warpage (JEITA ED-7306 sign convention), die stress, bump loading, underfill interface tractions, solder fatigue screening and bump submodels, 3D view, sensitivity tornado charts, verification suite.
 
@@ -27,7 +27,7 @@ Configurations are saved and loaded as JSON files. `localStorage` holds only con
 
 ## Project status
 
-The specification in `CLAUDE.md` is implemented in full. Seven pull requests are merged on `main`:
+The specification in `CLAUDE.md` is implemented in full. Eight pull requests are merged on `main`:
 
 | PR | Merged | Content |
 |---|---|---|
@@ -38,76 +38,119 @@ The specification in `CLAUDE.md` is implemented in full. Seven pull requests are
 | [#5](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/5) | 2026-10-09 | Documentation: listed the documentation PR in the status tables |
 | [#6](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/6) | 2026-10-10 | Resizable panes (side panels, floorplan and cross-section split, 3D view, plot edges) with content that follows the size; auto-solve on die release and the drag preview removed; floorplan overlay hidden while the geometry differs from the results |
 | [#7](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/7) | 2026-10-10 | Mouse-wheel zoom, drag pan and double-click reset on every results plot and map; rainbow colour scale by default with a colorblind-safe option |
+| [#8](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/8) | 2026-10-10 | Materials database expanded from 20 to 49 materials (solders, underfills, build-up films, cores, solder resist, adhesives, TIMs, lid and stiffener metals) with a sanity pass on the original entries; PRs 5 to 7 added to the status tables |
 
 Open items are listed under "Known issues and next steps" below. The largest is performance against the Section 13 targets.
 
 ## Materials database
 
-`src/materials-db.json` holds 49 materials. Every property carries a confidence label (Datasheet, Literature, Handbook, Estimated) and its sources (reference ids R1 to R46, listed with URLs in the file and shown in the app's source tooltips). "Typical" entries are representative values drawn from the bundled data sheets, for trend studies. The confidence column counts the properties of each label.
+`src/materials-db.json` holds 101 materials. Every property carries a confidence label (Datasheet, Literature, Handbook, Estimated) and its sources (reference ids R1 to R72, listed with URLs in the file and shown in the app's source tooltips). "Typical" entries are representative values drawn from the bundled data sheets, for trend studies. The confidence column counts the properties of each label.
 
 **Die** (1)
 
 | Material | Grade | Confidence of properties | Sources |
 |---|---|---|---|
-| Silicon | (100) wafer, die edges along <110> | Literature 5 | R10, R11 |
+| Silicon | (100) wafer, die edges along <110> | Literature 6 | R10, R11 |
 
-**Bump solder** (5)
+**Bump solder** (6)
 
 | Material | Grade | Confidence of properties | Sources |
 |---|---|---|---|
 | SAC305 | Sn-3.0Ag-0.5Cu | Literature 13 | R8, R9 |
-| SAC105 (enter data) | Sn-1.0Ag-0.5Cu | all Estimated (placeholder) | as SAC305 |
-| SAC387 | Sn-3.8Ag-0.7Cu | Datasheet 1, Literature 1, Estimated 11 | R22, R23 |
+| SAC105 | Sn-1.0Ag-0.5Cu (low silver, drop-shock grade) | Literature 10, Handbook 1, Estimated 2 | R51, R52, R55 |
+| SAC387 | Sn-3.8Ag-0.7Cu | Datasheet 2, Literature 1, Estimated 10 | R22, R23, R54 |
 | Sn-3.5Ag | 96.5Sn-3.5Ag eutectic (C4 bumps, Cu pillar caps) | Literature 12, Handbook 1 | R18, R19, R20, R21 |
-| Sn-Pb eutectic | 63Sn-37Pb (legacy C4 and BGA reference) | Literature 10, Handbook 3 | R18, R19, R24, R25 |
+| Sn-Pb eutectic | 63Sn-37Pb (legacy C4 and BGA reference) | Literature 12, Handbook 1 | R18, R19, R25, R53 |
+| SAC405 | Sn-4.0Ag-0.5Cu | Datasheet 2, Literature 9, Estimated 2 | R22, R51, R54 |
 
-**Build-up dielectric** (5)
+**Build-up dielectric** (13)
 
 | Material | Grade | Confidence of properties | Sources |
 |---|---|---|---|
 | ABF GL series | e.g. GL102 (default) | Datasheet 5, Estimated 4 | R1 |
-| ABF GX-T31 | GX-T31 | Datasheet 5, Estimated 4 | R1 |
-| ABF GX92 | GX92 | Datasheet 5, Estimated 4 | R1 |
-| ABF GX13 | GX13 (earlier general-purpose grade) | Datasheet 4, Estimated 5 | R1 |
-| ABF GZ41 | GZ41 (low-loss, high-Tg grade) | Datasheet 4, Estimated 5 | R1 |
+| ABF GX-T31 | GX-T31 | Datasheet 5, Estimated 4 | R1, R59 |
+| ABF GX92 | GX92 | Datasheet 5, Estimated 4 | R1, R59 |
+| ABF GX13 | GX13 (earlier general-purpose grade) | Datasheet 5, Estimated 4 | R1 |
+| ABF GZ41 | GZ41 (low-loss, high-Tg grade) | Datasheet 5, Estimated 4 | R1 |
+| ABF GY11 | GY11 (lowest-loss grade, active-ester cure) | Datasheet 5, Estimated 4 | R1 |
+| ABF GX-E4 | GX-E4 (low-CTE, high-modulus grade) | Literature 3, Estimated 6 | R59 |
+| ABF GX-E5 | GX-E5 (lowest-CTE grade) | Literature 3, Estimated 6 | R59 |
+| ABF GZ22 | GZ22 (cyanate ester cure) | Literature 3, Estimated 6 | R59 |
+| Sekisui NQ07X | Sekisui Chemical build-up film, low loss | Literature 3, Estimated 6 | R59 |
+| Sekisui NX04H | Sekisui Chemical build-up film | Literature 3, Estimated 6 | R59 |
+| Sekisui NR11 | Sekisui Chemical build-up film, low CTE | Literature 3, Estimated 6 | R59 |
+| Sekisui NR50 | Sekisui Chemical build-up film, thin (10 um) | Literature 3, Estimated 6 | R59 |
 
-**Core laminate** (10)
+**Core laminate** (28)
 
 | Material | Grade | Confidence of properties | Sources |
 |---|---|---|---|
-| MCL-E-795G | Standard type (default core) | Datasheet 7, Estimated 10 | R2 |
+| MCL-E-795G | Standard type (default core) | Datasheet 7, Estimated 10 | R2, R60 |
 | MCL-E-795G Type X | Low CTE type X | Datasheet 7, Estimated 10 | R2 |
 | MCL-E-795G Type LH | Low CTE type LH | Datasheet 7, Estimated 10 | R2 |
-| MCL-E-705G | Standard high-Tg core | Datasheet 5, Estimated 12 | R3 |
-| MCL-E-705G Type LH | Low CTE type LH | Datasheet 5, Estimated 12 | R3 |
+| MCL-E-705G | Standard high-Tg core | Datasheet 7, Estimated 10 | R3 |
+| MCL-E-705G Type LH | Low CTE type LH | Datasheet 7, Estimated 10 | R3 |
 | MCL-E-770G Type R | Halogen-free, high Tg, low CTE | Datasheet 5, Estimated 12 | R31 |
 | MCL-E-770G Type RLH | Very low CTE type RLH | Datasheet 5, Estimated 12 | R31 |
 | Panasonic R-1515W | MEGTRON GX / LEXCM GX, high-elasticity low-CTE core | Datasheet 5, Estimated 12 | R32 |
 | Panasonic R-1515A | MEGTRON GX / LEXCM GX, low-CTE core | Datasheet 5, Estimated 12 | R33 |
-| MGC HL832NS | Mitsubishi Gas Chemical BT laminate, low CTE | Datasheet 2, Handbook 3, Estimated 12 | R34 |
+| MGC HL832NS | Mitsubishi Gas Chemical BT laminate, low CTE | Datasheet 6, Estimated 11 | R34 |
+| MCL-E-705G Type X | Low CTE type X | Datasheet 7, Estimated 10 | R3 |
+| MCL-E-705G Type L | Low CTE type L (low-CTE glass cloth) | Datasheet 7, Estimated 10 | R3 |
+| MCL-E-700G Type R | Standard-CTE FC-BGA and FC-CSP core, good drillability | Datasheet 7, Estimated 10 | R50 |
+| Panasonic R-1515V | LEXCM GX, low-CTE glass cloth | Datasheet 3, Estimated 14 | R61 |
+| Panasonic R-1515K | LEXCM GX, low-CTE core | Datasheet 3, Estimated 14 | R61 |
+| Panasonic R-1515E (R-151YE) | LEXCM GX, high-elasticity low-CTE ultra-thin core | Datasheet 6, Estimated 11 | R61, R62 |
+| MGC HL832NX type A | BT laminate, halogen free (standard) | Datasheet 6, Estimated 11 | R34 |
+| MGC HL832NS type LC | BT laminate, low-CTE glass | Datasheet 6, Estimated 11 | R34 |
+| MGC HL832NSR | BT laminate, low CTE, low shrinkage | Datasheet 6, Estimated 11 | R34 |
+| MGC HL832NSR type LCA | BT laminate, ultra-low CTE | Datasheet 6, Estimated 11 | R34 |
+| MGC HL832NSF | BT laminate, high Tg, low CTE | Datasheet 6, Estimated 11 | R34 |
+| MGC HL832NSF type LCA | BT laminate, high Tg, super-low CTE | Datasheet 6, Estimated 11 | R34 |
+| MGC HL832NSA type LCA | BT laminate, very high Tg, near-zero CTE | Datasheet 6, Estimated 11 | R34 |
+| MGC HL972LF type LD | Low-Dk laminate for packages | Datasheet 6, Estimated 11 | R34 |
+| MGC HL972LFG | Low-Dk laminate for packages | Datasheet 5, Estimated 12 | R34 |
+| MGC HL972LFG type LD | Low-Dk laminate for packages | Datasheet 5, Estimated 12 | R34 |
+| Shengyi SI10U | IC substrate laminate | Handbook 4, Estimated 13 | R63 |
+| Shengyi SI10U LC | IC substrate laminate, low CTE | Handbook 4, Estimated 13 | R63 |
 
-**Solder resist** (2)
+**Solder resist** (7)
 
 | Material | Grade | Confidence of properties | Sources |
 |---|---|---|---|
 | PSR-4000 AUS703 | Taiyo, FC package grade | Datasheet 3, Estimated 6 | R4 |
 | PSR-4000 AUS320 | Taiyo, liquid photoimageable | Datasheet 3, Estimated 6 | R35 |
+| PSR-4000 AUS308 | Taiyo, liquid photoimageable (package substrate) | Datasheet 3, Estimated 6 | R56 |
+| Taiyo AUS AZ1 | Liquid solder resist for FC-xGA | Datasheet 3, Estimated 6 | R57 |
+| Taiyo PSR-800 AUS SR3 | Dry film, high modulus, low CTE (FC-CSP, memory) | Datasheet 4, Estimated 5 | R57 |
+| Resonac SR7300 / SR-F | Photosensitive solder resist for package substrates (liquid or film) | Datasheet 3, Estimated 6 | R58 |
+| Typical package solder resist | Generic liquid photoimageable epoxy-acrylate resist | Handbook 6, Estimated 3 | R4, R35, R56, R57, R58 |
 
-**Underfill** (9)
+**Underfill** (19)
 
 | Material | Grade | Confidence of properties | Sources |
 |---|---|---|---|
 | ECCOBOND UF 9000AE | Henkel LOCTITE, large-die FCBGA capillary underfill | Datasheet 6, Estimated 3 | R5 |
-| ECCOBOND UF 8830S | Henkel LOCTITE, flip chip capillary underfill (MSL 2a/3) | Datasheet 4, Estimated 5 | R26 |
+| ECCOBOND UF 8830S | Henkel LOCTITE, flip chip capillary underfill (MSL 2a/3) | Datasheet 5, Estimated 4 | R26 |
 | ECCOBOND FP4549 | Henkel LOCTITE, high-purity flip chip underfill | Datasheet 4, Estimated 5 | R27 |
 | ECCOBOND FP4530 | Henkel LOCTITE, snap-cure flip chip underfill | Datasheet 4, Estimated 5 | R28 |
-| NAMICS U8410-73C | Low-k and Pb-free bumps, tight gaps | Datasheet 3, Estimated 6 | R29 |
-| NAMICS U8410-302 | Cu pillar and Pb-free bumps | Datasheet 3, Estimated 6 | R29 |
-| NAMICS U8410-377 | Low viscosity | Datasheet 3, Estimated 6 | R29 |
+| NAMICS U8410-73C | For low-k, Pb-free bumps and tight spaces | Datasheet 3, Estimated 6 | R29 |
+| NAMICS U8410-302 | For low-k, Cu pillar and Pb-free bumps | Datasheet 3, Estimated 6 | R29 |
+| NAMICS U8410-377 | Low viscosity; for tight spaces | Datasheet 3, Estimated 6 | R29 |
 | ALPHA HiTech CU21-3240 | MacDermid Alpha, board-level capillary underfill | Datasheet 4, Estimated 5 | R30 |
-| Typical FCBGA capillary underfill | Generic silica-filled epoxy (about 50 to 70 wt% filler) | Handbook 6, Estimated 3 | R5, R26, R27, R29 |
+| Typical FCBGA capillary underfill | Generic silica-filled epoxy (about 50 to 70 wt% filler) | Handbook 6, Estimated 3 | R5, R26, R27, R29, R65 |
+| ECCOBOND UF 9000AG | Henkel LOCTITE, low-CTE high-Tg large-die FCBGA underfill | Datasheet 6, Estimated 3 | R47 |
+| ECCOBOND UF 8807 | Henkel LOCTITE, high-Tg fast-cure flip chip underfill | Datasheet 4, Estimated 5 | R49 |
+| ECCOBOND FP4531 | Henkel LOCTITE, snap-cure flip chip underfill | Datasheet 4, Estimated 5 | R48 |
+| NAMICS U8443-14 | Low viscosity; for tight spaces | Datasheet 3, Estimated 6 | R29 |
+| NAMICS U8410-73CF3 | For low-k, Cu pillar and Pb-free bumps and tight spaces | Datasheet 3, Estimated 6 | R29 |
+| NAMICS U8410-99 | For low-k, Pb-free bumps | Datasheet 3, Estimated 6 | R29 |
+| NAMICS U8439-1 | For low-k and large ICs | Datasheet 3, Estimated 6 | R29 |
+| NAMICS U8439-105 | For low-k, large ICs and tight spaces | Datasheet 3, Estimated 6 | R29 |
+| Panasonic CV5300 | Capillary underfill, narrow gap and pitch (1 um filler) | Datasheet 3, Estimated 6 | R64 |
+| Panasonic CV5350 | Capillary underfill, high Tg (5 um filler) | Datasheet 3, Estimated 6 | R64 |
 
-**Lid and stiffener adhesive** (4)
+**Lid and stiffener adhesive** (6)
 
 | Material | Grade | Confidence of properties | Sources |
 |---|---|---|---|
@@ -115,31 +158,41 @@ Open items are listed under "Known issues and next steps" below. The largest is 
 | DOWSIL EA-7100 | Dow, one-part heat-cure silicone adhesive | Datasheet 2, Handbook 1 | R42 |
 | ABLESTIK 8700E | Henkel LOCTITE, Ag-filled epoxy (conductive lid or component attach) | Datasheet 5, Estimated 4 | R43 |
 | Typical epoxy stiffener adhesive | Generic rigid epoxy | Handbook 6, Estimated 3 | R43, R44 |
+| Dow Corning EA-6700 | One-part heat-cure silicone, microelectronic lid attach | Datasheet 1, Handbook 1, Estimated 1 | R70, R71 |
+| DOWSIL 3-6265 Thixotropic | One-part heat-cure silicone lid seal adhesive | Datasheet 2, Handbook 1 | R71 |
 
-**TIM1** (3)
+**TIM1** (4)
 
 | Material | Grade | Confidence of properties | Sources |
 |---|---|---|---|
 | Silicone gel TIM (generic) | Generic | Literature 2, Estimated 1 | R12, R45 |
 | Indium TIM | Metal TIM | Datasheet 3 | R46 |
 | Soft TIM (grease or phase-change, near-decoupled) | Generic | Literature 2, Estimated 1 | R45 |
+| DOWSIL TC-4515 | Dow, soft thermally conductive gap filler | Datasheet 2, Estimated 1 | R72 |
 
-**Lid, stiffener and substrate metal** (10)
+**Lid, stiffener and substrate metal** (17)
 
 | Material | Grade | Confidence of properties | Sources |
 |---|---|---|---|
 | Copper | Electroplated / foil; Ni-plated for lids | Literature 3 | R8 |
 | AlSiC-9 | CPS Technologies | Datasheet 3 | R7 |
 | AlSiC-12 | CPS Technologies | Datasheet 3 | R7 |
-| Stainless steel 304 | Stiffener option | Handbook 3 |  |
+| Stainless steel 304 | Austenitic, stiffener option (EN 1.4301) | Datasheet 2, Handbook 1 | R66 |
 | Copper C10200 / C11000 (wrought) | Oxygen-free or ETP copper sheet for lids and stiffeners | Handbook 3 | R41 |
 | Aluminum 6061-T6 | Stiffener or lid option | Datasheet 3 | R36 |
 | Stainless steel 430 (SUS430) | Ferritic, common stiffener material | Datasheet 2, Handbook 1 | R37 |
 | Kovar (ASTM F-15) | Fe-Ni-Co low-expansion alloy | Datasheet 2, Handbook 1 | R38 |
-| Copper-tungsten W90Cu10 | WCu10 heat spreader / lid | Datasheet 2, Estimated 1 | R39, R40 |
-| Copper-tungsten W85Cu15 | WCu15 heat spreader / lid | Datasheet 2, Estimated 1 | R39, R40 |
+| Copper-tungsten W90Cu10 | WCu10 heat spreader / lid | Datasheet 2, Estimated 1 | R39, R40, R68 |
+| Copper-tungsten W85Cu15 | WCu15 heat spreader / lid | Datasheet 2, Estimated 1 | R39, R40, R68 |
+| Stainless steel 316 | Austenitic Mo-bearing (EN 1.4401), stiffener option | Datasheet 2, Handbook 1 | R66 |
+| Alloy 42 (Fe-42Ni) | Low-expansion alloy, lid or stiffener option | Datasheet 2, Estimated 1 | R67 |
+| Nickel 200 | Commercially pure nickel (reference for Ni-plated lids) | Datasheet 3 | R67 |
+| Copper-molybdenum Cu35Mo65 | CuMo heat spreader or lid (wt%) | Datasheet 2, Estimated 1 | R68 |
+| CPC141 (Cu / CuMo / Cu) | A.L.M.T. laminated heat spreader | Datasheet 2, Estimated 1 | R68 |
+| Copper-tungsten W80Cu20 | WCu20 heat spreader / lid (wt%) | Datasheet 2, Estimated 1 | R68 |
+| Aluminum 6063-T6 | Extruded stiffener option | Datasheet 2, Handbook 1 | R69 |
 
-Searches for this update could not reach vendor or publisher pages directly (the build environment blocks most outbound hosts), so values come from search-indexed data sheets, product pages and papers; each entry's note says where a value was assumed. Above-Tg (rubbery) moduli are rarely published: for most added underfills and adhesives they are estimated as a fixed fraction of the glassy modulus and flagged. Replace Estimated values with your own DMA and TMA data before trusting absolute numbers.
+Sources were read directly where the publisher allows it: manufacturer data sheets and product pages (Henkel, NAMICS, Panasonic, Resonac, Mitsubishi Gas Chemical, Taiyo, Dow, CPS, Carpenter, Special Metals, Outokumpu, Kyocera), archived copies where a page has moved, and peer-reviewed papers for solder constitutive data. Values reproduced by a review or a third-party site are labelled Literature or Handbook rather than Datasheet. Above-Tg (rubbery) moduli, Poisson ratios and through-thickness core CTEs are rarely published; where they are missing they are estimated, the estimate rule is stated in the property note, and the value is flagged Estimated. Replace Estimated values with your own DMA and TMA data before trusting absolute numbers.
 
 ## Repository layout
 
@@ -255,7 +308,7 @@ Each is also listed in the in-app "Assumptions and limitations" panel.
 9. **Submodel Newton** refreshes the consistent tangent on the first iterations and on stalls, and freezes it while the residual shrinks (modified Newton); the inner PCG uses an inexact-Newton tolerance.
 10. **No drag preview and no auto-solve on die release** (Section 4.3 asks for both). Removed at the user's request: moving a die starts no solve, and the floorplan overlay is hidden while the geometry differs from the results it was computed for. The analysis runs from step 6 (full, or Quick preview on the Draft mesh).
 11. **Rainbow colour scale by default** (Section 4.8 asks for colorblind-safe, perceptually uniform maps). Changed at the user's request; the rainbow is neither colorblind safe nor perceptually uniform, so bright yellow and cyan bands can look like features. The colorblind-safe scales remain one click away in the Results bar.
-12. **Estimated material values** (rubbery moduli of ABF and solder resist, polymer Poisson ratios, core through-thickness and shear moduli, TIM gel) are flagged in the materials editor, listed in the run panel and report, and included in the default sensitivity set. SAC105 remains a placeholder (no verifiable data set); SAC387 has measured elastic and solidus data with SAC305 Anand placeholders. Above-Tg (rubbery) moduli of most added underfills and adhesives are not published and are estimated as a fixed fraction of the glassy modulus.
+12. **Estimated material values** (rubbery moduli of ABF and solder resist, polymer Poisson ratios, core through-thickness and shear moduli, TIM gel) are flagged in the materials editor, listed in the run panel and report, and included in the default sensitivity set. SAC387 has measured elastic, CTE and solidus data with SAC305 Anand placeholders; the SAC405 Anand set comes from water-quenched specimens and overstates the strength of reflowed bumps. Above-Tg (rubbery) moduli of most underfills, adhesives and solder resists are not published and are estimated as a fixed fraction of the glassy modulus; through-thickness CTEs of most cores are not published and are taken from MCL-E-795G or HL832NS. Core in-plane CTE is held at its below-Tg value even where a data sheet gives a lower above-Tg value (MGC BT laminates), which matters only above the core's TMA Tg (200 to 270 °C).
 
 ## Known issues and next steps
 

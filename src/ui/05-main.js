@@ -6,7 +6,7 @@ function renderStepper() {
     nav.append(h('div', { class: 'step' + (app.step === s.n ? ' active' : '') + (s.n < app.step ? ' done' : ''), 'data-tip': TIPS['step' + s.n], onclick: () => { app.step = s.n; prefs.set('step', s.n); renderAll(); } }, h('span', { class: 'num' }, s.n), h('span', { class: 'lbl' }, s.label)));
   }
   nav.append(h('hr'), h('div', { class: 'small muted step-info', style: 'padding:6px' }, 'Configuration: ', h('b', null, app.cfg.name || '(unnamed)'), app.results ? h('div', null, 'Results: ' + app.results.preset + (app.results.preview ? ' preview' : '') + (app.dirty ? ' (configuration changed since)' : '')) : null, app.baseline ? h('div', null, 'Baseline pinned') : null));
-  nav.append(h('div', { class: 'step-info', style: 'padding:6px' }, h('button', tip('limitations', { class: 'small', onclick: showLimitations }), 'Assumptions and limitations')));
+  nav.append(h('div', { class: 'step-info', style: 'padding:6px' }, h('button', tip('limitations', { class: 'small', onclick: showLimitations }), 'Assumptions and limitations'), ' ', h('button', tip('glossary', { class: 'small', onclick: () => showGlossary() }), 'Glossary')));
 }
 
 const CENTER_TABS = [['floorplan', 'Floorplan and section', 'tabFloorplan'], ['results', 'Results', 'tabResults'], ['view3d', '3D view', 'tab3d']];
@@ -75,7 +75,7 @@ function init() {
   app.centerTab = prefs.get('tab', 'floorplan');
   initLayout();
   onConfigChanged('geometry', {});
-  $('#btn-theme').setAttribute('data-tip', TIPS.theme); $('#btn-help').setAttribute('data-tip', TIPS.helpBtn); $('#btn-cancel').setAttribute('data-tip', TIPS.cancel);
+  $('#btn-theme').setAttribute('data-tip', TIPS.theme); $('#btn-help').setAttribute('data-tip', TIPS.helpBtn); $('#btn-glossary').setAttribute('data-tip', TIPS.glossary); $('#btn-glossary').addEventListener('click', () => showGlossary()); $('#btn-cancel').setAttribute('data-tip', TIPS.cancel);
   $('#btn-theme').addEventListener('click', () => { const order = ['auto', 'light', 'dark']; applyTheme(order[(order.indexOf(app.theme) + 1) % 3]); toast('Theme: ' + app.theme, '', 1500); });
   $('#btn-help').addEventListener('click', showLimitations);
   $('#modal-close').addEventListener('click', closeModal);

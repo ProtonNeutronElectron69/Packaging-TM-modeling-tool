@@ -17,6 +17,8 @@ const TIPS = {
   helpBtn: 'Every modeling assumption and build decision in plain language.',
   cancel: 'Stop the running job. The worker is restarted; results already in memory are kept.',
   limitations: 'Every modeling assumption and build decision in plain language.',
+  glossary: 'Glossary of the technical acronyms and variable symbols used in the tool. Dotted terms anywhere in the tool explain themselves on hover and open their entry on click.',
+  glossaryFilter: 'Type to show only the entries that contain this text.',
   // ---- step 1 ----
   presetPkg: 'Load one of the reference packages from the specification (Section 12). Replaces the current configuration.',
   saveCfg: 'Download the whole configuration (geometry, materials, process, loads, limits) as a JSON file. Nothing is stored in the browser.',

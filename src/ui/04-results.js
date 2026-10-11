@@ -558,6 +558,7 @@ function reportBody(res) {
   const estList = estimatedInputsInUse(cfg);
   div.append(h('h3', null, 'Estimated inputs in use (' + estList.length + ')'), h('p', { class: 'small' }, estList.map(e => e.material + ': ' + e.label + ' = ' + (typeof e.value === 'number' ? fmtInput(e.value) : e.value) + ' ' + e.unit).join('; ') || 'none'));
   div.append(h('h3', null, 'Assumptions and limitations'), h('ul', { class: 'small' }, ...limitationsList(res).map(t => h('li', null, t))));
+  div.append(glossaryReportSection());
   div.append(h('h3', null, 'Verification'));
   if (app.verification && app.verification.length) div.append(h('table', { class: 'small' }, h('tr', null, h('th', null, 'ID'), h('th', null, 'Result'), h('th', null, 'Measured')), ...app.verification.map(r => h('tr', null, h('td', null, r.id), h('td', { class: r.pass ? 'ok' : 'bad' }, r.pass ? 'PASS' : 'FAIL'), h('td', null, r.measured)))));
   else div.append(h('p', { class: 'small muted' }, 'Verification suite not run in this session.'));

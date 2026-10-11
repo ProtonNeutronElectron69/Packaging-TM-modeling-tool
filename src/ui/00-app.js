@@ -35,11 +35,14 @@ const prefs = {
   set(k, v) { try { localStorage.setItem('fcbga.' + k, JSON.stringify(v)); } catch (e) { /* ignore */ } },
 };
 
+/** Most parallel workers offered: total CPU cores / 1.5, rounded down (at least 1), so the page and the OS keep some headroom. */
+const maxWorkers = () => Math.max(1, Math.floor((navigator.hardwareConcurrency || 2) / 1.5));
+
 const app = {
   cfg: null, results: null, baseline: null, fieldsCache: new Map(), screening: null, submodels: [], sensitivity: null, verification: null,
   step: 1, centerTab: 'floorplan', selectedDie: 0, resultsView: 'warpage', selectedT: 25, exaggeration: 5, cutLine: { axis: 'x', pos: 0 },
   running: null, mesh: null, validation: { errors: [], warnings: [] }, geom: null, dirty: true,
-  workers: Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1)), nestedWorkers: true,
+  workers: Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1, maxWorkers())), nestedWorkers: true,
   decisions: [], showOverlay: 'warpage', cutDirty: true,
   colorMap: prefs.get('colorMap', 'rainbow') === 'colorblind' ? 'colorblind' : 'rainbow',  // contour colours: rainbow or colorblind-safe
 };

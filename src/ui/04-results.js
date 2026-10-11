@@ -13,7 +13,7 @@ function renderRunPanel(root) {
   root.append(h('h2', null, '6. Run and results'));
   root.append(selectField('Mesh fidelity', () => cfg.mesh.preset, v => { cfg.mesh.preset = v; renderContext(); }, Object.entries(C.CONST.MESH_PRESETS).map(([k, p]) => ({ value: k, label: p.label + ' (h ' + p.hmin + ' to ' + p.hmax + ' mm, cap ' + p.cap.toLocaleString() + ' DOF)' })), { help: 'preset', section: 'mesh' }));
   const hc = navigator.hardwareConcurrency || 2;
-  root.append(h('div', { class: 'field' }, h('label', null, 'Parallel workers', helpTip('workers')), h('select', { 'data-tip': TIPS.workers, onchange: e => { app.workers = +e.target.value; renderContext(); } }, ...Array.from({ length: Math.max(1, Math.min(8, hc)) }, (_, i) => i + 1).map(n => h('option', { value: n, selected: app.workers === n ? '' : null }, n + (n === 1 ? ' (single worker)' : ' workers')))), h('span', { class: 'unit' }, hc + ' cores' + (app.nestedWorkers === false ? '; nested workers unavailable in this browser' : ''))));
+  root.append(h('div', { class: 'field' }, h('label', null, 'Parallel workers', helpTip('workers')), h('select', { 'data-tip': TIPS.workers, onchange: e => { app.workers = +e.target.value; renderContext(); } }, ...Array.from({ length: maxWorkers() }, (_, i) => i + 1).map(n => h('option', { value: n, selected: app.workers === n ? '' : null }, n + (n === 1 ? ' (single worker)' : ' workers')))), h('span', { class: 'unit' }, hc + ' cores' + (app.nestedWorkers === false ? '; nested workers unavailable in this browser' : ''))));
   const est = estimateRun(cfg, cfg.mesh.preset);
   if (est.error) root.append(h('div', { class: 'msg error' }, est.error));
   else {
@@ -458,7 +458,7 @@ function renderSensitivityView(root) {
   if (!app.sensInputs) app.sensInputs = new Set(inputs.map(i => i.id));
   root.append(h('div', { class: 'row' }, h('b', null, 'Sensitivity (tornado), Draft preset'), h('span', { class: 'muted small' }, 'Each input is set to the low and high end of its range (datasheet range where given, else ±10 %, ±10 °C for temperatures). Results are cached by configuration hash.')));
   root.append(h('div', { class: 'row small' }, ...inputs.map(i => h('label', { class: 'pill', 'data-tip': TIPS.sensInput + (i.estimated ? ' This one is Estimated.' : '') }, h('input', { type: 'checkbox', checked: app.sensInputs.has(i.id) ? '' : null, onchange: e => { if (e.target.checked) app.sensInputs.add(i.id); else app.sensInputs.delete(i.id); } }), ' ' + i.label, i.estimated ? h('span', { class: 'badge Estimated' }, 'est.') : null))));
-  const nw = Math.max(1, Math.min(8, (navigator.hardwareConcurrency || 4) - 1));
+  const nw = Math.max(1, app.workers || 1);
   root.append(h('div', { class: 'row' }, h('button', tip('sensRun', { class: 'primary', disabled: app.validation.errors.length ? '' : null, onclick: () => runSensitivity(inputs.filter(i => app.sensInputs.has(i.id)), nw) }), '▶ Run sensitivity (' + (2 * app.sensInputs.size + 1) + ' Draft analyses on ' + nw + ' workers)')));
   const S = app.sensitivity;
   if (!S) return;

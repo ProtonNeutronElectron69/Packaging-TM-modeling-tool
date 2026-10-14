@@ -29,7 +29,7 @@ Configurations are saved and loaded as JSON files. `localStorage` holds only con
 
 ## Project status
 
-The specification in `CLAUDE.md` is implemented in full. Twelve pull requests are merged on `main`:
+The specification in `CLAUDE.md` is implemented in full. Fifteen pull requests are merged on `main`:
 
 | PR | Merged | Content |
 |---|---|---|
@@ -45,6 +45,9 @@ The specification in `CLAUDE.md` is implemented in full. Twelve pull requests ar
 | [#10](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/10) | 2026-10-11 | Parallel worker count offered up to CPU cores / 1.5 (rounded down); the sensitivity run uses the chosen worker count |
 | [#11](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/11) | 2026-10-11 | Documentation: PRs 9 and 10 added to the status tables |
 | [#12](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/12) | 2026-10-11 | Results map legends show enough decimals to keep narrow ranges distinct (the fatigue map read 0.2 at both ends); CLAUDE.md now picks verification subsets by the nature of a change |
+| [#13](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/13) | 2026-10-11 | Documentation: PRs 11 and 12 added to the status tables |
+| [#14](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/14) | 2026-10-11 | Glossary of 83 acronyms and variable symbols: matching terms in the UI show the spelled-out form on hover and open the entry on click; glossary window (A–Z) and a glossary section in the report |
+| [#15](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/15) | 2026-10-13 | Colour-scale end labels to 4 significant figures (scientific notation below 1); die corners numbered 1 to 4 clockwise from the bottom-right corner everywhere (underfill perimeter plots, die stress map and patches); line key on the die stress map; verification criteria shown before a run with a plain-language description of each test; explainer tooltips on the fatigue, sensitivity and verification tabs |
 
 Open items are listed under "Known issues and next steps" below. The largest is performance against the Section 13 targets.
 

@@ -104,8 +104,10 @@ function whatThisMeans(kind, res) {
 // ---- running ----
 function runFull() {
   if (app.validation.errors.length) { toast('Fix the errors first.', 'error'); return; }
-  startRun({ type: 'run', cfg: app.cfg, preset: app.cfg.mesh.preset, evaluations: 'full', workers: app.workers }, 'Full global analysis').then(res => {
-    app.results = res; app.currentFields = res.at25; app.selectedT = 25; app.dirty = false;
+  const request = { type: 'run', cfg: structuredClone(app.cfg), preset: app.cfg.mesh.preset, evaluations: 'full', workers: app.workers };
+  startRun(Object.assign({}, request), 'Full global analysis').then(res => {
+    res.request = request; app.analysisLost = false;
+    app.results = res; app.fieldsCache.clear(); app.currentFields = res.at25; app.selectedT = 25; app.dirty = false;
     app.screening = res.screening || null; app.submodels = [];
     setCenterTab('results'); renderAll();
     toast('Analysis complete in ' + fmt(res.totalMs / 1000, 1) + ' s (' + res.meshInfo.nDof + ' DOF, ' + res.workers + ' worker' + (res.workers > 1 ? 's' : '') + ').', 'ok');
@@ -113,21 +115,65 @@ function runFull() {
 }
 function runPreview() {
   if (app.validation.errors.length) return;
-  startRun({ type: 'run', cfg: app.cfg, preset: 'draft', evaluations: 'preview' }, 'Draft preview').then(res => {
-    res.preview = true;
-    app.results = res; app.currentFields = res.at25; app.selectedT = 25;
+  const request = { type: 'run', cfg: structuredClone(app.cfg), preset: 'draft', evaluations: 'preview' };
+  startRun(Object.assign({}, request), 'Draft preview').then(res => {
+    res.preview = true; res.request = request; app.analysisLost = false;
+    app.results = res; app.fieldsCache.clear(); app.currentFields = res.at25; app.selectedT = 25;
     floorplan.draw();
     renderContext();
   }).catch(err => { if (err.message !== 'cancelled') toast('Preview failed: ' + err.message, 'error'); });
 }
-function startRun(msg, label) {
-  if (app.running) worker.cancel();
-  app.running = label;
+/**
+ * Run one job with its progress in the status bar (one job at a time; a new job cancels the running one).
+ * The main worker holds the analysis behind app.results, which the temperature selector and the submodels read.
+ * Jobs that neither produce nor read it (opts.side: verification, mesh check, core study) run on a one-shot
+ * worker instead, so that running or cancelling them never discards it. opts.onPartial receives streamed results.
+ */
+function startRun(msg, label, opts) {
+  opts = opts || {};
+  if (app.job) cancelRunning();
+  const side = !!opts.side, client = side ? new WorkerClient() : worker;
+  const job = { label, cancel: side ? () => client.stop() : null };
+  app.job = job;
   const t0 = performance.now();
   setStatus(label + ' starting…', 0);
-  const p = worker.send(msg, (frac, m) => setStatus(label + ': ' + m, frac));
-  p.then(() => { app.running = null; setStatus(label + ' done in ' + fmt((performance.now() - t0) / 1000, 1) + ' s', null); }, () => { app.running = null; setStatus('Ready', null); });
+  const p = client.send(msg, (frac, m) => { if (app.job === job) setStatus(label + ': ' + m, frac); }, opts.onPartial);
+  const settle = () => { if (side) client.stop(); if (app.job !== job) return false; app.job = null; return true; };
+  p.then(() => { if (settle()) setStatus(label + ' done in ' + fmt((performance.now() - t0) / 1000, 1) + ' s', null); }, () => { if (settle()) setStatus('Ready', null); });
   return p;
+}
+/**
+ * Cancel the running job. Side and sensitivity workers are simply stopped; anything else runs on the main worker,
+ * which is restarted, and that discards the analysis behind the results. Returns true when it did so just now.
+ */
+function cancelRunning() {
+  const job = app.job;
+  app.job = null;
+  if (job && job.cancel) { job.cancel(); return false; }
+  if (!job && !worker.pending.size) return false;  // the main worker is idle: nothing to cancel, keep its analysis
+  worker.cancel();
+  const lost = !!app.results && !app.analysisLost;
+  if (app.results) app.analysisLost = true;
+  return lost;
+}
+/** Re-run the analysis behind the results (same configuration snapshot, preset and workers) after a cancel discarded it. */
+function restoreAnalysis() {
+  const old = app.results;
+  if (!old || !old.request) return;
+  startRun(Object.assign({}, old.request), 'Restoring the analysis').then(res => {
+    res.request = old.request; res.preview = old.preview; app.analysisLost = false;
+    app.results = res;
+    if (res.screening) app.screening = res.screening;
+    renderAll();
+    toast('Analysis restored; other temperatures and the bump submodels are available again.', 'ok');
+  }).catch(err => { if (err.message !== 'cancelled') toast('Restore failed: ' + err.message, 'error', 9000); });
+}
+/** Notice above the results while the analysis behind them is not in the worker (null otherwise). */
+function analysisLostNotice() {
+  if (!app.analysisLost || !app.results) return null;
+  const est = app.results.totalMs ? ' (about ' + fmt(app.results.totalMs / 1000, 0) + ' s, like the original run)' : '';
+  return h('div', { class: 'msg warning' }, 'A cancelled job restarted the worker, so the analysis behind these results is no longer in memory. The states already loaded stay visible; other temperatures and the bump submodels need it again. ',
+    h('button', tip('restoreAnalysis', { class: 'small', onclick: restoreAnalysis }), 'Restore analysis' + est));
 }
 function pinBaseline() { app.baseline = app.results; toast('Baseline pinned: ' + (app.cfg.name || 'current configuration') + ' at ' + app.results.preset + '.', 'ok'); renderContext(); }
 
@@ -135,7 +181,7 @@ function checkMeshSensitivity() {
   const order = ['draft', 'standard', 'fine'];
   const cur = app.cfg.mesh.preset, next = order[Math.min(order.indexOf(cur) + 1, 2)];
   if (next === cur) { toast('Already at the finest preset.', 'warn'); return; }
-  const run = preset => startRun({ type: 'run', cfg: app.cfg, preset, evaluations: 'preview', workers: app.workers }, 'Mesh check at ' + preset);
+  const run = preset => startRun({ type: 'run', cfg: app.cfg, preset, evaluations: 'preview', workers: app.workers }, 'Mesh check at ' + preset, { side: true });
   run(cur).then(a => run(next).then(b => {
     const wa = a.at25.warpage.signed, wb = b.at25.warpage.signed;
     const sa = a.at25.dies[0].top.peakInterior, sb = b.at25.dies[0].top.peakInterior;
@@ -148,7 +194,7 @@ function checkMeshSensitivity() {
 function runCoreStudy() {
   const A = C.presetConfig(MATERIALS_DB, 'coreStudy', 'A'), B = C.presetConfig(MATERIALS_DB, 'coreStudy', 'B');
   const preset = app.cfg.mesh.preset;
-  startRun({ type: 'run', cfg: A, preset, evaluations: 'preview' }, 'Core study A (0.4 mm)').then(ra => startRun({ type: 'run', cfg: B, preset, evaluations: 'preview' }, 'Core study B (0.8 mm)').then(rb => {
+  startRun({ type: 'run', cfg: A, preset, evaluations: 'preview' }, 'Core study A (0.4 mm)', { side: true }).then(ra => startRun({ type: 'run', cfg: B, preset, evaluations: 'preview' }, 'Core study B (0.8 mm)', { side: true }).then(rb => {
     showModal('Core thickness study (bare die, 3-2-3)', h('div', null, h('table', null, h('tr', null, h('th'), h('th', null, 'A: 0.4 mm core'), h('th', null, 'B: 0.8 mm core')), h('tr', null, h('td', null, 'RT signed warpage'), h('td', null, um(ra.at25.warpage.signed) + ' µm'), h('td', null, um(rb.at25.warpage.signed) + ' µm')), h('tr', null, h('td', null, 'Die backside interior peak'), h('td', null, fmt(ra.at25.dies[0].top.peakInterior, 1) + ' MPa'), h('td', null, fmt(rb.at25.dies[0].top.peakInterior, 1) + ' MPa')), h('tr', null, h('td', null, 'Worst CPI bump shear'), h('td', null, gf(ra.cpi[0].worstV) + ' gf'), h('td', null, gf(rb.cpi[0].worstV) + ' gf'))), h('p', { class: 'small muted' }, 'Resonac TEG-like construction [R2]; Cu thickness per layer (15 µm) is not stated by the source and was assumed.')));
   })).catch(e => { if (e.message !== 'cancelled') toast(e.message, 'error'); });
 }
@@ -162,6 +208,8 @@ function renderResults(root) {
   const bar = h('div', { class: 'row' }, ...RESULT_VIEWS.map(([k, l, t]) => h('button', tip(t, { class: app.resultsView === k ? 'primary small' : 'small', onclick: () => { app.resultsView = k; renderCenter(); } }), l)), colorSel);
   root.append(bar);
   if (!res && !['sensitivity', 'verification'].includes(app.resultsView)) { root.append(h('div', { class: 'msg info' }, 'Run the analysis (step 6) to see results.')); return; }
+  const lostNote = analysisLostNotice();
+  if (lostNote) root.append(lostNote);
   const Tsel = res ? h('select', tip('tempSelect', { onchange: e => selectTemperature(+e.target.value) }), ...Array.from(new Set([25].concat(app.cfg.reflow.reportTemps, res.temps.all))).sort((a, b) => a - b).filter(T => res.temps.all.includes(T)).map(T => h('option', { value: T, selected: T === app.selectedT ? '' : null }, T + ' °C'))) : null;
   const f = app.currentFields;
   switch (app.resultsView) {
@@ -179,6 +227,7 @@ function renderResults(root) {
 function selectTemperature(T) {
   app.selectedT = T;
   if (app.fieldsCache.has(T)) { app.currentFields = app.fieldsCache.get(T); renderCenter(); floorplan.draw(); return; }
+  if (app.analysisLost) { app.selectedT = app.currentFields ? app.currentFields.T : 25; toast('The ' + T + ' °C state needs the analysis, which a cancelled job discarded; use Restore analysis above the results first.', 'warn', 7000); renderCenter(); return; }
   setStatus('Evaluating fields at ' + T + ' °C', 0.5);
   worker.send({ type: 'fieldsAt', T }).then(f => { app.fieldsCache.set(T, f); app.currentFields = f; setStatus('Ready', null); renderCenter(); floorplan.draw(); }).catch(e => { setStatus('Ready', null); toast(e.message, 'error'); });
 }
@@ -340,12 +389,11 @@ function defaultSubmodelSelection(res) {
 function runSubmodels(res) {
   const keys = Array.from(app.submodelSelection);
   if (!keys.length) { toast('Select at least one site.', 'warn'); return; }
+  if (app.analysisLost) { toast('The submodels need the analysis, which a cancelled job discarded; use Restore analysis above the results first.', 'warn', 7000); return; }
   const cfg = app.cfg;
   const jobs = keys.map(k => { const [die, q] = k.split(':').map(Number); const s = res.screening[die]; return { die, site: { x: s.x[q], y: s.y[q], ix: s.ix[q], iy: s.iy[q] } }; });
   const onPartial = r => { app.submodels = app.submodels.filter(x => !(x.dieIdx === r.dieIdx && x.site.ix === r.site.ix && x.site.iy === r.site.iy)); app.submodels.push(r); renderCenter(); };
-  const p = startRun({ type: 'submodels', jobs, nxy: cfg.submodel.nxy, nz: cfg.submodel.nz, workers: app.workers }, 'Bump submodels (' + jobs.length + ' sites)');
-  const pend = worker.pending.get(worker.nextId - 1);
-  if (pend) pend.onPartial = onPartial;
+  const p = startRun({ type: 'submodels', jobs, nxy: cfg.submodel.nxy, nz: cfg.submodel.nz, workers: app.workers }, 'Bump submodels (' + jobs.length + ' sites)', { onPartial });
   p.then(() => renderCenter()).catch(e => { if (e.message !== 'cancelled') toast('Submodel failed: ' + e.message, 'error', 9000); });
 }
 function renderSubmodelCard(sm) {
@@ -492,18 +540,19 @@ function runSensitivity(inputs, nWorkers) {
   let next = 0, done = 0;
   const t0 = performance.now();
   setStatus('Sensitivity: 0/' + cases.length, 0);
-  app.running = 'sensitivity';
-  const cancelAll = () => { for (const p of pool) p.worker.terminate(); app.running = null; };
-  $('#btn-cancel').onclick = () => { cancelAll(); setStatus('Sensitivity cancelled', null); $('#btn-cancel').onclick = defaultCancel; };
+  if (app.job) cancelRunning();
+  let stopped = false;  // cases rejected by a cancel are dropped, not reported as failures
+  const job = { label: 'sensitivity', cancel: () => { stopped = true; for (const p of pool) p.stop(); } };
+  app.job = job;
+  const cancelAll = () => { job.cancel(); if (app.job === job) app.job = null; };
   return new Promise((resolve) => {
     const launch = w => {
       if (next >= cases.length) return;
       const c = cases[next++];
-      w.send({ type: 'sensitivityCase', cfg: c.cfg }).then(r => { results[c.id + (c.side ? ':' + c.side : '')] = { r, c }; done++; setStatus('Sensitivity: ' + done + '/' + cases.length, done / cases.length); if (done === cases.length) finish(); else launch(w); }).catch(e => { toast('Sensitivity case failed: ' + e.message, 'error'); done++; if (done === cases.length) finish(); else launch(w); });
+      w.send({ type: 'sensitivityCase', cfg: c.cfg }).then(r => { if (stopped) return; results[c.id + (c.side ? ':' + c.side : '')] = { r, c }; done++; setStatus('Sensitivity: ' + done + '/' + cases.length, done / cases.length); if (done === cases.length) finish(); else launch(w); }).catch(e => { if (stopped) return; toast('Sensitivity case failed: ' + e.message, 'error'); done++; if (done === cases.length) finish(); else launch(w); });
     };
     const finish = () => {
       cancelAll();
-      $('#btn-cancel').onclick = defaultCancel;
       const base = results.__base && results.__base.r;
       if (!base) { setStatus('Ready', null); resolve(); return; }
       const byInput = {};
@@ -531,10 +580,9 @@ function runVerify(all) {
   const ids = C.VERIFICATION_TESTS.filter(t => all || !t.slow).map(t => t.id);
   app.verification = app.verification || [];
   app.verifying = new Set(ids);
-  startRun({ type: 'verify', ids, presets: ['draft', 'standard'] }, 'Verification', ).then(results => { for (const r of results) { app.verification = app.verification.filter(x => x.id !== r.id); app.verification.push(r); } app.verifying = null; renderCenter(); }).catch(e => { app.verifying = null; if (e.message !== 'cancelled') toast(e.message, 'error'); });
-  // partial results stream in
-  const p = worker.pending.get(worker.nextId - 1);
-  if (p) p.onPartial = r => { app.verification = app.verification.filter(x => x.id !== r.id); app.verification.push(r); app.verifying.delete(r.id); renderCenter(); };
+  // partial results stream in; the suite runs on its own worker so that cancelling it keeps the analysis
+  const onPartial = r => { app.verification = app.verification.filter(x => x.id !== r.id); app.verification.push(r); if (app.verifying) app.verifying.delete(r.id); renderCenter(); };
+  startRun({ type: 'verify', ids, presets: ['draft', 'standard'] }, 'Verification', { side: true, onPartial }).then(results => { for (const r of results) { app.verification = app.verification.filter(x => x.id !== r.id); app.verification.push(r); } app.verifying = null; renderCenter(); }).catch(e => { app.verifying = null; renderCenter(); if (e.message !== 'cancelled') toast(e.message, 'error'); });
 }
 
 // ---- report and CSV ----

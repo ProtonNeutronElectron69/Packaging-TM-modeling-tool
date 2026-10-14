@@ -35,7 +35,7 @@ function renderCenter() {
   } else {
     const r = app.results;
     if (!r) body.append(h('div', { class: 'msg info' }, 'Run the full analysis to see the 3D deformed shape.'));
-    else renderView3D(body, r, app.currentFields || r.at25, h('select', { onchange: e => selectTemperature(+e.target.value) }, ...r.temps.all.map(T => h('option', { value: T, selected: T === app.selectedT ? '' : null }, T + ' °C'))));
+    else { const lostNote = analysisLostNotice(); if (lostNote) body.append(lostNote); renderView3D(body, r, app.currentFields || r.at25, h('select', { onchange: e => selectTemperature(+e.target.value) }, ...r.temps.all.map(T => h('option', { value: T, selected: T === app.selectedT ? '' : null }, T + ' °C')))); }
   }
 }
 function renderContext() {
@@ -64,7 +64,12 @@ document.addEventListener('configchange', ev => {
 document.addEventListener('dieselect', () => { if (app.step === 2) renderContext(); floorplan.draw(); });
 document.addEventListener('themechange', () => { if (app.centerTab === 'floorplan') { floorplan.draw(); xsection.draw(); } else renderCenter(); });
 
-function defaultCancel() { worker.cancel(); app.running = null; setStatus('Cancelled', null); toast('Job cancelled; the worker was restarted. Results in memory are kept.', 'warn'); }
+function defaultCancel() {
+  const lost = cancelRunning();
+  setStatus('Cancelled', null);
+  if (lost) { toast('Job cancelled. Restarting the worker discarded the analysis behind the results: the views already loaded stay visible; use Restore analysis in the results to view other temperatures or run submodels.', 'warn', 9000); if (app.centerTab !== 'floorplan') renderCenter(); }
+  else toast('Job cancelled. Results in memory are kept.', 'warn');
+}
 
 // ---- init ----
 function init() {

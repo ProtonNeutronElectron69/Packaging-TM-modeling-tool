@@ -29,7 +29,7 @@ Configurations are saved and loaded as JSON files. `localStorage` holds only con
 
 ## Project status
 
-The specification in `CLAUDE.md` is implemented in full. Fifteen pull requests are merged on `main`:
+The specification in `CLAUDE.md` is implemented in full. Seventeen pull requests are merged on `main`:
 
 | PR | Merged | Content |
 |---|---|---|
@@ -48,6 +48,8 @@ The specification in `CLAUDE.md` is implemented in full. Fifteen pull requests a
 | [#13](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/13) | 2026-10-11 | Documentation: PRs 11 and 12 added to the status tables |
 | [#14](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/14) | 2026-10-11 | Glossary of 83 acronyms and variable symbols: matching terms in the UI show the spelled-out form on hover and open the entry on click; glossary window (A–Z) and a glossary section in the report |
 | [#15](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/15) | 2026-10-13 | Colour-scale end labels to 4 significant figures (scientific notation below 1); die corners numbered 1 to 4 clockwise from the bottom-right corner everywhere (underfill perimeter plots, die stress map and patches); line key on the die stress map; verification criteria shown before a run with a plain-language description of each test; explainer tooltips on the fatigue, sensitivity and verification tabs |
+| [#16](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/16) | 2026-10-13 | Documentation: PRs 13 to 15 added to the status tables; standing rule to update them after every merge |
+| [#17](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/17) | 2026-10-13 | Cancelling a job no longer strands the results: verification, mesh check and core study run on a one-shot side worker; cancelling a main-worker job shows a notice with Restore analysis instead of "No analysis in memory"; cancel with nothing running keeps the analysis; a cancelled sensitivity run reports no false failures |
 
 Open items are listed under "Known issues and next steps" below. The largest is performance against the Section 13 targets.
 

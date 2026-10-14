@@ -244,18 +244,14 @@ function dieSurfaceStress(model, geom, dieIdx, which, T, stage, u) {
     return s / (m * m);
   };
   const P = CONST.CORNER_PATCH, r = d.rect;
-  const corners = [
-    { name: 'corner (-x,-y)', x: r.x0, y: r.y0, value: patch(r.x0, r.y0) },
-    { name: 'corner (+x,-y)', x: r.x1, y: r.y0, value: patch(r.x1 - P, r.y0) },
-    { name: 'corner (+x,+y)', x: r.x1, y: r.y1, value: patch(r.x1 - P, r.y1 - P) },
-    { name: 'corner (-x,+y)', x: r.x0, y: r.y1, value: patch(r.x0, r.y1 - P) },
-  ];
+  // corners 1 to 4 clockwise from the bottom-right (+x, -y) corner; mid-edge k-(k+1) lies on the side from corner k to corner k+1
+  const corners = dieCorners(r).map(c => ({ name: 'corner ' + c.n + ' (' + c.dir + ')', x: c.x, y: c.y, value: patch(c.sx > 0 ? c.x - P : c.x, c.sy > 0 ? c.y - P : c.y) }));
   const cx = 0.5 * (r.x0 + r.x1), cy = 0.5 * (r.y0 + r.y1);
   const midEdges = [
-    { name: 'mid-edge -y', x: cx, y: r.y0, value: patch(cx - P / 2, r.y0) },
-    { name: 'mid-edge +x', x: r.x1, y: cy, value: patch(r.x1 - P, cy - P / 2) },
-    { name: 'mid-edge +y', x: cx, y: r.y1, value: patch(cx - P / 2, r.y1 - P) },
-    { name: 'mid-edge -x', x: r.x0, y: cy, value: patch(r.x0, cy - P / 2) },
+    { name: 'mid-edge 1-2 (-y side)', x: cx, y: r.y0, value: patch(cx - P / 2, r.y0) },
+    { name: 'mid-edge 2-3 (-x side)', x: r.x0, y: cy, value: patch(r.x0, cy - P / 2) },
+    { name: 'mid-edge 3-4 (+y side)', x: cx, y: r.y1, value: patch(cx - P / 2, r.y1 - P) },
+    { name: 'mid-edge 4-1 (+x side)', x: r.x1, y: cy, value: patch(r.x1 - P, cy - P / 2) },
   ];
   return { die: d.name, which, xs, ys, nx: nxd, ny: nyd, smax, sxx, syy, peakInterior: peak, peakX: px, peakY: py, gpPeakInterior: gpPeak, gpPeakAll, corners, midEdges, T };
 }
@@ -298,6 +294,20 @@ function bumpLoads(model, geom, dieIdx, T, stage, u) {
 }
 
 /**
+ * Die corner numbering used everywhere in the tool: corners 1 to 4 run
+ * clockwise seen from the top (x right, y up), starting at the bottom-right
+ * (+x, -y) corner. sx, sy are the outward signs of each corner.
+ */
+function dieCorners(r) {
+  return [
+    { n: 1, x: r.x1, y: r.y0, sx: 1, sy: -1, dir: '+x, -y' },
+    { n: 2, x: r.x0, y: r.y0, sx: -1, sy: -1, dir: '-x, -y' },
+    { n: 3, x: r.x0, y: r.y1, sx: -1, sy: 1, dir: '-x, +y' },
+    { n: 4, x: r.x1, y: r.y1, sx: 1, sy: 1, dir: '+x, +y' },
+  ];
+}
+
+/**
  * Underfill interface tractions along the die perimeter (Section 8.4): die
  * sidewall to fillet (normal = outward die normal) and die active face to
  * underfill near the edge (normal = z), from underfill-side stresses averaged
@@ -306,12 +316,9 @@ function bumpLoads(model, geom, dieIdx, T, stage, u) {
 function ufTractions(model, geom, dieIdx, T, stage, u) {
   const mesh = model.mesh, d = geom.dies[dieIdx], r = d.rect;
   const step = CONST.TRACTION_PATCH, ns = CONST.TRACTION_SAMPLES;
-  const edges = [
-    { x0: r.x0, y0: r.y0, x1: r.x1, y1: r.y0, nx: 0, ny: -1 },
-    { x0: r.x1, y0: r.y0, x1: r.x1, y1: r.y1, nx: 1, ny: 0 },
-    { x0: r.x1, y0: r.y1, x1: r.x0, y1: r.y1, nx: 0, ny: 1 },
-    { x0: r.x0, y0: r.y1, x1: r.x0, y1: r.y0, nx: -1, ny: 0 },
-  ];
+  // perimeter walked clockwise from corner 1 (+x, -y): side k runs from corner k to corner k+1, outward normal (nx, ny)
+  const cs = dieCorners(r);
+  const edges = cs.map((c, k) => { const e = cs[(k + 1) % 4]; return { x0: c.x, y0: c.y, x1: e.x, y1: e.y, nx: c.sx === e.sx ? c.sx : 0, ny: c.sy === e.sy ? c.sy : 0 }; });
   const s = [], px = [], py = [], peelSide = [], shearSide = [], peelFace = [], shearFace = [];
   const corners = [0];
   let s0 = 0;

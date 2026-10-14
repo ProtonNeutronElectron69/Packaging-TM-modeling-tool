@@ -110,7 +110,7 @@ function ticks(lo, hi, n) {
 }
 
 /**
- * Line plot. series: [{x, y, label, color, dash, points}]; opts: {xlabel, ylabel, title, band:[lo,hi], hlines:[{y,label,color}], vlines, xrange, yrange, legend}
+ * Line plot. series: [{x, y, label, color, dash, points}]; opts: {xlabel, ylabel, title, band:[lo,hi], hlines:[{y,label,color}], vlines:[{x,label,color,bottom}], xrange, yrange, legend}
  */
 function linePlot(canvas, series, opts) {
   opts = opts || {};
@@ -143,7 +143,8 @@ function linePlot(canvas, series, opts) {
   ctx.save(); ctx.beginPath(); ctx.rect(L, T, pw, ph); ctx.clip();  // zoomed data stays inside the axes
   if (opts.band) { ctx.fillStyle = 'rgba(255,170,0,0.13)'; ctx.fillRect(L, Y(opts.band[1]), w - L - R, Y(opts.band[0]) - Y(opts.band[1])); }
   for (const hl of opts.hlines || []) { ctx.strokeStyle = hl.color || muted; ctx.setLineDash([5, 4]); ctx.beginPath(); ctx.moveTo(L, Y(hl.y)); ctx.lineTo(w - R, Y(hl.y)); ctx.stroke(); ctx.setLineDash([]); if (hl.label) { ctx.fillStyle = hl.color || muted; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom'; ctx.fillText(hl.label, L + 4, Y(hl.y) - 2); } }
-  for (const vl of opts.vlines || []) { ctx.strokeStyle = vl.color || muted; ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(X(vl.x), T); ctx.lineTo(X(vl.x), H - B); ctx.stroke(); ctx.setLineDash([]); if (vl.label) { ctx.fillStyle = vl.color || muted; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillText(vl.label, X(vl.x), T + 10); } }
+  // vertical-line labels near a plot edge are aligned inward so they stay inside the axes
+  for (const vl of opts.vlines || []) { ctx.strokeStyle = vl.color || muted; ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(X(vl.x), T); ctx.lineTo(X(vl.x), H - B); ctx.stroke(); ctx.setLineDash([]); if (vl.label) { const px = X(vl.x), edge = ctx.measureText(vl.label).width / 2 + 2; ctx.fillStyle = vl.color || muted; ctx.textAlign = px - L < edge ? 'left' : (L + pw - px < edge ? 'right' : 'center'); ctx.textBaseline = 'bottom'; ctx.fillText(vl.label, px + (ctx.textAlign === 'left' ? 2 : ctx.textAlign === 'right' ? -2 : 0), vl.bottom ? H - B - 3 : T + 10); } }
   const palette = [cssVar('--accent'), cssVar('--accent2'), cssVar('--warn'), cssVar('--err'), '#9b59b6', '#16a085'];
   series.forEach((s, si) => {
     ctx.strokeStyle = s.color || palette[si % palette.length]; ctx.lineWidth = s.width || 1.6; ctx.setLineDash(s.dash || []);
@@ -206,6 +207,40 @@ function tornadoPlot(canvas, rows, base, opts) {
 function drawLegend(canvas, scale) {
   const { ctx, w, h: H } = setupCanvas(canvas);
   for (let i = 0; i < w; i++) { ctx.fillStyle = scale.color(scale.min + (scale.max - scale.min) * i / (w - 1)); ctx.fillRect(i, 0, 1, H); }
+}
+const LEGEND_SIG = 4;      // significant figures on colour-scale end labels
+const LEGEND_SIG_MAX = 8;  // more only when both ends would otherwise print the same
+/** Colour-scale end label with sig significant figures; decimals (magnitude below 1) and magnitudes from 1e4 up in scientific notation. */
+function fmtBound(v, sig) {
+  if (!isFinite(v)) return '–';
+  if (v === 0) return '0';
+  const a = Math.abs(v);
+  return a < 1 || a >= 1e4 ? v.toExponential(sig - 1) : v.toPrecision(sig);
+}
+/** Lower and upper colour-scale labels: 4 significant figures, more if needed to keep the two ends distinct. */
+function legendBounds(scale) {
+  let lo, hi;
+  for (let s = LEGEND_SIG; s <= LEGEND_SIG_MAX; s++) { lo = fmtBound(scale.min, s); hi = fmtBound(scale.max, s); if (lo !== hi) break; }
+  return [lo, hi];
+}
+/** Colour legend: lower bound, colour strip, upper bound, description. */
+function legendItems(scale, label, labelAttrs) {
+  const cv = h('canvas'), [lo, hi] = legendBounds(scale);
+  requestAnimationFrame(() => drawLegend(cv, scale));
+  return [h('span', { class: 'bound' }, lo), cv, h('span', { class: 'bound' }, hi), h('span', labelAttrs || null, label)];
+}
+/** Key for line styles and markers drawn on a map: items [{label, color, dash, marker: 'circle'}]. */
+function lineKey(items) {
+  return h('div', { class: 'legend' }, ...items.map(it => {
+    const cv = h('canvas', { class: 'key' });
+    requestAnimationFrame(() => {
+      const { ctx, w, h: H } = setupCanvas(cv);
+      ctx.clearRect(0, 0, w, H); ctx.strokeStyle = it.color; ctx.lineWidth = 1.2;
+      if (it.marker === 'circle') { ctx.beginPath(); ctx.arc(w / 2, H / 2, 4, 0, 6.3); ctx.stroke(); return; }
+      ctx.setLineDash(it.dash || []); ctx.beginPath(); ctx.moveTo(1, H / 2); ctx.lineTo(w - 1, H / 2); ctx.stroke();
+    });
+    return h('span', { class: 'key-item' }, cv, h('span', null, it.label));
+  }));
 }
 
 /**

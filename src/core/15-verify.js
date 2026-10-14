@@ -61,6 +61,8 @@ function quickCase(cfg, preset, extra) {
 const VERIFICATION_TESTS = [
   {
     id: 'V1', name: 'Free thermal expansion of a block', slow: false,
+    criterion: 'displacement to 1e-9 relative, stress below 1e-8 x E alpha dT',
+    about: 'Heats a single block of one material evenly with nothing holding it. It should simply grow by its thermal expansion with no stress at all, which checks that thermal loads are applied correctly.',
     run(ctx) {
       const lib = [testMaterial('A', 130, 0.28, 2.6)];
       const { mesh, model, solver } = boxModel(lib, linspace(0, 10, 6), linspace(0, 8, 5), linspace(0, 2, 2), [{ name: 'A', kind: 'homog', mat: 'A', stage: 0, part: 0 }], () => 0, 1e-14);
@@ -74,11 +76,13 @@ const VERIFICATION_TESTS = [
       const q = new Float64Array(33); let smax = 0;
       for (let e = 0; e < mesh.ne; e++) { model.elementState(e, 125, 0, u, q); const o = model.pointStress(e, 125, 0, q, 0.3, -0.2, 0.5); for (let i = 0; i < 6; i++) smax = Math.max(smax, Math.abs(o.sig[i])); }
       const sRel = smax / (130000 * a);
-      return { pass: dispErr < 1e-9 && sRel < 1e-8, measured: 'displacement error ' + dispErr.toExponential(2) + ' relative, stress ' + sRel.toExponential(2) + ' x E alpha dT', criterion: 'displacement to 1e-9 relative, stress below 1e-8 x E alpha dT' };
+      return { pass: dispErr < 1e-9 && sRel < 1e-8, measured: 'displacement error ' + dispErr.toExponential(2) + ' relative, stress ' + sRel.toExponential(2) + ' x E alpha dT' };
     },
   },
   {
     id: 'V2', name: 'Patch test, incompatible-mode hex on a distorted mesh', slow: false,
+    criterion: 'exact to 1e-9 relative',
+    about: 'Stretches a small mesh of deliberately skewed elements by a uniform amount. Every element must report exactly that uniform strain, which shows the element works even when it is not a perfect box.',
     run(ctx) {
       // 2x2x2 distorted mesh of a unit cube; prescribe u = A x on boundary nodes, solve interior node
       const D = isoD(100000, 0.3, 0.45);
@@ -137,11 +141,13 @@ const VERIFICATION_TESTS = [
         }
       }
       const m = Math.max(err, serr);
-      return { pass: m < 1e-9, measured: 'displacement error ' + err.toExponential(2) + ', strain error ' + serr.toExponential(2) + ' (relative)', criterion: 'exact to 1e-9 relative' };
+      return { pass: m < 1e-9, measured: 'displacement error ' + err.toExponential(2) + ', strain error ' + serr.toExponential(2) + ' (relative)' };
     },
   },
   {
     id: 'V3', name: 'Bimaterial plate curvature versus Timoshenko', slow: false,
+    criterion: 'center curvature within 3 % of Timoshenko',
+    about: 'Bonds two plates with different expansion coefficients and cools them, so the pair curls like a bimetal strip. The computed curvature is compared with Timoshenko\'s textbook formula.',
     run(ctx) {
       const lib = [testMaterial('A', 130, 0.28, 2.6), testMaterial('B', 110, 0.34, 16.4)];
       const n = 28;
@@ -155,11 +161,13 @@ const VERIFICATION_TESTS = [
       const m = 1, nn = MA / MB, h = 1, da = (2.6 - 16.4) * 1e-6, dT = -100;
       const kt = 6 * da * dT * (1 + m) ** 2 / (h * (3 * (1 + m) ** 2 + (1 + m * nn) * (m * m + 1 / (m * nn))));
       const err = Math.abs(kappa / kt - 1);
-      return { pass: err < 0.03, measured: 'FE curvature ' + kappa.toExponential(4) + ' 1/mm, Timoshenko ' + kt.toExponential(4) + ' 1/mm, error ' + (100 * err).toFixed(2) + ' %', criterion: 'within 3 %' };
+      return { pass: err < 0.03, measured: 'FE curvature ' + kappa.toExponential(4) + ' 1/mm, Timoshenko ' + kt.toExponential(4) + ' 1/mm, error ' + (100 * err).toFixed(2) + ' %' };
     },
   },
   {
     id: 'V4', name: 'Asymmetric three-layer laminate versus classical lamination theory', slow: false,
+    criterion: 'curvatures within 3 % of classical lamination theory',
+    about: 'Builds an unbalanced three-layer stack, one layer stiffer in one direction than the other, and lets it warp on cooling. The curvature is compared with an independent laminate theory calculation.',
     run(ctx) {
       const ortho = { id: 'O', name: 'O', elastic: { type: 'ortho', Ex: { v: 36, u: 'GPa' }, Ey: { v: 20, u: 'GPa' }, Ez: { v: 12, u: 'GPa' }, Gxy: { v: 8, u: 'GPa' }, Gxz: { v: 5, u: 'GPa' }, Gyz: { v: 5, u: 'GPa' }, nuxy: { v: 0.15 }, nuxz: { v: 0.3 }, nuyz: { v: 0.3 } }, cteXY: { type: 'const', a: { v: 4 } }, cteZ: { type: 'const', a: { v: 12 } } };
       // orthotropic in-plane alphas differ: emulate via two CTE definitions is not supported, so use equal alpha x,y = 4 and an isotropic Cu + Si layer
@@ -177,11 +185,13 @@ const VERIFICATION_TESTS = [
         { t: 0.5, E1: 130000, E2: 130000, nu12: 0.28, G12: 130000 / 2.56, a1: 2.6e-6, a2: 2.6e-6 },
       ], -100);
       const ex = Math.abs(-c.kxx / clt.kx - 1), ey = Math.abs(-c.kyy / clt.ky - 1);
-      return { pass: ex < 0.03 && ey < 0.03, measured: 'kx FE ' + (-c.kxx).toExponential(4) + ' vs CLT ' + clt.kx.toExponential(4) + ' (' + (100 * ex).toFixed(2) + ' %), ky FE ' + (-c.kyy).toExponential(4) + ' vs CLT ' + clt.ky.toExponential(4) + ' (' + (100 * ey).toFixed(2) + ' %)', criterion: 'within 3 %' };
+      return { pass: ex < 0.03 && ey < 0.03, measured: 'kx FE ' + (-c.kxx).toExponential(4) + ' vs CLT ' + clt.kx.toExponential(4) + ' (' + (100 * ex).toFixed(2) + ' %), ky FE ' + (-c.kyy).toExponential(4) + ' vs CLT ' + clt.ky.toExponential(4) + ' (' + (100 * ey).toFixed(2) + ' %)' };
     },
   },
   {
     id: 'V5', name: 'Layered-integration element versus one element per physical layer', slow: false,
+    criterion: 'center warpage within 1 %',
+    about: 'Models the same thin multilayer stack two ways: layers merged into one element with layer-by-layer integration (as the tool does for the substrate) and one element per real layer. Both must warp the same, which justifies the shortcut.',
     run(ctx) {
       const cfg = defaultConfig(ctx.db);
       // asymmetric substrate: remove the bottom build-up so the free substrate warps
@@ -209,21 +219,25 @@ const VERIFICATION_TESTS = [
       for (const r of sb.rows) { zsAll.push(r.z1); groupsB.push({ name: 'row' + r.idx, kind: 'rowmat', row: r.row, stage: 0, part: 0 }); rowOfLayer.push(groupsB.length - 1); }
       const b = run(zsAll, groupsB, (i, j, k) => rowOfLayer[k]);
       const err = Math.abs(a.w / b.w - 1);
-      return { pass: err < 0.01, measured: 'centre warpage layered ' + (a.w * 1000).toFixed(3) + ' µm (' + a.dof + ' DOF) vs per-layer ' + (b.w * 1000).toFixed(3) + ' µm (' + b.dof + ' DOF), difference ' + (100 * err).toFixed(3) + ' %', criterion: 'within 1 %' };
+      return { pass: err < 0.01, measured: 'centre warpage layered ' + (a.w * 1000).toFixed(3) + ' µm (' + a.dof + ' DOF) vs per-layer ' + (b.w * 1000).toFixed(3) + ' µm (' + b.dof + ' DOF), difference ' + (100 * err).toFixed(3) + ' %' };
     },
   },
   {
     id: 'V6', name: 'Anand material point versus closed-form saturation stress', slow: false,
+    criterion: 'each saturation stress within 1 % (42.1, 22.8, 13.0 MPa)',
+    about: 'Pulls a single point of SAC305 solder at a constant rate until its stress levels off. The levelled-off stress must match the exact formula of the Anand creep model at three temperatures and rates.',
     run(ctx) {
       const sac = findMaterial(buildMaterialLibrary(ctx.db), 'sac305');
       const cases = [[25, 1e-3, 42.1], [125, 1e-3, 22.8], [125, 1e-5, 13.0]];
       const rows = cases.map(([T, rate, ref]) => { const r = anandUniaxial(sac, T, rate, 0.05, 400); const cf = anandSaturationStress(sac, T, rate); return { T, rate, sim: r.sigFinal, cf, ref, err: Math.abs(r.sigFinal / cf - 1), errRef: Math.abs(r.sigFinal / ref - 1) }; });
       const pass = rows.every(r => r.err < 0.01 && r.errRef < 0.01);
-      return { pass, measured: rows.map(r => r.T + ' °C, ' + r.rate + ' 1/s: ' + r.sim.toFixed(2) + ' MPa (closed form ' + r.cf.toFixed(2) + ', reference ' + r.ref + ')').join('; '), criterion: 'each within 1 %' };
+      return { pass, measured: rows.map(r => r.T + ' °C, ' + r.rate + ' 1/s: ' + r.sim.toFixed(2) + ' MPa (closed form ' + r.cf.toFixed(2) + ', reference ' + r.ref + ')').join('; ') };
     },
   },
   {
     id: 'V7', name: 'Submodel consistency with homogenized bump-layer properties', slow: true,
+    criterion: 'submodel strains within 2 % of the global strains',
+    about: 'Runs the detailed bump submodel with the same smeared bump-layer properties as the global model. It must then reproduce the global strains at that bump, which checks that the two models are linked correctly.',
     run(ctx) {
       // The submodel is a perturbation from the as-assembled 25 degC state with sigma = D(T)(eps - [F(T) - F(25)]).
       // With temperature-dependent moduli this coincides with the global total formulation only when the global
@@ -277,11 +291,13 @@ const VERIFICATION_TESTS = [
       smB.stepTo(125, 1);
       const errB = errOf(subStrain(smB));
       const f = v => v.toExponential(3);
-      return { pass: errA < 0.02 && resA.converged, measured: 'global strain change [xx, yy, zz, xy, yz, zx] ' + dEps.map(f).join(', ') + '; submodel (bump-layer domain, uniform homogenized phases) ' + Array.from(esA).map(f).join(', ') + ': max error ' + (100 * errA).toFixed(2) + ' % of the largest component; with the production domain and materially consistent Si / substrate slices the difference is ' + (100 * errB).toFixed(2) + ' % (coarse single-element layers versus the refined submodel)', criterion: 'within 2 %' };
+      return { pass: errA < 0.02 && resA.converged, measured: 'global strain change [xx, yy, zz, xy, yz, zx] ' + dEps.map(f).join(', ') + '; submodel (bump-layer domain, uniform homogenized phases) ' + Array.from(esA).map(f).join(', ') + ': max error ' + (100 * errA).toFixed(2) + ' % of the largest component; with the production domain and materially consistent Si / substrate slices the difference is ' + (100 * errB).toFixed(2) + ' % (coarse single-element layers versus the refined submodel)' };
     },
   },
   {
     id: 'V8', name: 'Symmetry of the warpage field', slow: true,
+    criterion: 'symmetry and mirroring to 1e-6 relative',
+    about: 'Places one die at the package center; the warpage must be identical when mirrored left to right, top to bottom and across both diagonals, and mirroring the floorplan must mirror the results.',
     run(ctx) {
       const cfg = presetConfig(ctx.db, 'bare');
       const run = c => { const an = new Analysis(c, { preset: 'draft', evaluations: 'preview' }); an.build(); an.solver.opts.tol = 1e-12; an.run(); return { an, w: warpageJEITA(an.mesh, an.mesh.geom, an.fields.get(25), c) }; };
@@ -302,11 +318,13 @@ const VERIFICATION_TESTS = [
       const m1 = b1.an.mesh, g1 = b1.w.grid, g2 = b2.w.grid;
       for (let i = 0; i < m1.nx; i++) for (let j = 0; j < m1.ny; j++) em = Math.max(em, Math.abs(g1[i * m1.ny + j] - g2[(m1.nx - 1 - i) * m1.ny + j]));
       const rel = Math.max(ex, ey, ed) / scale, relm = em / b1.w.mag;
-      return { pass: rel < 1e-6 && relm < 1e-6, measured: 'centred die: x ' + (ex / scale).toExponential(2) + ', y ' + (ey / scale).toExponential(2) + ', diagonal ' + (ed / scale).toExponential(2) + '; mirrored floorplan ' + relm.toExponential(2) + ' (relative to warpage magnitude)', criterion: '1e-6 relative' };
+      return { pass: rel < 1e-6 && relm < 1e-6, measured: 'centred die: x ' + (ex / scale).toExponential(2) + ', y ' + (ey / scale).toExponential(2) + ', diagonal ' + (ed / scale).toExponential(2) + '; mirrored floorplan ' + relm.toExponential(2) + ' (relative to warpage magnitude)' };
     },
   },
   {
     id: 'V9', name: 'Physical sanity on the presets', slow: true,
+    criterion: 'all four hold',
+    about: 'Checks four common-sense trends: a bare-die package bows convex at room temperature, the die backside is in tension, a thicker core warps less, and a lower-expansion core warps less.',
     run(ctx) {
       const bare = quickCase(presetConfig(ctx.db, 'bare'), 'draft');
       const A = quickCase(presetConfig(ctx.db, 'coreStudy', 'A'), 'draft'), B = quickCase(presetConfig(ctx.db, 'coreStudy', 'B'), 'draft');
@@ -320,19 +338,23 @@ const VERIFICATION_TESTS = [
         { name: '0.8 mm core warps less than 0.4 mm core', ok: Math.abs(B.w.signed) < Math.abs(A.w.signed), value: (A.w.signed * 1000).toFixed(1) + ' µm (0.4 mm) vs ' + (B.w.signed * 1000).toFixed(1) + ' µm (0.8 mm)' },
         { name: '795G Type LH core warps less than 705G', ok: Math.abs(wLH.w.signed) < Math.abs(w705.w.signed), value: (w705.w.signed * 1000).toFixed(1) + ' µm (705G) vs ' + (wLH.w.signed * 1000).toFixed(1) + ' µm (795G LH)' },
       ];
-      return { pass: checks.every(c => c.ok), measured: checks.map(c => c.name + ': ' + c.value + (c.ok ? ' ✓' : ' ✗')).join('; '), criterion: 'all four hold' };
+      return { pass: checks.every(c => c.ok), measured: checks.map(c => c.name + ': ' + c.value + (c.ok ? ' ✓' : ' ✗')).join('; ') };
     },
   },
   {
     id: 'V10', name: 'Mesh convergence, Standard versus Fine', slow: true, verySlow: true,
+    criterion: 'RT warpage and die interior peak stress within 5 %',
+    about: 'Runs the default package on the Standard and the Fine mesh. Warpage and die stress should change by less than 5 %, showing the Standard mesh is fine enough for comparisons.',
     run(ctx) {
       const s = quickCase(presetConfig(ctx.db, 'default'), 'standard'), f = quickCase(presetConfig(ctx.db, 'default'), 'fine');
       const ew = Math.abs(s.w.signed / f.w.signed - 1), es = Math.abs(s.ds.peakInterior / f.ds.peakInterior - 1);
-      return { pass: ew < 0.05 && es < 0.05, measured: 'RT warpage ' + (s.w.signed * 1000).toFixed(1) + ' vs ' + (f.w.signed * 1000).toFixed(1) + ' µm (' + (100 * ew).toFixed(2) + ' %); die interior peak ' + s.ds.peakInterior.toFixed(1) + ' vs ' + f.ds.peakInterior.toFixed(1) + ' MPa (' + (100 * es).toFixed(2) + ' %); DOF ' + s.an.mesh.info.nDof + ' vs ' + f.an.mesh.info.nDof, criterion: 'within 5 %' };
+      return { pass: ew < 0.05 && es < 0.05, measured: 'RT warpage ' + (s.w.signed * 1000).toFixed(1) + ' vs ' + (f.w.signed * 1000).toFixed(1) + ' µm (' + (100 * ew).toFixed(2) + ' %); die interior peak ' + s.ds.peakInterior.toFixed(1) + ' vs ' + f.ds.peakInterior.toFixed(1) + ' MPa (' + (100 * es).toFixed(2) + ' %); DOF ' + s.an.mesh.info.nDof + ' vs ' + f.an.mesh.info.nDof };
     },
   },
   {
     id: 'V11', name: 'Solver integrity on the default package', slow: true,
+    criterion: 'relative residual below 1e-8; reactions below 1e-9 of the internal force scale',
+    about: 'Solves the default package and confirms that the equation solver really converged and that the three support points carry essentially no force, as they should for a free package.',
     run(ctx) {
       const cfg = presetConfig(ctx.db, 'default');
       const an = new Analysis(cfg, { preset: 'draft', evaluations: 'preview' });
@@ -352,11 +374,13 @@ const VERIFICATION_TESTS = [
       const uKu = dot(u, Ku), fu = dot(f, u);
       const eb = Math.abs(uKu - fu) / Math.abs(fu);
       const pass = rec.relres < 1e-8 && reac / fscale < 1e-9;
-      return { pass, measured: 'relative residual ' + rec.relres.toExponential(2) + ' (' + rec.iters + ' iterations, ' + rec.precond + ', solved to 1e-10); max reaction ' + (reac / fscale).toExponential(2) + ' of the internal force scale (max entry of K u and f); energy balance |uKu - fu| / |fu| = ' + eb.toExponential(2), criterion: 'residual below 1e-8; reactions below 1e-9' };
+      return { pass, measured: 'relative residual ' + rec.relres.toExponential(2) + ' (' + rec.iters + ' iterations, ' + rec.precond + ', solved to 1e-10); max reaction ' + (reac / fscale).toExponential(2) + ' of the internal force scale (max entry of K u and f); energy balance |uKu - fu| / |fu| = ' + eb.toExponential(2) };
     },
   },
   {
     id: 'V12', name: 'JEITA sign and magnitude on synthetic surfaces', slow: false,
+    criterion: 'exact sign, magnitude to 1e-9',
+    about: 'Feeds the warpage calculation made-up dome and bowl shapes with known answers. It must give a positive sign for the dome, a negative sign for the bowl, and the exact peak-to-valley height.',
     run(ctx) {
       const cfg = presetConfig(ctx.db, 'bare');
       const mesh = buildPackageMesh(cfg, { preset: 'draft' });
@@ -373,11 +397,13 @@ const VERIFICATION_TESTS = [
       const an = c * (rmax - rmin) / (L * L);
       const em = Math.abs(wp.mag - an) / an;
       const pass = wp.sign === 1 && wm.sign === -1 && em < 1e-9 && Math.abs(wm.mag - an) / an < 1e-9;
-      return { pass, measured: 'dome sign ' + wp.sign + ', magnitude ' + wp.mag.toExponential(10) + ' vs analytic ' + an.toExponential(10) + ' (error ' + em.toExponential(2) + '); inverted dome sign ' + wm.sign, criterion: 'exact sign, magnitude to 1e-9' };
+      return { pass, measured: 'dome sign ' + wp.sign + ', magnitude ' + wp.mag.toExponential(10) + ' vs analytic ' + an.toExponential(10) + ' (error ' + em.toExponential(2) + '); inverted dome sign ' + wm.sign };
     },
   },
   {
     id: 'V13', name: 'Unit checks', slow: false,
+    criterion: 'formula values exact to 1e-9; rounded references to their printed precision',
+    about: 'Compares individual material formulas with hand-calculated values: silicon expansion and stiffness, solder modulus, AlSiC expansion, and the mixing rules for patterned copper layers.',
     run(ctx) {
       const lib = buildMaterialLibrary(ctx.db);
       const si = findMaterial(lib, 'si');
@@ -399,11 +425,13 @@ const VERIFICATION_TESTS = [
       push('Turner CTE (r = 0.5)', mix.ax, (0.5 * 110000 * 16.4e-6 + 0.5 * 10000 * 20e-6) / (0.5 * 110000 + 0.5 * 10000), 1e-9);
       push('Voigt E_z (r = 0.5)', mix.Ez, 0.5 * 110000 + 0.5 * 10000, 1e-9);
       push('Signal-layer in-plane E (mean of Voigt and Reuss)', mix.Ex, 0.5 * (60000 + 1 / (0.5 / 110000 + 0.5 / 10000)), 1e-9);
-      return { pass: checks.every(c => c.ok), measured: checks.map(c => c.name + ': ' + (typeof c.value === 'number' ? c.value.toPrecision(7) : c.value) + (c.ok ? ' ✓' : ' ✗ (ref ' + c.ref + ')')).join('; '), criterion: 'formula values exact to 1e-9; rounded references to their printed precision' };
+      return { pass: checks.every(c => c.ok), measured: checks.map(c => c.name + ': ' + (typeof c.value === 'number' ? c.value.toPrecision(7) : c.value) + (c.ok ? ' ✓' : ' ✗ (ref ' + c.ref + ')')).join('; ') };
     },
   },
   {
     id: 'V14', name: 'Configuration save / load round trip', slow: false,
+    criterion: 'identical configuration hash',
+    about: 'Saves the configuration to a JSON file and loads it back. Nothing may change, confirmed by an identical configuration fingerprint (hash).',
     run(ctx) {
       const cfg = presetConfig(ctx.db, 'stiffener2');
       cfg.dies[1].x += 0.123456789;
@@ -411,11 +439,13 @@ const VERIFICATION_TESTS = [
       const h1 = configHashes(cfg).all;
       const back = parseConfig(serializeConfig(cfg));
       const h2 = configHashes(back).all;
-      return { pass: h1 === h2, measured: 'hash before ' + h1 + ', after ' + h2, criterion: 'identical configuration hash' };
+      return { pass: h1 === h2, measured: 'hash before ' + h1 + ', after ' + h2 };
     },
   },
   {
     id: 'V15', name: 'Timing benchmark of the default package per preset and preconditioner', slow: true, verySlow: true,
+    criterion: 'report only; compare with the performance targets',
+    about: 'Times the default package on each mesh preset with both solver preconditioners. It always passes and reports the speeds against the performance targets.',
     run(ctx) {
       const rows = [];
       for (const preset of ctx.presets || ['draft', 'standard']) for (const pc of ['mg', 'ic']) {
@@ -425,7 +455,7 @@ const VERIFICATION_TESTS = [
         an.build(); an.run();
         rows.push({ preset, pc, dof: an.mesh.info.nDof, ms: nowMs() - t0, solves: an.log.length, iters: an.log.map(r => r.iters), solveMs: an.timings.solve, assembleMs: an.timings.assemble });
       }
-      return { pass: true, measured: rows.map(r => r.preset + '/' + r.pc + ': ' + r.dof + ' DOF, ' + (r.ms / 1000).toFixed(1) + ' s for stages + 25 °C (' + r.solves + ' solves, iterations ' + r.iters.join('/') + ')').join('; '), criterion: 'report; compare against Section 13', rows };
+      return { pass: true, measured: rows.map(r => r.preset + '/' + r.pc + ': ' + r.dof + ' DOF, ' + (r.ms / 1000).toFixed(1) + ' s for stages + 25 °C (' + r.solves + ' solves, iterations ' + r.iters.join('/') + ')').join('; '), rows };
     },
   },
 ];
@@ -438,8 +468,8 @@ function runVerification(ids, ctx) {
     if (ctx.progress) ctx.progress(t.id, t.name);
     const t0 = nowMs();
     let r;
-    try { r = t.run(ctx); } catch (e) { r = { pass: false, measured: 'error: ' + e.message, criterion: '' }; }
-    r.id = t.id; r.name = t.name; r.ms = nowMs() - t0;
+    try { r = t.run(ctx); } catch (e) { r = { pass: false, measured: 'error: ' + e.message }; }
+    r.id = t.id; r.criterion = t.criterion; r.name = t.name; r.ms = nowMs() - t0;
     out.push(r);
     if (ctx.onResult) ctx.onResult(r);
   }

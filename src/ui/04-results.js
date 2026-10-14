@@ -38,7 +38,7 @@ function renderRunPanel(root) {
   root.append(h('div', { class: 'card' }, h('h3', null, 'Reflow sweep peak'), h('div', { class: 'big' }, um(peak.signed) + ' µm at ' + peak.T + ' °C'), h('div', { class: 'sub' }, 'JEITA limit for ' + cfg.bga.pitch + ' mm pitch: ' + (w.limitHot * 1000) + ' µm → ' + (Math.abs(peak.signed) <= w.limitHot ? 'within limit' : 'exceeds limit') + (base ? delta(peak.signed * 1000, base.sweep.reduce((m, r) => Math.abs(r.signed) > Math.abs(m.signed) ? r : m, base.sweep[0]).signed * 1000, ' µm', 1) : ''))));
   f.dies.forEach((d, i) => {
     const bd = base && base.at25.dies[i];
-    root.append(h('div', { class: 'card' }, h('h3', null, d.name + ' backside stress', helpTip('peakNodal')), h('div', { class: 'big' }, fmt(d.top.peakInterior, 1) + ' MPa'), h('div', { class: 'sub' }, 'interior peak (0.5 mm edge band excluded), max principal, nodal averaged; Gauss-point peak ' + fmt(d.top.gpPeakInterior, 1) + ' MPa' + (bd ? delta(d.top.peakInterior, bd.top.peakInterior, ' MPa', 1) : '') + (cfg.limits.dieStrength ? '; margin to strength ' + fmt(cfg.limits.dieStrength - d.top.peakInterior, 0) + ' MPa' : '')), h('div', { class: 'sub' }, 'corner patches (comparative): ' + d.top.corners.map(c => fmt(c.value, 0)).join(' / ') + ' MPa'), h('div', { class: 'conf' }, CONFIDENCE.dieInterior + ' Corner values: ' + CONFIDENCE.corner)));
+    root.append(h('div', { class: 'card' }, h('h3', null, d.name + ' backside stress', helpTip('peakNodal')), h('div', { class: 'big' }, fmt(d.top.peakInterior, 1) + ' MPa'), h('div', { class: 'sub' }, 'interior peak (0.5 mm edge band excluded), max principal, nodal averaged; Gauss-point peak ' + fmt(d.top.gpPeakInterior, 1) + ' MPa' + (bd ? delta(d.top.peakInterior, bd.top.peakInterior, ' MPa', 1) : '') + (cfg.limits.dieStrength ? '; margin to strength ' + fmt(cfg.limits.dieStrength - d.top.peakInterior, 0) + ' MPa' : '')), h('div', { class: 'sub' }, 'corner patches 1 / 2 / 3 / 4 (comparative): ' + d.top.corners.map(c => fmt(c.value, 0)).join(' / ') + ' MPa'), h('div', { class: 'conf' }, CONFIDENCE.dieInterior + ' Corner values: ' + CONFIDENCE.corner)));
   });
   res.cpi.forEach((b, i) => {
     const bb = base && base.cpi[i];
@@ -216,9 +216,12 @@ function mapZoomHandlers(cv) {
     },
   };
 }
-/** Decimals for the legend end labels: about two significant digits of the plotted span (1 to 6), so narrow ranges do not round to the same label. */
-function legendDigits(min, max) { const span = Math.abs(max - min) || Math.abs(max) || 1; return Math.max(1, Math.min(6, Math.ceil(-Math.log10(span)) + 1)); }
-function legendRow(scale, label) { const cv = h('canvas'); const d = legendDigits(scale.min, scale.max); const el = h('div', { class: 'legend' }, h('span', null, fmt(scale.min, d)), cv, h('span', null, fmt(scale.max, d)), h('span', null, label)); requestAnimationFrame(() => drawLegend(cv, scale)); return el; }
+/** Corner numbers 1 to 4 just outside a die rectangle (clockwise from the bottom-right corner, C.dieCorners). */
+function drawCornerNumbers(ctx, rect, X, Y) {
+  ctx.fillStyle = cssVar('--text'); ctx.font = '600 11px ' + cssVar('--font'); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (const c of C.dieCorners(rect)) ctx.fillText(String(c.n), X(c.x) + 8 * c.sx, Y(c.y) - 8 * c.sy);
+}
+function legendRow(scale, label) { return h('div', { class: 'legend' }, ...legendItems(scale, label)); }
 
 function renderWarpageView(root, res, f, Tsel) {
   const w = f.warpage, cfg = app.cfg;
@@ -254,13 +257,15 @@ function renderDieStressView(root, res, f, Tsel) {
   for (const d of f.dies) for (const v of d[which].smax) if (isFinite(v)) { mn = Math.min(mn, v); mx = Math.max(mx, v); }
   const scale = makeScale(mn, mx, mn < 0);
   const left = h('div');
-  left.append(mapCanvas(res, (ctx, X, Y, sc) => { for (const d of f.dies) { drawGridField(ctx, d[which].xs, d[which].ys, d[which].smax, scale, X, Y, 1); const r = d.rect, b = C.CONST.DIE_EDGE_BAND; ctx.setLineDash([2, 2]); ctx.strokeStyle = cssVar('--muted'); ctx.strokeRect(X(r.x0 + b), Y(r.y1 - b), (r.x1 - r.x0 - 2 * b) * sc, (r.y1 - r.y0 - 2 * b) * sc); ctx.setLineDash([]); ctx.fillStyle = cssVar('--text'); ctx.beginPath(); ctx.arc(X(d[which].peakX), Y(d[which].peakY), 4, 0, 6.3); ctx.stroke(); } }));
-  left.append(legendRow(scale, 'maximum principal stress, MPa, nodal averaged within the die; circle: interior peak; dashed: 0.5 mm edge band'));
+  left.append(mapCanvas(res, (ctx, X, Y, sc) => { for (const d of f.dies) { drawGridField(ctx, d[which].xs, d[which].ys, d[which].smax, scale, X, Y, 1); const r = d.rect, b = C.CONST.DIE_EDGE_BAND; ctx.setLineDash([2, 2]); ctx.strokeStyle = cssVar('--muted'); ctx.strokeRect(X(r.x0 + b), Y(r.y1 - b), (r.x1 - r.x0 - 2 * b) * sc, (r.y1 - r.y0 - 2 * b) * sc); ctx.setLineDash([]); ctx.strokeStyle = cssVar('--text'); ctx.beginPath(); ctx.arc(X(d[which].peakX), Y(d[which].peakY), 4, 0, 6.3); ctx.stroke(); drawCornerNumbers(ctx, r, X, Y); } }));
+  left.append(legendRow(scale, 'maximum principal stress, MPa, nodal averaged within the die'));
+  left.append(lineKey([{ label: 'die outline', color: cssVar('--text'), dash: [4, 3] }, { label: 'inner edge of the 0.5 mm edge band (excluded from the interior peak)', color: cssVar('--muted'), dash: [2, 2] }, { label: 'interior peak', color: cssVar('--text'), marker: 'circle' }]));
+  left.append(h('div', { class: 'small muted' }, 'Die corners 1 to 4 run clockwise from the bottom-right (+x, −y) corner.'));
   const right = h('div');
   for (const d of f.dies) {
     const s = d[which];
     right.append(h('div', { class: 'card' }, h('h3', null, d.name + ', ' + (which === 'top' ? 'backside' : 'active face')),
-      h('div', { class: 'kv' }, kl('Interior peak (nodal averaged)', 'peakNodal'), h('b', { 'data-tip': 'Gauss-point peak in the interior: ' + fmt(s.gpPeakInterior, 1) + ' MPa; nodal extrapolation can differ meaningfully from Gauss-point values' }, fmt(s.peakInterior, 1) + ' MPa at (' + fmt(s.peakX, 1) + ', ' + fmt(s.peakY, 1) + ')'), kl('Interior peak (Gauss points)', 'peakGauss'), h('span', null, fmt(s.gpPeakInterior, 1) + ' MPa'), kl('Whole-face Gauss-point peak', 'peakAll'), h('span', null, fmt(s.gpPeakAll, 1) + ' MPa (includes singular edge region)'), ...s.corners.flatMap(c => [kl(c.name + ' (100 µm patch)', 'cornerPatch'), h('span', null, fmt(c.value, 1) + ' MPa')]), ...s.midEdges.flatMap(c => [kl(c.name + ' (100 µm patch)', 'cornerPatch'), h('span', null, fmt(c.value, 1) + ' MPa')]), cfg.limits.dieStrength ? kl('Margin to die strength', 'margin') : null, cfg.limits.dieStrength ? h('span', { class: cfg.limits.dieStrength > s.peakInterior ? 'ok' : 'bad' }, fmt(cfg.limits.dieStrength - s.peakInterior, 0) + ' MPa') : null),
+      h('div', { class: 'kv' }, kl('Interior peak (nodal averaged)', 'peakNodal'), h('b', { 'data-tip': 'Gauss-point peak in the interior: ' + fmt(s.gpPeakInterior, 1) + ' MPa; nodal extrapolation can differ meaningfully from Gauss-point values' }, fmt(s.peakInterior, 1) + ' MPa at (' + fmt(s.peakX, 1) + ', ' + fmt(s.peakY, 1) + ')'), kl('Interior peak (Gauss points)', 'peakGauss'), h('span', null, fmt(s.gpPeakInterior, 1) + ' MPa'), kl('Whole-face Gauss-point peak', 'peakAll'), h('span', null, fmt(s.gpPeakAll, 1) + ' MPa (includes singular edge region)'), ...s.corners.flatMap(c => [kl(c.name + ', 100 µm patch', 'cornerPatch'), h('span', null, fmt(c.value, 1) + ' MPa')]), ...s.midEdges.flatMap(c => [kl(c.name + ', 100 µm patch', 'cornerPatch'), h('span', null, fmt(c.value, 1) + ' MPa')]), cfg.limits.dieStrength ? kl('Margin to die strength', 'margin') : null, cfg.limits.dieStrength ? h('span', { class: cfg.limits.dieStrength > s.peakInterior ? 'ok' : 'bad' }, fmt(cfg.limits.dieStrength - s.peakInterior, 0) + ' MPa') : null),
       h('details', null, h('summary', null, 'What this means'), h('p', { class: 'small' }, 'Positive values are tensile. On the backside the dominant term is the bending of the die on the mismatched substrate; tensile backside stress is the usual state at room temperature for a bare die. Interior peaks are mesh-converging quantities; corner and mid-edge values sit at stress singularities and are averaged over a fixed 100 µm × 100 µm patch so that they can be compared between designs but never read as absolute strengths.'))));
   }
   root.append(h('div', { class: 'grid2' }, left, right));
@@ -294,11 +299,11 @@ function renderUFView(root, res, f, Tsel) {
   for (const d of f.dies) {
     const u = d.uf;
     const c1 = h('canvas', tip('ufSide', { class: 'plot' })), c2 = h('canvas', tip('ufFace', { class: 'plot' }));
-    root.append(h('div', { class: 'card' }, h('h3', null, d.name + ' perimeter (counterclockwise from the (−x, −y) corner)'), h('div', { class: 'grid2' }, c1, c2), h('div', { class: 'kv' }, kl('Max sidewall peel / shear', 'ufSide'), h('span', null, fmt(u.maxPeelSide, 1) + ' / ' + fmt(u.maxShearSide, 1) + ' MPa', helpTip('peel'), helpTip('shearT')), kl('Max active-face peel / shear', 'ufFace'), h('span', null, fmt(u.maxPeelFace, 1) + ' / ' + fmt(u.maxShearFace, 1) + ' MPa')), h('details', null, h('summary', null, 'What this means'), h('p', { class: 'small' }, 'Tractions are taken from the underfill-side stresses next to the die edge, averaged over 50 µm × 50 µm patches stepped along the perimeter. Peel is the traction normal to the interface (tension positive); shear is the in-plane traction magnitude. Peaks sit at the die corners (marked), where the elastic solution is singular; compare designs by these values, do not read them as strengths.'))));
+    root.append(h('div', { class: 'card' }, h('h3', null, d.name + ' perimeter, clockwise from corner 1 (bottom right, +x −y); corners 1 to 4 run clockwise'), h('div', { class: 'grid2' }, c1, c2), h('div', { class: 'kv' }, kl('Max sidewall peel / shear', 'ufSide'), h('span', null, fmt(u.maxPeelSide, 1) + ' / ' + fmt(u.maxShearSide, 1) + ' MPa', helpTip('peel'), helpTip('shearT')), kl('Max active-face peel / shear', 'ufFace'), h('span', null, fmt(u.maxPeelFace, 1) + ' / ' + fmt(u.maxShearFace, 1) + ' MPa')), h('details', null, h('summary', null, 'What this means'), h('p', { class: 'small' }, 'Tractions are taken from the underfill-side stresses next to the die edge, averaged over 50 µm × 50 µm patches stepped along the perimeter. Peel is the traction normal to the interface (tension positive); shear is the in-plane traction magnitude. Peaks sit at the die corners (marked), where the elastic solution is singular; compare designs by these values, do not read them as strengths.'))));
     requestAnimationFrame(() => {
-      const vl = u.corners.map((s, i) => ({ x: s, label: ['', 'corner', 'corner', 'corner', ''][i] }));
-      linePlot(c1, [{ x: u.s, y: u.peelSide, label: 'peel (normal)' }, { x: u.s, y: u.shearSide, label: 'shear' }], { title: 'Die sidewall to fillet interface', xlabel: 'perimeter position, mm', ylabel: 'MPa', vlines: vl, hlines: [{ y: 0 }] });
-      linePlot(c2, [{ x: u.s, y: u.peelFace, label: 'peel (normal)' }, { x: u.s, y: u.shearFace, label: 'shear' }], { title: 'Die active face to underfill interface near the edge', xlabel: 'perimeter position, mm', ylabel: 'MPa', vlines: vl, hlines: [{ y: 0 }] });
+      const vl = u.corners.map((s, i) => ({ x: s, label: 'corner ' + (i % 4 + 1), bottom: true }));  // labels at the bottom, clear of the series legend
+      linePlot(c1, [{ x: u.s, y: u.peelSide, label: 'peel (normal)' }, { x: u.s, y: u.shearSide, label: 'shear' }], { title: 'Die sidewall to fillet interface', xlabel: 'perimeter position from corner 1, clockwise, mm', ylabel: 'MPa', vlines: vl, hlines: [{ y: 0 }] });
+      linePlot(c2, [{ x: u.s, y: u.peelFace, label: 'peel (normal)' }, { x: u.s, y: u.shearFace, label: 'shear' }], { title: 'Die active face to underfill interface near the edge', xlabel: 'perimeter position from corner 1, clockwise, mm', ylabel: 'MPa', vlines: vl, hlines: [{ y: 0 }] });
     });
   }
 }
@@ -450,7 +455,7 @@ function update3D() {
   geom.computeVertexNormals(); geom.computeBoundingSphere();
   three.renderer.render(three.scene, three.camera);
   const lg = $('#legend3d');
-  if (lg) { lg.innerHTML = ''; if (scale) { const cv = h('canvas'); lg.append(h('span', null, fmt(scale.min, 1)), cv, h('span', null, fmt(scale.max, 1)), h('span', null, v.color === 'warpage' ? 'u_z, µm (deformation exaggerated ' + ex + '×)' : 'max principal stress, MPa, nodal averaged per part')); drawLegend(cv, scale); } }
+  if (lg) { lg.innerHTML = ''; if (scale) lg.append(...legendItems(scale, v.color === 'warpage' ? 'u_z, µm (deformation exaggerated ' + ex + '×)' : 'max principal stress, MPa, nodal averaged per part')); }
 }
 
 // ---- sensitivity (tornado) ----
@@ -518,7 +523,7 @@ function renderVerificationView(root) {
   const tbl = h('table', { class: 'small' }, h('tr', null, h('th', null, 'ID'), h('th', null, 'Test'), h('th', null, 'Result'), h('th', null, 'Measured'), h('th', null, 'Criterion'), h('th', null, 's')));
   for (const t of C.VERIFICATION_TESTS) {
     const r = V && V.find(x => x.id === t.id);
-    tbl.append(h('tr', null, h('td', null, t.id), h('td', null, t.name + (t.slow ? ' (slow)' : '')), h('td', { class: r ? (r.pass ? 'ok' : 'bad') : 'muted' }, r ? (r.pass ? 'PASS' : 'FAIL') : (app.verifying && app.verifying.has(t.id) ? 'running…' : '–')), h('td', { class: 'small' }, r ? r.measured : ''), h('td', { class: 'small muted' }, r ? r.criterion : ''), h('td', null, r ? fmt(r.ms / 1000, 1) : '')));
+    tbl.append(h('tr', null, h('td', { 'data-tip': t.about }, t.id), h('td', { 'data-tip': t.about }, t.name + (t.slow ? ' (slow)' : '')), h('td', { class: r ? (r.pass ? 'ok' : 'bad') : 'muted' }, r ? (r.pass ? 'PASS' : 'FAIL') : (app.verifying && app.verifying.has(t.id) ? 'running…' : '–')), h('td', { class: 'small' }, r ? r.measured : ''), h('td', { class: 'small muted' }, r && r.criterion ? r.criterion : t.criterion), h('td', null, r ? fmt(r.ms / 1000, 1) : '')));
   }
   root.append(tbl);
 }
@@ -550,7 +555,7 @@ function reportBody(res) {
   const add = (k, v, c) => tbl.append(h('tr', null, h('td', null, k), h('td', null, v), h('td', { class: 'small muted' }, c)));
   add('Signed warpage at 25 °C (JEITA)', um(w.signed) + ' µm (' + (w.sign > 0 ? 'convex' : 'concave') + ')', CONFIDENCE.warpage);
   for (const r of res.sweep.filter(r => cfg.reflow.reportTemps.includes(r.T))) add('Signed warpage at ' + r.T + ' °C', um(r.signed) + ' µm (limit ' + w.limitHot * 1000 + ')', CONFIDENCE.warpage);
-  f.dies.forEach((d, i) => { add(d.name + ' backside interior peak stress', fmt(d.top.peakInterior, 1) + ' MPa', CONFIDENCE.dieInterior); add(d.name + ' backside corner patches', d.top.corners.map(c => fmt(c.value, 0)).join(' / ') + ' MPa', CONFIDENCE.corner); add(d.name + ' active-face interior peak', fmt(d.bottom.peakInterior, 1) + ' MPa', CONFIDENCE.dieInterior); add(d.name + ' worst CPI bump shear / axial', gf(res.cpi[i].worstV) + ' / ' + gf(res.cpi[i].worstN) + ' gf', CONFIDENCE.bumps); add(d.name + ' underfill max sidewall peel / shear', fmt(d.uf.maxPeelSide, 1) + ' / ' + fmt(d.uf.maxShearSide, 1) + ' MPa', CONFIDENCE.corner); });
+  f.dies.forEach((d, i) => { add(d.name + ' backside interior peak stress', fmt(d.top.peakInterior, 1) + ' MPa', CONFIDENCE.dieInterior); add(d.name + ' backside corner patches 1 / 2 / 3 / 4', d.top.corners.map(c => fmt(c.value, 0)).join(' / ') + ' MPa', CONFIDENCE.corner); add(d.name + ' active-face interior peak', fmt(d.bottom.peakInterior, 1) + ' MPa', CONFIDENCE.dieInterior); add(d.name + ' worst CPI bump shear / axial', gf(res.cpi[i].worstV) + ' / ' + gf(res.cpi[i].worstN) + ' gf', CONFIDENCE.bumps); add(d.name + ' underfill max sidewall peel / shear', fmt(d.uf.maxPeelSide, 1) + ' / ' + fmt(d.uf.maxShearSide, 1) + ' MPa', CONFIDENCE.corner); });
   if (res.screening) res.screening.forEach(s => add(s.die + ' worst ΔW_proxy', fmtE(s.top[0] ? s.top[0].dW : NaN, 3) + ' MPa/cycle', CONFIDENCE.fatigue));
   for (const sm of app.submodels) add('Submodel ' + sm.die + ' (' + fmt(sm.site.x, 1) + ', ' + fmt(sm.site.y, 1) + ') ΔW / Syed life', fmtE(sm.dW, 3) + ' MPa, ' + fmt(sm.life.syedEnergy, 0) + ' cycles', CONFIDENCE.fatigue);
   div.append(tbl);
@@ -582,7 +587,7 @@ function exportCSV() {
   const lines = ['section,quantity,value,unit'];
   lines.push('warpage,signed_25C,' + f.warpage.signed * 1000 + ',um', 'warpage,magnitude_25C,' + f.warpage.mag * 1000 + ',um');
   for (const r of res.sweep) lines.push('warpage_sweep,T=' + r.T + ',' + r.signed * 1000 + ',um');
-  f.dies.forEach((d, i) => { lines.push('die_stress,' + d.name + '_top_interior_peak,' + d.top.peakInterior + ',MPa', 'die_stress,' + d.name + '_bottom_interior_peak,' + d.bottom.peakInterior + ',MPa'); d.top.corners.forEach(c => lines.push('die_stress,' + d.name + '_top_' + c.name.replace(/[ ,()]/g, '_') + ',' + c.value + ',MPa')); lines.push('bumps,' + d.name + '_cpi_worst_shear,' + res.cpi[i].worstV + ',N', 'bumps,' + d.name + '_cpi_worst_axial,' + res.cpi[i].worstN + ',N', 'uf,' + d.name + '_max_sidewall_peel,' + d.uf.maxPeelSide + ',MPa', 'uf,' + d.name + '_max_sidewall_shear,' + d.uf.maxShearSide + ',MPa'); });
+  f.dies.forEach((d, i) => { lines.push('die_stress,' + d.name + '_top_interior_peak,' + d.top.peakInterior + ',MPa', 'die_stress,' + d.name + '_bottom_interior_peak,' + d.bottom.peakInterior + ',MPa'); d.top.corners.forEach(c => lines.push('die_stress,' + d.name + '_top_' + c.name.replace(/[^\w+-]+/g, '_').replace(/_$/, '') + ',' + c.value + ',MPa')); lines.push('bumps,' + d.name + '_cpi_worst_shear,' + res.cpi[i].worstV + ',N', 'bumps,' + d.name + '_cpi_worst_axial,' + res.cpi[i].worstN + ',N', 'uf,' + d.name + '_max_sidewall_peel,' + d.uf.maxPeelSide + ',MPa', 'uf,' + d.name + '_max_sidewall_shear,' + d.uf.maxShearSide + ',MPa'); });
   if (res.screening) res.screening.forEach(s => lines.push('fatigue,' + s.die + '_worst_dW_proxy,' + (s.top[0] ? s.top[0].dW : '') + ',MPa'));
   for (const sm of app.submodels) lines.push('submodel,' + sm.die + '_' + sm.site.x + '_' + sm.site.y + '_dW,' + sm.dW + ',MPa', 'submodel,' + sm.die + '_' + sm.site.x + '_' + sm.site.y + '_life_syed,' + sm.life.syedEnergy + ',cycles');
   lines.push('', 'ball_x_mm,ball_y_mm,warpage_residual_25C_um,w_25C_um');

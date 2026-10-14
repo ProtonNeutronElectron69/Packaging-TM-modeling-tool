@@ -122,8 +122,11 @@ canvas.map { background: var(--panel); border: 1px solid var(--border); border-r
 #toasts { position: fixed; right: 14px; bottom: 44px; display: flex; flex-direction: column; gap: 6px; z-index: 60; }
 .toast { background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--accent); padding: 8px 12px; border-radius: 6px; box-shadow: var(--shadow); font-size: 12px; max-width: 380px; }
 .toast.error { border-left-color: var(--err); } .toast.warn { border-left-color: var(--warn); } .toast.ok { border-left-color: var(--ok); }
-.legend { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); margin: 4px 0; }
+.legend { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; font-size: 11px; color: var(--muted); margin: 4px 0; }
 .legend canvas { width: 160px; height: 10px; border: 1px solid var(--border); }
+.legend canvas.key { width: 26px; height: 10px; border: none; }
+.legend .key-item { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; }
+.legend .bound { white-space: nowrap; }
 .die-list .die-row { display: flex; gap: 6px; align-items: center; padding: 3px 0; }
 .die-list .die-row.sel { font-weight: 600; color: var(--accent); }
 #view3d { width: 100%; height: var(--v3d-h, 560px); overflow: hidden; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; }
@@ -186,7 +189,7 @@ td input[type=number], td input[type=text] { field-sizing: content; min-width: 4
 <body>
 <div id="app">
   <header id="topbar">
-    <div class="brand"><span class="logo">FCBGA</span> Thermomechanical Screening Tool <span class="build">build 2026-10-11</span></div>
+    <div class="brand"><span class="logo">FCBGA</span> Thermomechanical Screening Tool <span class="build">build 2026-10-14</span></div>
     <div class="banner" role="note">Screening tool. Results are approximate and intended for design comparison and trend studies, not sign-off.</div>
     <div class="topbtns">
       <button id="btn-theme" class="icon" aria-label="Toggle theme">◐</button>
@@ -4342,18 +4345,14 @@ function dieSurfaceStress(model, geom, dieIdx, which, T, stage, u) {
     return s / (m * m);
   };
   const P = CONST.CORNER_PATCH, r = d.rect;
-  const corners = [
-    { name: 'corner (-x,-y)', x: r.x0, y: r.y0, value: patch(r.x0, r.y0) },
-    { name: 'corner (+x,-y)', x: r.x1, y: r.y0, value: patch(r.x1 - P, r.y0) },
-    { name: 'corner (+x,+y)', x: r.x1, y: r.y1, value: patch(r.x1 - P, r.y1 - P) },
-    { name: 'corner (-x,+y)', x: r.x0, y: r.y1, value: patch(r.x0, r.y1 - P) },
-  ];
+  // corners 1 to 4 clockwise from the bottom-right (+x, -y) corner; mid-edge k-(k+1) lies on the side from corner k to corner k+1
+  const corners = dieCorners(r).map(c => ({ name: 'corner ' + c.n + ' (' + c.dir + ')', x: c.x, y: c.y, value: patch(c.sx > 0 ? c.x - P : c.x, c.sy > 0 ? c.y - P : c.y) }));
   const cx = 0.5 * (r.x0 + r.x1), cy = 0.5 * (r.y0 + r.y1);
   const midEdges = [
-    { name: 'mid-edge -y', x: cx, y: r.y0, value: patch(cx - P / 2, r.y0) },
-    { name: 'mid-edge +x', x: r.x1, y: cy, value: patch(r.x1 - P, cy - P / 2) },
-    { name: 'mid-edge +y', x: cx, y: r.y1, value: patch(cx - P / 2, r.y1 - P) },
-    { name: 'mid-edge -x', x: r.x0, y: cy, value: patch(r.x0, cy - P / 2) },
+    { name: 'mid-edge 1-2 (-y side)', x: cx, y: r.y0, value: patch(cx - P / 2, r.y0) },
+    { name: 'mid-edge 2-3 (-x side)', x: r.x0, y: cy, value: patch(r.x0, cy - P / 2) },
+    { name: 'mid-edge 3-4 (+y side)', x: cx, y: r.y1, value: patch(cx - P / 2, r.y1 - P) },
+    { name: 'mid-edge 4-1 (+x side)', x: r.x1, y: cy, value: patch(r.x1 - P, cy - P / 2) },
   ];
   return { die: d.name, which, xs, ys, nx: nxd, ny: nyd, smax, sxx, syy, peakInterior: peak, peakX: px, peakY: py, gpPeakInterior: gpPeak, gpPeakAll, corners, midEdges, T };
 }
@@ -4396,6 +4395,20 @@ function bumpLoads(model, geom, dieIdx, T, stage, u) {
 }
 
 /**
+ * Die corner numbering used everywhere in the tool: corners 1 to 4 run
+ * clockwise seen from the top (x right, y up), starting at the bottom-right
+ * (+x, -y) corner. sx, sy are the outward signs of each corner.
+ */
+function dieCorners(r) {
+  return [
+    { n: 1, x: r.x1, y: r.y0, sx: 1, sy: -1, dir: '+x, -y' },
+    { n: 2, x: r.x0, y: r.y0, sx: -1, sy: -1, dir: '-x, -y' },
+    { n: 3, x: r.x0, y: r.y1, sx: -1, sy: 1, dir: '-x, +y' },
+    { n: 4, x: r.x1, y: r.y1, sx: 1, sy: 1, dir: '+x, +y' },
+  ];
+}
+
+/**
  * Underfill interface tractions along the die perimeter (Section 8.4): die
  * sidewall to fillet (normal = outward die normal) and die active face to
  * underfill near the edge (normal = z), from underfill-side stresses averaged
@@ -4404,12 +4417,9 @@ function bumpLoads(model, geom, dieIdx, T, stage, u) {
 function ufTractions(model, geom, dieIdx, T, stage, u) {
   const mesh = model.mesh, d = geom.dies[dieIdx], r = d.rect;
   const step = CONST.TRACTION_PATCH, ns = CONST.TRACTION_SAMPLES;
-  const edges = [
-    { x0: r.x0, y0: r.y0, x1: r.x1, y1: r.y0, nx: 0, ny: -1 },
-    { x0: r.x1, y0: r.y0, x1: r.x1, y1: r.y1, nx: 1, ny: 0 },
-    { x0: r.x1, y0: r.y1, x1: r.x0, y1: r.y1, nx: 0, ny: 1 },
-    { x0: r.x0, y0: r.y1, x1: r.x0, y1: r.y0, nx: -1, ny: 0 },
-  ];
+  // perimeter walked clockwise from corner 1 (+x, -y): side k runs from corner k to corner k+1, outward normal (nx, ny)
+  const cs = dieCorners(r);
+  const edges = cs.map((c, k) => { const e = cs[(k + 1) % 4]; return { x0: c.x, y0: c.y, x1: e.x, y1: e.y, nx: c.sx === e.sx ? c.sx : 0, ny: c.sy === e.sy ? c.sy : 0 }; });
   const s = [], px = [], py = [], peelSide = [], shearSide = [], peelFace = [], shearFace = [];
   const corners = [0];
   let s0 = 0;
@@ -5698,6 +5708,8 @@ function quickCase(cfg, preset, extra) {
 const VERIFICATION_TESTS = [
   {
     id: 'V1', name: 'Free thermal expansion of a block', slow: false,
+    criterion: 'displacement to 1e-9 relative, stress below 1e-8 x E alpha dT',
+    about: 'Heats a single block of one material evenly with nothing holding it. It should simply grow by its thermal expansion with no stress at all, which checks that thermal loads are applied correctly.',
     run(ctx) {
       const lib = [testMaterial('A', 130, 0.28, 2.6)];
       const { mesh, model, solver } = boxModel(lib, linspace(0, 10, 6), linspace(0, 8, 5), linspace(0, 2, 2), [{ name: 'A', kind: 'homog', mat: 'A', stage: 0, part: 0 }], () => 0, 1e-14);
@@ -5711,11 +5723,13 @@ const VERIFICATION_TESTS = [
       const q = new Float64Array(33); let smax = 0;
       for (let e = 0; e < mesh.ne; e++) { model.elementState(e, 125, 0, u, q); const o = model.pointStress(e, 125, 0, q, 0.3, -0.2, 0.5); for (let i = 0; i < 6; i++) smax = Math.max(smax, Math.abs(o.sig[i])); }
       const sRel = smax / (130000 * a);
-      return { pass: dispErr < 1e-9 && sRel < 1e-8, measured: 'displacement error ' + dispErr.toExponential(2) + ' relative, stress ' + sRel.toExponential(2) + ' x E alpha dT', criterion: 'displacement to 1e-9 relative, stress below 1e-8 x E alpha dT' };
+      return { pass: dispErr < 1e-9 && sRel < 1e-8, measured: 'displacement error ' + dispErr.toExponential(2) + ' relative, stress ' + sRel.toExponential(2) + ' x E alpha dT' };
     },
   },
   {
     id: 'V2', name: 'Patch test, incompatible-mode hex on a distorted mesh', slow: false,
+    criterion: 'exact to 1e-9 relative',
+    about: 'Stretches a small mesh of deliberately skewed elements by a uniform amount. Every element must report exactly that uniform strain, which shows the element works even when it is not a perfect box.',
     run(ctx) {
       // 2x2x2 distorted mesh of a unit cube; prescribe u = A x on boundary nodes, solve interior node
       const D = isoD(100000, 0.3, 0.45);
@@ -5774,11 +5788,13 @@ const VERIFICATION_TESTS = [
         }
       }
       const m = Math.max(err, serr);
-      return { pass: m < 1e-9, measured: 'displacement error ' + err.toExponential(2) + ', strain error ' + serr.toExponential(2) + ' (relative)', criterion: 'exact to 1e-9 relative' };
+      return { pass: m < 1e-9, measured: 'displacement error ' + err.toExponential(2) + ', strain error ' + serr.toExponential(2) + ' (relative)' };
     },
   },
   {
     id: 'V3', name: 'Bimaterial plate curvature versus Timoshenko', slow: false,
+    criterion: 'center curvature within 3 % of Timoshenko',
+    about: 'Bonds two plates with different expansion coefficients and cools them, so the pair curls like a bimetal strip. The computed curvature is compared with Timoshenko\'s textbook formula.',
     run(ctx) {
       const lib = [testMaterial('A', 130, 0.28, 2.6), testMaterial('B', 110, 0.34, 16.4)];
       const n = 28;
@@ -5792,11 +5808,13 @@ const VERIFICATION_TESTS = [
       const m = 1, nn = MA / MB, h = 1, da = (2.6 - 16.4) * 1e-6, dT = -100;
       const kt = 6 * da * dT * (1 + m) ** 2 / (h * (3 * (1 + m) ** 2 + (1 + m * nn) * (m * m + 1 / (m * nn))));
       const err = Math.abs(kappa / kt - 1);
-      return { pass: err < 0.03, measured: 'FE curvature ' + kappa.toExponential(4) + ' 1/mm, Timoshenko ' + kt.toExponential(4) + ' 1/mm, error ' + (100 * err).toFixed(2) + ' %', criterion: 'within 3 %' };
+      return { pass: err < 0.03, measured: 'FE curvature ' + kappa.toExponential(4) + ' 1/mm, Timoshenko ' + kt.toExponential(4) + ' 1/mm, error ' + (100 * err).toFixed(2) + ' %' };
     },
   },
   {
     id: 'V4', name: 'Asymmetric three-layer laminate versus classical lamination theory', slow: false,
+    criterion: 'curvatures within 3 % of classical lamination theory',
+    about: 'Builds an unbalanced three-layer stack, one layer stiffer in one direction than the other, and lets it warp on cooling. The curvature is compared with an independent laminate theory calculation.',
     run(ctx) {
       const ortho = { id: 'O', name: 'O', elastic: { type: 'ortho', Ex: { v: 36, u: 'GPa' }, Ey: { v: 20, u: 'GPa' }, Ez: { v: 12, u: 'GPa' }, Gxy: { v: 8, u: 'GPa' }, Gxz: { v: 5, u: 'GPa' }, Gyz: { v: 5, u: 'GPa' }, nuxy: { v: 0.15 }, nuxz: { v: 0.3 }, nuyz: { v: 0.3 } }, cteXY: { type: 'const', a: { v: 4 } }, cteZ: { type: 'const', a: { v: 12 } } };
       // orthotropic in-plane alphas differ: emulate via two CTE definitions is not supported, so use equal alpha x,y = 4 and an isotropic Cu + Si layer
@@ -5814,11 +5832,13 @@ const VERIFICATION_TESTS = [
         { t: 0.5, E1: 130000, E2: 130000, nu12: 0.28, G12: 130000 / 2.56, a1: 2.6e-6, a2: 2.6e-6 },
       ], -100);
       const ex = Math.abs(-c.kxx / clt.kx - 1), ey = Math.abs(-c.kyy / clt.ky - 1);
-      return { pass: ex < 0.03 && ey < 0.03, measured: 'kx FE ' + (-c.kxx).toExponential(4) + ' vs CLT ' + clt.kx.toExponential(4) + ' (' + (100 * ex).toFixed(2) + ' %), ky FE ' + (-c.kyy).toExponential(4) + ' vs CLT ' + clt.ky.toExponential(4) + ' (' + (100 * ey).toFixed(2) + ' %)', criterion: 'within 3 %' };
+      return { pass: ex < 0.03 && ey < 0.03, measured: 'kx FE ' + (-c.kxx).toExponential(4) + ' vs CLT ' + clt.kx.toExponential(4) + ' (' + (100 * ex).toFixed(2) + ' %), ky FE ' + (-c.kyy).toExponential(4) + ' vs CLT ' + clt.ky.toExponential(4) + ' (' + (100 * ey).toFixed(2) + ' %)' };
     },
   },
   {
     id: 'V5', name: 'Layered-integration element versus one element per physical layer', slow: false,
+    criterion: 'center warpage within 1 %',
+    about: 'Models the same thin multilayer stack two ways: layers merged into one element with layer-by-layer integration (as the tool does for the substrate) and one element per real layer. Both must warp the same, which justifies the shortcut.',
     run(ctx) {
       const cfg = defaultConfig(ctx.db);
       // asymmetric substrate: remove the bottom build-up so the free substrate warps
@@ -5846,21 +5866,25 @@ const VERIFICATION_TESTS = [
       for (const r of sb.rows) { zsAll.push(r.z1); groupsB.push({ name: 'row' + r.idx, kind: 'rowmat', row: r.row, stage: 0, part: 0 }); rowOfLayer.push(groupsB.length - 1); }
       const b = run(zsAll, groupsB, (i, j, k) => rowOfLayer[k]);
       const err = Math.abs(a.w / b.w - 1);
-      return { pass: err < 0.01, measured: 'centre warpage layered ' + (a.w * 1000).toFixed(3) + ' µm (' + a.dof + ' DOF) vs per-layer ' + (b.w * 1000).toFixed(3) + ' µm (' + b.dof + ' DOF), difference ' + (100 * err).toFixed(3) + ' %', criterion: 'within 1 %' };
+      return { pass: err < 0.01, measured: 'centre warpage layered ' + (a.w * 1000).toFixed(3) + ' µm (' + a.dof + ' DOF) vs per-layer ' + (b.w * 1000).toFixed(3) + ' µm (' + b.dof + ' DOF), difference ' + (100 * err).toFixed(3) + ' %' };
     },
   },
   {
     id: 'V6', name: 'Anand material point versus closed-form saturation stress', slow: false,
+    criterion: 'each saturation stress within 1 % (42.1, 22.8, 13.0 MPa)',
+    about: 'Pulls a single point of SAC305 solder at a constant rate until its stress levels off. The levelled-off stress must match the exact formula of the Anand creep model at three temperatures and rates.',
     run(ctx) {
       const sac = findMaterial(buildMaterialLibrary(ctx.db), 'sac305');
       const cases = [[25, 1e-3, 42.1], [125, 1e-3, 22.8], [125, 1e-5, 13.0]];
       const rows = cases.map(([T, rate, ref]) => { const r = anandUniaxial(sac, T, rate, 0.05, 400); const cf = anandSaturationStress(sac, T, rate); return { T, rate, sim: r.sigFinal, cf, ref, err: Math.abs(r.sigFinal / cf - 1), errRef: Math.abs(r.sigFinal / ref - 1) }; });
       const pass = rows.every(r => r.err < 0.01 && r.errRef < 0.01);
-      return { pass, measured: rows.map(r => r.T + ' °C, ' + r.rate + ' 1/s: ' + r.sim.toFixed(2) + ' MPa (closed form ' + r.cf.toFixed(2) + ', reference ' + r.ref + ')').join('; '), criterion: 'each within 1 %' };
+      return { pass, measured: rows.map(r => r.T + ' °C, ' + r.rate + ' 1/s: ' + r.sim.toFixed(2) + ' MPa (closed form ' + r.cf.toFixed(2) + ', reference ' + r.ref + ')').join('; ') };
     },
   },
   {
     id: 'V7', name: 'Submodel consistency with homogenized bump-layer properties', slow: true,
+    criterion: 'submodel strains within 2 % of the global strains',
+    about: 'Runs the detailed bump submodel with the same smeared bump-layer properties as the global model. It must then reproduce the global strains at that bump, which checks that the two models are linked correctly.',
     run(ctx) {
       // The submodel is a perturbation from the as-assembled 25 degC state with sigma = D(T)(eps - [F(T) - F(25)]).
       // With temperature-dependent moduli this coincides with the global total formulation only when the global
@@ -5914,11 +5938,13 @@ const VERIFICATION_TESTS = [
       smB.stepTo(125, 1);
       const errB = errOf(subStrain(smB));
       const f = v => v.toExponential(3);
-      return { pass: errA < 0.02 && resA.converged, measured: 'global strain change [xx, yy, zz, xy, yz, zx] ' + dEps.map(f).join(', ') + '; submodel (bump-layer domain, uniform homogenized phases) ' + Array.from(esA).map(f).join(', ') + ': max error ' + (100 * errA).toFixed(2) + ' % of the largest component; with the production domain and materially consistent Si / substrate slices the difference is ' + (100 * errB).toFixed(2) + ' % (coarse single-element layers versus the refined submodel)', criterion: 'within 2 %' };
+      return { pass: errA < 0.02 && resA.converged, measured: 'global strain change [xx, yy, zz, xy, yz, zx] ' + dEps.map(f).join(', ') + '; submodel (bump-layer domain, uniform homogenized phases) ' + Array.from(esA).map(f).join(', ') + ': max error ' + (100 * errA).toFixed(2) + ' % of the largest component; with the production domain and materially consistent Si / substrate slices the difference is ' + (100 * errB).toFixed(2) + ' % (coarse single-element layers versus the refined submodel)' };
     },
   },
   {
     id: 'V8', name: 'Symmetry of the warpage field', slow: true,
+    criterion: 'symmetry and mirroring to 1e-6 relative',
+    about: 'Places one die at the package center; the warpage must be identical when mirrored left to right, top to bottom and across both diagonals, and mirroring the floorplan must mirror the results.',
     run(ctx) {
       const cfg = presetConfig(ctx.db, 'bare');
       const run = c => { const an = new Analysis(c, { preset: 'draft', evaluations: 'preview' }); an.build(); an.solver.opts.tol = 1e-12; an.run(); return { an, w: warpageJEITA(an.mesh, an.mesh.geom, an.fields.get(25), c) }; };
@@ -5939,11 +5965,13 @@ const VERIFICATION_TESTS = [
       const m1 = b1.an.mesh, g1 = b1.w.grid, g2 = b2.w.grid;
       for (let i = 0; i < m1.nx; i++) for (let j = 0; j < m1.ny; j++) em = Math.max(em, Math.abs(g1[i * m1.ny + j] - g2[(m1.nx - 1 - i) * m1.ny + j]));
       const rel = Math.max(ex, ey, ed) / scale, relm = em / b1.w.mag;
-      return { pass: rel < 1e-6 && relm < 1e-6, measured: 'centred die: x ' + (ex / scale).toExponential(2) + ', y ' + (ey / scale).toExponential(2) + ', diagonal ' + (ed / scale).toExponential(2) + '; mirrored floorplan ' + relm.toExponential(2) + ' (relative to warpage magnitude)', criterion: '1e-6 relative' };
+      return { pass: rel < 1e-6 && relm < 1e-6, measured: 'centred die: x ' + (ex / scale).toExponential(2) + ', y ' + (ey / scale).toExponential(2) + ', diagonal ' + (ed / scale).toExponential(2) + '; mirrored floorplan ' + relm.toExponential(2) + ' (relative to warpage magnitude)' };
     },
   },
   {
     id: 'V9', name: 'Physical sanity on the presets', slow: true,
+    criterion: 'all four hold',
+    about: 'Checks four common-sense trends: a bare-die package bows convex at room temperature, the die backside is in tension, a thicker core warps less, and a lower-expansion core warps less.',
     run(ctx) {
       const bare = quickCase(presetConfig(ctx.db, 'bare'), 'draft');
       const A = quickCase(presetConfig(ctx.db, 'coreStudy', 'A'), 'draft'), B = quickCase(presetConfig(ctx.db, 'coreStudy', 'B'), 'draft');
@@ -5957,19 +5985,23 @@ const VERIFICATION_TESTS = [
         { name: '0.8 mm core warps less than 0.4 mm core', ok: Math.abs(B.w.signed) < Math.abs(A.w.signed), value: (A.w.signed * 1000).toFixed(1) + ' µm (0.4 mm) vs ' + (B.w.signed * 1000).toFixed(1) + ' µm (0.8 mm)' },
         { name: '795G Type LH core warps less than 705G', ok: Math.abs(wLH.w.signed) < Math.abs(w705.w.signed), value: (w705.w.signed * 1000).toFixed(1) + ' µm (705G) vs ' + (wLH.w.signed * 1000).toFixed(1) + ' µm (795G LH)' },
       ];
-      return { pass: checks.every(c => c.ok), measured: checks.map(c => c.name + ': ' + c.value + (c.ok ? ' ✓' : ' ✗')).join('; '), criterion: 'all four hold' };
+      return { pass: checks.every(c => c.ok), measured: checks.map(c => c.name + ': ' + c.value + (c.ok ? ' ✓' : ' ✗')).join('; ') };
     },
   },
   {
     id: 'V10', name: 'Mesh convergence, Standard versus Fine', slow: true, verySlow: true,
+    criterion: 'RT warpage and die interior peak stress within 5 %',
+    about: 'Runs the default package on the Standard and the Fine mesh. Warpage and die stress should change by less than 5 %, showing the Standard mesh is fine enough for comparisons.',
     run(ctx) {
       const s = quickCase(presetConfig(ctx.db, 'default'), 'standard'), f = quickCase(presetConfig(ctx.db, 'default'), 'fine');
       const ew = Math.abs(s.w.signed / f.w.signed - 1), es = Math.abs(s.ds.peakInterior / f.ds.peakInterior - 1);
-      return { pass: ew < 0.05 && es < 0.05, measured: 'RT warpage ' + (s.w.signed * 1000).toFixed(1) + ' vs ' + (f.w.signed * 1000).toFixed(1) + ' µm (' + (100 * ew).toFixed(2) + ' %); die interior peak ' + s.ds.peakInterior.toFixed(1) + ' vs ' + f.ds.peakInterior.toFixed(1) + ' MPa (' + (100 * es).toFixed(2) + ' %); DOF ' + s.an.mesh.info.nDof + ' vs ' + f.an.mesh.info.nDof, criterion: 'within 5 %' };
+      return { pass: ew < 0.05 && es < 0.05, measured: 'RT warpage ' + (s.w.signed * 1000).toFixed(1) + ' vs ' + (f.w.signed * 1000).toFixed(1) + ' µm (' + (100 * ew).toFixed(2) + ' %); die interior peak ' + s.ds.peakInterior.toFixed(1) + ' vs ' + f.ds.peakInterior.toFixed(1) + ' MPa (' + (100 * es).toFixed(2) + ' %); DOF ' + s.an.mesh.info.nDof + ' vs ' + f.an.mesh.info.nDof };
     },
   },
   {
     id: 'V11', name: 'Solver integrity on the default package', slow: true,
+    criterion: 'relative residual below 1e-8; reactions below 1e-9 of the internal force scale',
+    about: 'Solves the default package and confirms that the equation solver really converged and that the three support points carry essentially no force, as they should for a free package.',
     run(ctx) {
       const cfg = presetConfig(ctx.db, 'default');
       const an = new Analysis(cfg, { preset: 'draft', evaluations: 'preview' });
@@ -5989,11 +6021,13 @@ const VERIFICATION_TESTS = [
       const uKu = dot(u, Ku), fu = dot(f, u);
       const eb = Math.abs(uKu - fu) / Math.abs(fu);
       const pass = rec.relres < 1e-8 && reac / fscale < 1e-9;
-      return { pass, measured: 'relative residual ' + rec.relres.toExponential(2) + ' (' + rec.iters + ' iterations, ' + rec.precond + ', solved to 1e-10); max reaction ' + (reac / fscale).toExponential(2) + ' of the internal force scale (max entry of K u and f); energy balance |uKu - fu| / |fu| = ' + eb.toExponential(2), criterion: 'residual below 1e-8; reactions below 1e-9' };
+      return { pass, measured: 'relative residual ' + rec.relres.toExponential(2) + ' (' + rec.iters + ' iterations, ' + rec.precond + ', solved to 1e-10); max reaction ' + (reac / fscale).toExponential(2) + ' of the internal force scale (max entry of K u and f); energy balance |uKu - fu| / |fu| = ' + eb.toExponential(2) };
     },
   },
   {
     id: 'V12', name: 'JEITA sign and magnitude on synthetic surfaces', slow: false,
+    criterion: 'exact sign, magnitude to 1e-9',
+    about: 'Feeds the warpage calculation made-up dome and bowl shapes with known answers. It must give a positive sign for the dome, a negative sign for the bowl, and the exact peak-to-valley height.',
     run(ctx) {
       const cfg = presetConfig(ctx.db, 'bare');
       const mesh = buildPackageMesh(cfg, { preset: 'draft' });
@@ -6010,11 +6044,13 @@ const VERIFICATION_TESTS = [
       const an = c * (rmax - rmin) / (L * L);
       const em = Math.abs(wp.mag - an) / an;
       const pass = wp.sign === 1 && wm.sign === -1 && em < 1e-9 && Math.abs(wm.mag - an) / an < 1e-9;
-      return { pass, measured: 'dome sign ' + wp.sign + ', magnitude ' + wp.mag.toExponential(10) + ' vs analytic ' + an.toExponential(10) + ' (error ' + em.toExponential(2) + '); inverted dome sign ' + wm.sign, criterion: 'exact sign, magnitude to 1e-9' };
+      return { pass, measured: 'dome sign ' + wp.sign + ', magnitude ' + wp.mag.toExponential(10) + ' vs analytic ' + an.toExponential(10) + ' (error ' + em.toExponential(2) + '); inverted dome sign ' + wm.sign };
     },
   },
   {
     id: 'V13', name: 'Unit checks', slow: false,
+    criterion: 'formula values exact to 1e-9; rounded references to their printed precision',
+    about: 'Compares individual material formulas with hand-calculated values: silicon expansion and stiffness, solder modulus, AlSiC expansion, and the mixing rules for patterned copper layers.',
     run(ctx) {
       const lib = buildMaterialLibrary(ctx.db);
       const si = findMaterial(lib, 'si');
@@ -6036,11 +6072,13 @@ const VERIFICATION_TESTS = [
       push('Turner CTE (r = 0.5)', mix.ax, (0.5 * 110000 * 16.4e-6 + 0.5 * 10000 * 20e-6) / (0.5 * 110000 + 0.5 * 10000), 1e-9);
       push('Voigt E_z (r = 0.5)', mix.Ez, 0.5 * 110000 + 0.5 * 10000, 1e-9);
       push('Signal-layer in-plane E (mean of Voigt and Reuss)', mix.Ex, 0.5 * (60000 + 1 / (0.5 / 110000 + 0.5 / 10000)), 1e-9);
-      return { pass: checks.every(c => c.ok), measured: checks.map(c => c.name + ': ' + (typeof c.value === 'number' ? c.value.toPrecision(7) : c.value) + (c.ok ? ' ✓' : ' ✗ (ref ' + c.ref + ')')).join('; '), criterion: 'formula values exact to 1e-9; rounded references to their printed precision' };
+      return { pass: checks.every(c => c.ok), measured: checks.map(c => c.name + ': ' + (typeof c.value === 'number' ? c.value.toPrecision(7) : c.value) + (c.ok ? ' ✓' : ' ✗ (ref ' + c.ref + ')')).join('; ') };
     },
   },
   {
     id: 'V14', name: 'Configuration save / load round trip', slow: false,
+    criterion: 'identical configuration hash',
+    about: 'Saves the configuration to a JSON file and loads it back. Nothing may change, confirmed by an identical configuration fingerprint (hash).',
     run(ctx) {
       const cfg = presetConfig(ctx.db, 'stiffener2');
       cfg.dies[1].x += 0.123456789;
@@ -6048,11 +6086,13 @@ const VERIFICATION_TESTS = [
       const h1 = configHashes(cfg).all;
       const back = parseConfig(serializeConfig(cfg));
       const h2 = configHashes(back).all;
-      return { pass: h1 === h2, measured: 'hash before ' + h1 + ', after ' + h2, criterion: 'identical configuration hash' };
+      return { pass: h1 === h2, measured: 'hash before ' + h1 + ', after ' + h2 };
     },
   },
   {
     id: 'V15', name: 'Timing benchmark of the default package per preset and preconditioner', slow: true, verySlow: true,
+    criterion: 'report only; compare with the performance targets',
+    about: 'Times the default package on each mesh preset with both solver preconditioners. It always passes and reports the speeds against the performance targets.',
     run(ctx) {
       const rows = [];
       for (const preset of ctx.presets || ['draft', 'standard']) for (const pc of ['mg', 'ic']) {
@@ -6062,7 +6102,7 @@ const VERIFICATION_TESTS = [
         an.build(); an.run();
         rows.push({ preset, pc, dof: an.mesh.info.nDof, ms: nowMs() - t0, solves: an.log.length, iters: an.log.map(r => r.iters), solveMs: an.timings.solve, assembleMs: an.timings.assemble });
       }
-      return { pass: true, measured: rows.map(r => r.preset + '/' + r.pc + ': ' + r.dof + ' DOF, ' + (r.ms / 1000).toFixed(1) + ' s for stages + 25 °C (' + r.solves + ' solves, iterations ' + r.iters.join('/') + ')').join('; '), criterion: 'report; compare against Section 13', rows };
+      return { pass: true, measured: rows.map(r => r.preset + '/' + r.pc + ': ' + r.dof + ' DOF, ' + (r.ms / 1000).toFixed(1) + ' s for stages + 25 °C (' + r.solves + ' solves, iterations ' + r.iters.join('/') + ')').join('; '), rows };
     },
   },
 ];
@@ -6075,8 +6115,8 @@ function runVerification(ids, ctx) {
     if (ctx.progress) ctx.progress(t.id, t.name);
     const t0 = nowMs();
     let r;
-    try { r = t.run(ctx); } catch (e) { r = { pass: false, measured: 'error: ' + e.message, criterion: '' }; }
-    r.id = t.id; r.name = t.name; r.ms = nowMs() - t0;
+    try { r = t.run(ctx); } catch (e) { r = { pass: false, measured: 'error: ' + e.message }; }
+    r.id = t.id; r.criterion = t.criterion; r.name = t.name; r.ms = nowMs() - t0;
     out.push(r);
     if (ctx.onResult) ctx.onResult(r);
   }
@@ -6696,10 +6736,10 @@ const TIPS = {
   viewDieStress: 'Maximum principal stress maps on the die backside and active face; interior peaks and comparative corner patches.',
   viewBumps: 'Per-bump axial and shear forces from the solder-phase stress, at chip join (before underfill) and as assembled.',
   viewUf: 'Peel and shear tractions along each die perimeter at the sidewall-to-fillet and active-face interfaces.',
-  viewFatigue: 'Screening index over all bumps, and detailed bump submodels with hysteresis loops and life estimates.',
+  viewFatigue: 'Ranks every solder bump by the creep work it absorbs per temperature cycle (a screening index from the Anand solder model), then lets you model the worst bumps in detail for hysteresis loops and comparative fatigue lives.',
   view3d: 'Exaggerated deformed shape coloured by displacement or stress, with part visibility toggles.',
-  viewSens: 'Tornado charts: each input moved to the low and high end of its range, effect on four outputs.',
-  viewVerify: 'The verification suite (V1 to V15) with measured values and pass / fail.',
+  viewSens: 'Shows which inputs drive the results most: each input is moved to the low and high end of its plausible range and the resulting change in warpage, die stress and bump fatigue is drawn as a tornado chart, biggest effect on top.',
+  viewVerify: 'Runs built-in benchmark tests (V1 to V15) that check the solver against textbook solutions, independent calculations and common-sense trends, so you can confirm the physics engine works correctly in your browser.',
   viewReport: 'Printable report and CSV export.',
   tempSelect: 'Evaluation temperature of the displayed state. States between computed samples are interpolated linearly in temperature.',
   overlay: 'Field drawn on the floorplan: warpage of the substrate bottom or top, die stress, bump forces at chip join or as assembled, or the fatigue screening index.',
@@ -6725,7 +6765,7 @@ const TIPS = {
   peakNodal: 'Largest maximum principal stress over the face excluding a 0.5 mm edge band, from Gauss-point stresses extrapolated to the nodes and averaged within the die. Moderate confidence.',
   peakGauss: 'The same peak evaluated directly at the Gauss points (no extrapolation); the two differ for steep gradients.',
   peakAll: 'Gauss-point peak over the whole face including the singular edge region; for information only.',
-  cornerPatch: 'Maximum principal stress averaged over a fixed 100 µm × 100 µm patch at the corner or mid-edge. Singular location: compare designs, do not read as a strength.',
+  cornerPatch: 'Maximum principal stress averaged over a fixed 100 µm × 100 µm patch at the corner or mid-edge. Corners are numbered 1 to 4 clockwise from the bottom-right (+x, −y) corner; mid-edge 1-2 lies on the side between corners 1 and 2. Singular location: compare designs, do not read as a strength.',
   margin: 'Die strength (step 5) minus the interior peak.',
   // bumps
   stateCpi: 'End of chip-join cooldown at 25 °C, before underfill: the bumps alone carry the mismatch. Elastic upper bound (real joints relax by creep).',
@@ -7286,7 +7326,7 @@ function ticks(lo, hi, n) {
 }
 
 /**
- * Line plot. series: [{x, y, label, color, dash, points}]; opts: {xlabel, ylabel, title, band:[lo,hi], hlines:[{y,label,color}], vlines, xrange, yrange, legend}
+ * Line plot. series: [{x, y, label, color, dash, points}]; opts: {xlabel, ylabel, title, band:[lo,hi], hlines:[{y,label,color}], vlines:[{x,label,color,bottom}], xrange, yrange, legend}
  */
 function linePlot(canvas, series, opts) {
   opts = opts || {};
@@ -7319,7 +7359,8 @@ function linePlot(canvas, series, opts) {
   ctx.save(); ctx.beginPath(); ctx.rect(L, T, pw, ph); ctx.clip();  // zoomed data stays inside the axes
   if (opts.band) { ctx.fillStyle = 'rgba(255,170,0,0.13)'; ctx.fillRect(L, Y(opts.band[1]), w - L - R, Y(opts.band[0]) - Y(opts.band[1])); }
   for (const hl of opts.hlines || []) { ctx.strokeStyle = hl.color || muted; ctx.setLineDash([5, 4]); ctx.beginPath(); ctx.moveTo(L, Y(hl.y)); ctx.lineTo(w - R, Y(hl.y)); ctx.stroke(); ctx.setLineDash([]); if (hl.label) { ctx.fillStyle = hl.color || muted; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom'; ctx.fillText(hl.label, L + 4, Y(hl.y) - 2); } }
-  for (const vl of opts.vlines || []) { ctx.strokeStyle = vl.color || muted; ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(X(vl.x), T); ctx.lineTo(X(vl.x), H - B); ctx.stroke(); ctx.setLineDash([]); if (vl.label) { ctx.fillStyle = vl.color || muted; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillText(vl.label, X(vl.x), T + 10); } }
+  // vertical-line labels near a plot edge are aligned inward so they stay inside the axes
+  for (const vl of opts.vlines || []) { ctx.strokeStyle = vl.color || muted; ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(X(vl.x), T); ctx.lineTo(X(vl.x), H - B); ctx.stroke(); ctx.setLineDash([]); if (vl.label) { const px = X(vl.x), edge = ctx.measureText(vl.label).width / 2 + 2; ctx.fillStyle = vl.color || muted; ctx.textAlign = px - L < edge ? 'left' : (L + pw - px < edge ? 'right' : 'center'); ctx.textBaseline = 'bottom'; ctx.fillText(vl.label, px + (ctx.textAlign === 'left' ? 2 : ctx.textAlign === 'right' ? -2 : 0), vl.bottom ? H - B - 3 : T + 10); } }
   const palette = [cssVar('--accent'), cssVar('--accent2'), cssVar('--warn'), cssVar('--err'), '#9b59b6', '#16a085'];
   series.forEach((s, si) => {
     ctx.strokeStyle = s.color || palette[si % palette.length]; ctx.lineWidth = s.width || 1.6; ctx.setLineDash(s.dash || []);
@@ -7382,6 +7423,40 @@ function tornadoPlot(canvas, rows, base, opts) {
 function drawLegend(canvas, scale) {
   const { ctx, w, h: H } = setupCanvas(canvas);
   for (let i = 0; i < w; i++) { ctx.fillStyle = scale.color(scale.min + (scale.max - scale.min) * i / (w - 1)); ctx.fillRect(i, 0, 1, H); }
+}
+const LEGEND_SIG = 4;      // significant figures on colour-scale end labels
+const LEGEND_SIG_MAX = 8;  // more only when both ends would otherwise print the same
+/** Colour-scale end label with sig significant figures; decimals (magnitude below 1) and magnitudes from 1e4 up in scientific notation. */
+function fmtBound(v, sig) {
+  if (!isFinite(v)) return '–';
+  if (v === 0) return '0';
+  const a = Math.abs(v);
+  return a < 1 || a >= 1e4 ? v.toExponential(sig - 1) : v.toPrecision(sig);
+}
+/** Lower and upper colour-scale labels: 4 significant figures, more if needed to keep the two ends distinct. */
+function legendBounds(scale) {
+  let lo, hi;
+  for (let s = LEGEND_SIG; s <= LEGEND_SIG_MAX; s++) { lo = fmtBound(scale.min, s); hi = fmtBound(scale.max, s); if (lo !== hi) break; }
+  return [lo, hi];
+}
+/** Colour legend: lower bound, colour strip, upper bound, description. */
+function legendItems(scale, label, labelAttrs) {
+  const cv = h('canvas'), [lo, hi] = legendBounds(scale);
+  requestAnimationFrame(() => drawLegend(cv, scale));
+  return [h('span', { class: 'bound' }, lo), cv, h('span', { class: 'bound' }, hi), h('span', labelAttrs || null, label)];
+}
+/** Key for line styles and markers drawn on a map: items [{label, color, dash, marker: 'circle'}]. */
+function lineKey(items) {
+  return h('div', { class: 'legend' }, ...items.map(it => {
+    const cv = h('canvas', { class: 'key' });
+    requestAnimationFrame(() => {
+      const { ctx, w, h: H } = setupCanvas(cv);
+      ctx.clearRect(0, 0, w, H); ctx.strokeStyle = it.color; ctx.lineWidth = 1.2;
+      if (it.marker === 'circle') { ctx.beginPath(); ctx.arc(w / 2, H / 2, 4, 0, 6.3); ctx.stroke(); return; }
+      ctx.setLineDash(it.dash || []); ctx.beginPath(); ctx.moveTo(1, H / 2); ctx.lineTo(w - 1, H / 2); ctx.stroke();
+    });
+    return h('span', { class: 'key-item' }, cv, h('span', null, it.label));
+  }));
 }
 
 /**
@@ -7672,9 +7747,7 @@ const floorplan = {
     }
     if (scale && legendEl) {
       legendEl.innerHTML = '';
-      const cv = h('canvas');
-      legendEl.append(h('span', null, fmt(scale.min, 1)), cv, h('span', null, fmt(scale.max, 1)), h('span', { class: 'muted' }, label));
-      drawLegend(cv, scale);
+      legendEl.append(...legendItems(scale, label, { class: 'muted' }));
     }
   },
 
@@ -8133,7 +8206,7 @@ function renderRunPanel(root) {
   root.append(h('div', { class: 'card' }, h('h3', null, 'Reflow sweep peak'), h('div', { class: 'big' }, um(peak.signed) + ' µm at ' + peak.T + ' °C'), h('div', { class: 'sub' }, 'JEITA limit for ' + cfg.bga.pitch + ' mm pitch: ' + (w.limitHot * 1000) + ' µm → ' + (Math.abs(peak.signed) <= w.limitHot ? 'within limit' : 'exceeds limit') + (base ? delta(peak.signed * 1000, base.sweep.reduce((m, r) => Math.abs(r.signed) > Math.abs(m.signed) ? r : m, base.sweep[0]).signed * 1000, ' µm', 1) : ''))));
   f.dies.forEach((d, i) => {
     const bd = base && base.at25.dies[i];
-    root.append(h('div', { class: 'card' }, h('h3', null, d.name + ' backside stress', helpTip('peakNodal')), h('div', { class: 'big' }, fmt(d.top.peakInterior, 1) + ' MPa'), h('div', { class: 'sub' }, 'interior peak (0.5 mm edge band excluded), max principal, nodal averaged; Gauss-point peak ' + fmt(d.top.gpPeakInterior, 1) + ' MPa' + (bd ? delta(d.top.peakInterior, bd.top.peakInterior, ' MPa', 1) : '') + (cfg.limits.dieStrength ? '; margin to strength ' + fmt(cfg.limits.dieStrength - d.top.peakInterior, 0) + ' MPa' : '')), h('div', { class: 'sub' }, 'corner patches (comparative): ' + d.top.corners.map(c => fmt(c.value, 0)).join(' / ') + ' MPa'), h('div', { class: 'conf' }, CONFIDENCE.dieInterior + ' Corner values: ' + CONFIDENCE.corner)));
+    root.append(h('div', { class: 'card' }, h('h3', null, d.name + ' backside stress', helpTip('peakNodal')), h('div', { class: 'big' }, fmt(d.top.peakInterior, 1) + ' MPa'), h('div', { class: 'sub' }, 'interior peak (0.5 mm edge band excluded), max principal, nodal averaged; Gauss-point peak ' + fmt(d.top.gpPeakInterior, 1) + ' MPa' + (bd ? delta(d.top.peakInterior, bd.top.peakInterior, ' MPa', 1) : '') + (cfg.limits.dieStrength ? '; margin to strength ' + fmt(cfg.limits.dieStrength - d.top.peakInterior, 0) + ' MPa' : '')), h('div', { class: 'sub' }, 'corner patches 1 / 2 / 3 / 4 (comparative): ' + d.top.corners.map(c => fmt(c.value, 0)).join(' / ') + ' MPa'), h('div', { class: 'conf' }, CONFIDENCE.dieInterior + ' Corner values: ' + CONFIDENCE.corner)));
   });
   res.cpi.forEach((b, i) => {
     const bb = base && base.cpi[i];
@@ -8311,9 +8384,12 @@ function mapZoomHandlers(cv) {
     },
   };
 }
-/** Decimals for the legend end labels: about two significant digits of the plotted span (1 to 6), so narrow ranges do not round to the same label. */
-function legendDigits(min, max) { const span = Math.abs(max - min) || Math.abs(max) || 1; return Math.max(1, Math.min(6, Math.ceil(-Math.log10(span)) + 1)); }
-function legendRow(scale, label) { const cv = h('canvas'); const d = legendDigits(scale.min, scale.max); const el = h('div', { class: 'legend' }, h('span', null, fmt(scale.min, d)), cv, h('span', null, fmt(scale.max, d)), h('span', null, label)); requestAnimationFrame(() => drawLegend(cv, scale)); return el; }
+/** Corner numbers 1 to 4 just outside a die rectangle (clockwise from the bottom-right corner, C.dieCorners). */
+function drawCornerNumbers(ctx, rect, X, Y) {
+  ctx.fillStyle = cssVar('--text'); ctx.font = '600 11px ' + cssVar('--font'); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (const c of C.dieCorners(rect)) ctx.fillText(String(c.n), X(c.x) + 8 * c.sx, Y(c.y) - 8 * c.sy);
+}
+function legendRow(scale, label) { return h('div', { class: 'legend' }, ...legendItems(scale, label)); }
 
 function renderWarpageView(root, res, f, Tsel) {
   const w = f.warpage, cfg = app.cfg;
@@ -8349,13 +8425,15 @@ function renderDieStressView(root, res, f, Tsel) {
   for (const d of f.dies) for (const v of d[which].smax) if (isFinite(v)) { mn = Math.min(mn, v); mx = Math.max(mx, v); }
   const scale = makeScale(mn, mx, mn < 0);
   const left = h('div');
-  left.append(mapCanvas(res, (ctx, X, Y, sc) => { for (const d of f.dies) { drawGridField(ctx, d[which].xs, d[which].ys, d[which].smax, scale, X, Y, 1); const r = d.rect, b = C.CONST.DIE_EDGE_BAND; ctx.setLineDash([2, 2]); ctx.strokeStyle = cssVar('--muted'); ctx.strokeRect(X(r.x0 + b), Y(r.y1 - b), (r.x1 - r.x0 - 2 * b) * sc, (r.y1 - r.y0 - 2 * b) * sc); ctx.setLineDash([]); ctx.fillStyle = cssVar('--text'); ctx.beginPath(); ctx.arc(X(d[which].peakX), Y(d[which].peakY), 4, 0, 6.3); ctx.stroke(); } }));
-  left.append(legendRow(scale, 'maximum principal stress, MPa, nodal averaged within the die; circle: interior peak; dashed: 0.5 mm edge band'));
+  left.append(mapCanvas(res, (ctx, X, Y, sc) => { for (const d of f.dies) { drawGridField(ctx, d[which].xs, d[which].ys, d[which].smax, scale, X, Y, 1); const r = d.rect, b = C.CONST.DIE_EDGE_BAND; ctx.setLineDash([2, 2]); ctx.strokeStyle = cssVar('--muted'); ctx.strokeRect(X(r.x0 + b), Y(r.y1 - b), (r.x1 - r.x0 - 2 * b) * sc, (r.y1 - r.y0 - 2 * b) * sc); ctx.setLineDash([]); ctx.strokeStyle = cssVar('--text'); ctx.beginPath(); ctx.arc(X(d[which].peakX), Y(d[which].peakY), 4, 0, 6.3); ctx.stroke(); drawCornerNumbers(ctx, r, X, Y); } }));
+  left.append(legendRow(scale, 'maximum principal stress, MPa, nodal averaged within the die'));
+  left.append(lineKey([{ label: 'die outline', color: cssVar('--text'), dash: [4, 3] }, { label: 'inner edge of the 0.5 mm edge band (excluded from the interior peak)', color: cssVar('--muted'), dash: [2, 2] }, { label: 'interior peak', color: cssVar('--text'), marker: 'circle' }]));
+  left.append(h('div', { class: 'small muted' }, 'Die corners 1 to 4 run clockwise from the bottom-right (+x, −y) corner.'));
   const right = h('div');
   for (const d of f.dies) {
     const s = d[which];
     right.append(h('div', { class: 'card' }, h('h3', null, d.name + ', ' + (which === 'top' ? 'backside' : 'active face')),
-      h('div', { class: 'kv' }, kl('Interior peak (nodal averaged)', 'peakNodal'), h('b', { 'data-tip': 'Gauss-point peak in the interior: ' + fmt(s.gpPeakInterior, 1) + ' MPa; nodal extrapolation can differ meaningfully from Gauss-point values' }, fmt(s.peakInterior, 1) + ' MPa at (' + fmt(s.peakX, 1) + ', ' + fmt(s.peakY, 1) + ')'), kl('Interior peak (Gauss points)', 'peakGauss'), h('span', null, fmt(s.gpPeakInterior, 1) + ' MPa'), kl('Whole-face Gauss-point peak', 'peakAll'), h('span', null, fmt(s.gpPeakAll, 1) + ' MPa (includes singular edge region)'), ...s.corners.flatMap(c => [kl(c.name + ' (100 µm patch)', 'cornerPatch'), h('span', null, fmt(c.value, 1) + ' MPa')]), ...s.midEdges.flatMap(c => [kl(c.name + ' (100 µm patch)', 'cornerPatch'), h('span', null, fmt(c.value, 1) + ' MPa')]), cfg.limits.dieStrength ? kl('Margin to die strength', 'margin') : null, cfg.limits.dieStrength ? h('span', { class: cfg.limits.dieStrength > s.peakInterior ? 'ok' : 'bad' }, fmt(cfg.limits.dieStrength - s.peakInterior, 0) + ' MPa') : null),
+      h('div', { class: 'kv' }, kl('Interior peak (nodal averaged)', 'peakNodal'), h('b', { 'data-tip': 'Gauss-point peak in the interior: ' + fmt(s.gpPeakInterior, 1) + ' MPa; nodal extrapolation can differ meaningfully from Gauss-point values' }, fmt(s.peakInterior, 1) + ' MPa at (' + fmt(s.peakX, 1) + ', ' + fmt(s.peakY, 1) + ')'), kl('Interior peak (Gauss points)', 'peakGauss'), h('span', null, fmt(s.gpPeakInterior, 1) + ' MPa'), kl('Whole-face Gauss-point peak', 'peakAll'), h('span', null, fmt(s.gpPeakAll, 1) + ' MPa (includes singular edge region)'), ...s.corners.flatMap(c => [kl(c.name + ', 100 µm patch', 'cornerPatch'), h('span', null, fmt(c.value, 1) + ' MPa')]), ...s.midEdges.flatMap(c => [kl(c.name + ', 100 µm patch', 'cornerPatch'), h('span', null, fmt(c.value, 1) + ' MPa')]), cfg.limits.dieStrength ? kl('Margin to die strength', 'margin') : null, cfg.limits.dieStrength ? h('span', { class: cfg.limits.dieStrength > s.peakInterior ? 'ok' : 'bad' }, fmt(cfg.limits.dieStrength - s.peakInterior, 0) + ' MPa') : null),
       h('details', null, h('summary', null, 'What this means'), h('p', { class: 'small' }, 'Positive values are tensile. On the backside the dominant term is the bending of the die on the mismatched substrate; tensile backside stress is the usual state at room temperature for a bare die. Interior peaks are mesh-converging quantities; corner and mid-edge values sit at stress singularities and are averaged over a fixed 100 µm × 100 µm patch so that they can be compared between designs but never read as absolute strengths.'))));
   }
   root.append(h('div', { class: 'grid2' }, left, right));
@@ -8389,11 +8467,11 @@ function renderUFView(root, res, f, Tsel) {
   for (const d of f.dies) {
     const u = d.uf;
     const c1 = h('canvas', tip('ufSide', { class: 'plot' })), c2 = h('canvas', tip('ufFace', { class: 'plot' }));
-    root.append(h('div', { class: 'card' }, h('h3', null, d.name + ' perimeter (counterclockwise from the (−x, −y) corner)'), h('div', { class: 'grid2' }, c1, c2), h('div', { class: 'kv' }, kl('Max sidewall peel / shear', 'ufSide'), h('span', null, fmt(u.maxPeelSide, 1) + ' / ' + fmt(u.maxShearSide, 1) + ' MPa', helpTip('peel'), helpTip('shearT')), kl('Max active-face peel / shear', 'ufFace'), h('span', null, fmt(u.maxPeelFace, 1) + ' / ' + fmt(u.maxShearFace, 1) + ' MPa')), h('details', null, h('summary', null, 'What this means'), h('p', { class: 'small' }, 'Tractions are taken from the underfill-side stresses next to the die edge, averaged over 50 µm × 50 µm patches stepped along the perimeter. Peel is the traction normal to the interface (tension positive); shear is the in-plane traction magnitude. Peaks sit at the die corners (marked), where the elastic solution is singular; compare designs by these values, do not read them as strengths.'))));
+    root.append(h('div', { class: 'card' }, h('h3', null, d.name + ' perimeter, clockwise from corner 1 (bottom right, +x −y); corners 1 to 4 run clockwise'), h('div', { class: 'grid2' }, c1, c2), h('div', { class: 'kv' }, kl('Max sidewall peel / shear', 'ufSide'), h('span', null, fmt(u.maxPeelSide, 1) + ' / ' + fmt(u.maxShearSide, 1) + ' MPa', helpTip('peel'), helpTip('shearT')), kl('Max active-face peel / shear', 'ufFace'), h('span', null, fmt(u.maxPeelFace, 1) + ' / ' + fmt(u.maxShearFace, 1) + ' MPa')), h('details', null, h('summary', null, 'What this means'), h('p', { class: 'small' }, 'Tractions are taken from the underfill-side stresses next to the die edge, averaged over 50 µm × 50 µm patches stepped along the perimeter. Peel is the traction normal to the interface (tension positive); shear is the in-plane traction magnitude. Peaks sit at the die corners (marked), where the elastic solution is singular; compare designs by these values, do not read them as strengths.'))));
     requestAnimationFrame(() => {
-      const vl = u.corners.map((s, i) => ({ x: s, label: ['', 'corner', 'corner', 'corner', ''][i] }));
-      linePlot(c1, [{ x: u.s, y: u.peelSide, label: 'peel (normal)' }, { x: u.s, y: u.shearSide, label: 'shear' }], { title: 'Die sidewall to fillet interface', xlabel: 'perimeter position, mm', ylabel: 'MPa', vlines: vl, hlines: [{ y: 0 }] });
-      linePlot(c2, [{ x: u.s, y: u.peelFace, label: 'peel (normal)' }, { x: u.s, y: u.shearFace, label: 'shear' }], { title: 'Die active face to underfill interface near the edge', xlabel: 'perimeter position, mm', ylabel: 'MPa', vlines: vl, hlines: [{ y: 0 }] });
+      const vl = u.corners.map((s, i) => ({ x: s, label: 'corner ' + (i % 4 + 1), bottom: true }));  // labels at the bottom, clear of the series legend
+      linePlot(c1, [{ x: u.s, y: u.peelSide, label: 'peel (normal)' }, { x: u.s, y: u.shearSide, label: 'shear' }], { title: 'Die sidewall to fillet interface', xlabel: 'perimeter position from corner 1, clockwise, mm', ylabel: 'MPa', vlines: vl, hlines: [{ y: 0 }] });
+      linePlot(c2, [{ x: u.s, y: u.peelFace, label: 'peel (normal)' }, { x: u.s, y: u.shearFace, label: 'shear' }], { title: 'Die active face to underfill interface near the edge', xlabel: 'perimeter position from corner 1, clockwise, mm', ylabel: 'MPa', vlines: vl, hlines: [{ y: 0 }] });
     });
   }
 }
@@ -8545,7 +8623,7 @@ function update3D() {
   geom.computeVertexNormals(); geom.computeBoundingSphere();
   three.renderer.render(three.scene, three.camera);
   const lg = $('#legend3d');
-  if (lg) { lg.innerHTML = ''; if (scale) { const cv = h('canvas'); lg.append(h('span', null, fmt(scale.min, 1)), cv, h('span', null, fmt(scale.max, 1)), h('span', null, v.color === 'warpage' ? 'u_z, µm (deformation exaggerated ' + ex + '×)' : 'max principal stress, MPa, nodal averaged per part')); drawLegend(cv, scale); } }
+  if (lg) { lg.innerHTML = ''; if (scale) lg.append(...legendItems(scale, v.color === 'warpage' ? 'u_z, µm (deformation exaggerated ' + ex + '×)' : 'max principal stress, MPa, nodal averaged per part')); }
 }
 
 // ---- sensitivity (tornado) ----
@@ -8613,7 +8691,7 @@ function renderVerificationView(root) {
   const tbl = h('table', { class: 'small' }, h('tr', null, h('th', null, 'ID'), h('th', null, 'Test'), h('th', null, 'Result'), h('th', null, 'Measured'), h('th', null, 'Criterion'), h('th', null, 's')));
   for (const t of C.VERIFICATION_TESTS) {
     const r = V && V.find(x => x.id === t.id);
-    tbl.append(h('tr', null, h('td', null, t.id), h('td', null, t.name + (t.slow ? ' (slow)' : '')), h('td', { class: r ? (r.pass ? 'ok' : 'bad') : 'muted' }, r ? (r.pass ? 'PASS' : 'FAIL') : (app.verifying && app.verifying.has(t.id) ? 'running…' : '–')), h('td', { class: 'small' }, r ? r.measured : ''), h('td', { class: 'small muted' }, r ? r.criterion : ''), h('td', null, r ? fmt(r.ms / 1000, 1) : '')));
+    tbl.append(h('tr', null, h('td', { 'data-tip': t.about }, t.id), h('td', { 'data-tip': t.about }, t.name + (t.slow ? ' (slow)' : '')), h('td', { class: r ? (r.pass ? 'ok' : 'bad') : 'muted' }, r ? (r.pass ? 'PASS' : 'FAIL') : (app.verifying && app.verifying.has(t.id) ? 'running…' : '–')), h('td', { class: 'small' }, r ? r.measured : ''), h('td', { class: 'small muted' }, r && r.criterion ? r.criterion : t.criterion), h('td', null, r ? fmt(r.ms / 1000, 1) : '')));
   }
   root.append(tbl);
 }
@@ -8645,7 +8723,7 @@ function reportBody(res) {
   const add = (k, v, c) => tbl.append(h('tr', null, h('td', null, k), h('td', null, v), h('td', { class: 'small muted' }, c)));
   add('Signed warpage at 25 °C (JEITA)', um(w.signed) + ' µm (' + (w.sign > 0 ? 'convex' : 'concave') + ')', CONFIDENCE.warpage);
   for (const r of res.sweep.filter(r => cfg.reflow.reportTemps.includes(r.T))) add('Signed warpage at ' + r.T + ' °C', um(r.signed) + ' µm (limit ' + w.limitHot * 1000 + ')', CONFIDENCE.warpage);
-  f.dies.forEach((d, i) => { add(d.name + ' backside interior peak stress', fmt(d.top.peakInterior, 1) + ' MPa', CONFIDENCE.dieInterior); add(d.name + ' backside corner patches', d.top.corners.map(c => fmt(c.value, 0)).join(' / ') + ' MPa', CONFIDENCE.corner); add(d.name + ' active-face interior peak', fmt(d.bottom.peakInterior, 1) + ' MPa', CONFIDENCE.dieInterior); add(d.name + ' worst CPI bump shear / axial', gf(res.cpi[i].worstV) + ' / ' + gf(res.cpi[i].worstN) + ' gf', CONFIDENCE.bumps); add(d.name + ' underfill max sidewall peel / shear', fmt(d.uf.maxPeelSide, 1) + ' / ' + fmt(d.uf.maxShearSide, 1) + ' MPa', CONFIDENCE.corner); });
+  f.dies.forEach((d, i) => { add(d.name + ' backside interior peak stress', fmt(d.top.peakInterior, 1) + ' MPa', CONFIDENCE.dieInterior); add(d.name + ' backside corner patches 1 / 2 / 3 / 4', d.top.corners.map(c => fmt(c.value, 0)).join(' / ') + ' MPa', CONFIDENCE.corner); add(d.name + ' active-face interior peak', fmt(d.bottom.peakInterior, 1) + ' MPa', CONFIDENCE.dieInterior); add(d.name + ' worst CPI bump shear / axial', gf(res.cpi[i].worstV) + ' / ' + gf(res.cpi[i].worstN) + ' gf', CONFIDENCE.bumps); add(d.name + ' underfill max sidewall peel / shear', fmt(d.uf.maxPeelSide, 1) + ' / ' + fmt(d.uf.maxShearSide, 1) + ' MPa', CONFIDENCE.corner); });
   if (res.screening) res.screening.forEach(s => add(s.die + ' worst ΔW_proxy', fmtE(s.top[0] ? s.top[0].dW : NaN, 3) + ' MPa/cycle', CONFIDENCE.fatigue));
   for (const sm of app.submodels) add('Submodel ' + sm.die + ' (' + fmt(sm.site.x, 1) + ', ' + fmt(sm.site.y, 1) + ') ΔW / Syed life', fmtE(sm.dW, 3) + ' MPa, ' + fmt(sm.life.syedEnergy, 0) + ' cycles', CONFIDENCE.fatigue);
   div.append(tbl);
@@ -8677,7 +8755,7 @@ function exportCSV() {
   const lines = ['section,quantity,value,unit'];
   lines.push('warpage,signed_25C,' + f.warpage.signed * 1000 + ',um', 'warpage,magnitude_25C,' + f.warpage.mag * 1000 + ',um');
   for (const r of res.sweep) lines.push('warpage_sweep,T=' + r.T + ',' + r.signed * 1000 + ',um');
-  f.dies.forEach((d, i) => { lines.push('die_stress,' + d.name + '_top_interior_peak,' + d.top.peakInterior + ',MPa', 'die_stress,' + d.name + '_bottom_interior_peak,' + d.bottom.peakInterior + ',MPa'); d.top.corners.forEach(c => lines.push('die_stress,' + d.name + '_top_' + c.name.replace(/[ ,()]/g, '_') + ',' + c.value + ',MPa')); lines.push('bumps,' + d.name + '_cpi_worst_shear,' + res.cpi[i].worstV + ',N', 'bumps,' + d.name + '_cpi_worst_axial,' + res.cpi[i].worstN + ',N', 'uf,' + d.name + '_max_sidewall_peel,' + d.uf.maxPeelSide + ',MPa', 'uf,' + d.name + '_max_sidewall_shear,' + d.uf.maxShearSide + ',MPa'); });
+  f.dies.forEach((d, i) => { lines.push('die_stress,' + d.name + '_top_interior_peak,' + d.top.peakInterior + ',MPa', 'die_stress,' + d.name + '_bottom_interior_peak,' + d.bottom.peakInterior + ',MPa'); d.top.corners.forEach(c => lines.push('die_stress,' + d.name + '_top_' + c.name.replace(/[^\w+-]+/g, '_').replace(/_$/, '') + ',' + c.value + ',MPa')); lines.push('bumps,' + d.name + '_cpi_worst_shear,' + res.cpi[i].worstV + ',N', 'bumps,' + d.name + '_cpi_worst_axial,' + res.cpi[i].worstN + ',N', 'uf,' + d.name + '_max_sidewall_peel,' + d.uf.maxPeelSide + ',MPa', 'uf,' + d.name + '_max_sidewall_shear,' + d.uf.maxShearSide + ',MPa'); });
   if (res.screening) res.screening.forEach(s => lines.push('fatigue,' + s.die + '_worst_dW_proxy,' + (s.top[0] ? s.top[0].dW : '') + ',MPa'));
   for (const sm of app.submodels) lines.push('submodel,' + sm.die + '_' + sm.site.x + '_' + sm.site.y + '_dW,' + sm.dW + ',MPa', 'submodel,' + sm.die + '_' + sm.site.x + '_' + sm.site.y + '_life_syed,' + sm.life.syedEnergy + ',cycles');
   lines.push('', 'ball_x_mm,ball_y_mm,warpage_residual_25C_um,w_25C_um');

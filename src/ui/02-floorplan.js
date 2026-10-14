@@ -236,9 +236,7 @@ const floorplan = {
     }
     if (scale && legendEl) {
       legendEl.innerHTML = '';
-      const cv = h('canvas');
-      legendEl.append(h('span', null, fmt(scale.min, 1)), cv, h('span', null, fmt(scale.max, 1)), h('span', { class: 'muted' }, label));
-      drawLegend(cv, scale);
+      legendEl.append(...legendItems(scale, label, { class: 'muted' }));
     }
   },
 

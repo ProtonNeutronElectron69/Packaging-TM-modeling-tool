@@ -150,6 +150,7 @@ function cancelRunning() {
   const job = app.job;
   app.job = null;
   if (job && job.cancel) { job.cancel(); return false; }
+  if (!job && !worker.pending.size) return false;  // the main worker is idle: nothing to cancel, keep its analysis
   worker.cancel();
   const lost = !!app.results && !app.analysisLost;
   if (app.results) app.analysisLost = true;

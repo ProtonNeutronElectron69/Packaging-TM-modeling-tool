@@ -2,7 +2,7 @@
 
 ## Project status (read this first)
 
-The build specification that follows (from "Build Prompt" onward) has been **implemented in full** and merged to `main` through twelve pull requests (three of code and two of documentation for the build, then UI updates, two materials database passes, a parallel-worker setting, a legend fix and status updates requested by the user). A new session should treat it as the reference design of an existing, working application, not as a task to start.
+The build specification that follows (from "Build Prompt" onward) has been **implemented in full** and merged to `main` through fifteen pull requests (three of code and two of documentation for the build, then UI updates, two materials database passes, a parallel-worker setting, a legend fix, a glossary, UX refinements and status updates requested by the user). A new session should treat it as the reference design of an existing, working application, not as a task to start.
 
 | PR | Merged | Content |
 |---|---|---|
@@ -18,12 +18,15 @@ The build specification that follows (from "Build Prompt" onward) has been **imp
 | #10 | 2026-10-11 | Parallel worker count offered up to CPU cores / 1.5 (rounded down); the sensitivity run uses the chosen worker count |
 | #11 | 2026-10-11 | Documentation: PRs 9 and 10 added to the status tables |
 | #12 | 2026-10-11 | Results map legends show enough decimals to keep narrow ranges distinct (the fatigue map read 0.2 at both ends); CLAUDE.md now picks verification subsets by the nature of a change |
+| #13 | 2026-10-11 | Documentation: PRs 11 and 12 added to the status tables |
+| #14 | 2026-10-11 | Glossary of 83 acronyms and variable symbols: matching terms in the UI show the spelled-out form on hover and open the entry on click; glossary window (A–Z) and a glossary section in the report |
+| #15 | 2026-10-13 | Colour-scale end labels to 4 significant figures (scientific notation below 1); die corners numbered 1 to 4 clockwise from the bottom-right corner everywhere (underfill perimeter plots, die stress map and patches); line key on the die stress map; verification criteria shown before a run with a plain-language description of each test; explainer tooltips on the fatigue, sensitivity and verification tabs |
 
 Current state on `main`:
 
 - Verification suite: **15/15 pass** headless in Node (`dist/verification.json` holds the last run with measured values).
 - Performance (Chromium, 4-core container, 3 workers): full Standard analysis 147 s (target 90 s), screening 7 s (target 10 s), four submodels 286 s (target 120 s). The remaining gaps are the main open item; see README "Known issues and next steps". The drag preview and auto-solve of Section 4.3 were removed at the user's request (README deviations).
-- Deliverable: `dist/fcbga_thermomech_tool.html` (about 630 kB, committed; rebuilt from `src/` by `node tools/build.mjs`).
+- Deliverable: `dist/fcbga_thermomech_tool.html` (about 660 kB, committed; rebuilt from `src/` by `node tools/build.mjs`).
 
 `README.md` carries the detailed status: verification table, measured timings, every deviation from the specification, known issues, repository layout and development workflow.
 
@@ -44,6 +47,7 @@ Current state on `main`:
   - Materials database additions that leave the defaults unchanged: V13, V14 and a check that every material evaluates (finite E(T), CTE(T) and stiffness from -80 to 300 °C).
   - Documentation only: no checks.
   Syntax: `node tools/verify.mjs V1,V2,V13` runs a subset; the smoke test uses Playwright and Chromium, with three.js served from a local stub because CDNs are blocked in the cloud sandbox.
+- **Status tables**: whenever a pull request merges (including one merged at the user's request during a session), update the status tables without being asked: open a documentation PR from a fresh branch off `main` that adds the merged PR to the table above and to the README table, updates the pull request count in both intro sentences, and refreshes "Current state" where it changed (suite result, timings, deliverable size). Use the merge date as the merge commit records it (`git log -1 --format=%cd --date=short <merge sha>`, the user's local time). A PR that only updates the status tables does not trigger another update of its own; it is listed with the next one, so the chain ends.
 - **Git**: develop on the designated feature branch, open a pull request to `main`, and keep each PR focused. The repository has no CI workflows; the headless suite and the smoke test are the gate.
 - **Writing style** in UI copy, tooltips, comments and documentation: plain language, no em dashes (use commas or semicolons), units on every number, confidence labels on every result.
 

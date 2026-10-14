@@ -541,14 +541,15 @@ function runSensitivity(inputs, nWorkers) {
   const t0 = performance.now();
   setStatus('Sensitivity: 0/' + cases.length, 0);
   if (app.job) cancelRunning();
-  const job = { label: 'sensitivity', cancel: () => { for (const p of pool) p.stop(); } };
+  let stopped = false;  // cases rejected by a cancel are dropped, not reported as failures
+  const job = { label: 'sensitivity', cancel: () => { stopped = true; for (const p of pool) p.stop(); } };
   app.job = job;
   const cancelAll = () => { job.cancel(); if (app.job === job) app.job = null; };
   return new Promise((resolve) => {
     const launch = w => {
       if (next >= cases.length) return;
       const c = cases[next++];
-      w.send({ type: 'sensitivityCase', cfg: c.cfg }).then(r => { results[c.id + (c.side ? ':' + c.side : '')] = { r, c }; done++; setStatus('Sensitivity: ' + done + '/' + cases.length, done / cases.length); if (done === cases.length) finish(); else launch(w); }).catch(e => { toast('Sensitivity case failed: ' + e.message, 'error'); done++; if (done === cases.length) finish(); else launch(w); });
+      w.send({ type: 'sensitivityCase', cfg: c.cfg }).then(r => { if (stopped) return; results[c.id + (c.side ? ':' + c.side : '')] = { r, c }; done++; setStatus('Sensitivity: ' + done + '/' + cases.length, done / cases.length); if (done === cases.length) finish(); else launch(w); }).catch(e => { if (stopped) return; toast('Sensitivity case failed: ' + e.message, 'error'); done++; if (done === cases.length) finish(); else launch(w); });
     };
     const finish = () => {
       cancelAll();

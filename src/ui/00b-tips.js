@@ -133,6 +133,7 @@ const TIPS = {
   viewSens: 'Shows which inputs drive the results most: each input is moved to the low and high end of its plausible range and the resulting change in warpage, die stress and bump fatigue is drawn as a tornado chart, biggest effect on top.',
   viewVerify: 'Runs built-in benchmark tests (V1 to V15) that check the solver against textbook solutions, independent calculations and common-sense trends, so you can confirm the physics engine works correctly in your browser.',
   viewReport: 'Printable report and CSV export.',
+  restoreAnalysis: 'Re-runs the analysis behind these results with the configuration, mesh preset and worker count they were computed with, so other temperatures and the bump submodels work again.',
   tempSelect: 'Evaluation temperature of the displayed state. States between computed samples are interpolated linearly in temperature.',
   overlay: 'Field drawn on the floorplan: warpage of the substrate bottom or top, die stress, bump forces at chip join or as assembled, or the fatigue screening index.',
   cutAxis: 'Direction of the cross-section line A-A\' drawn under the floorplan.',

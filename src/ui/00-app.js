@@ -41,7 +41,7 @@ const maxWorkers = () => Math.max(1, Math.floor((navigator.hardwareConcurrency |
 const app = {
   cfg: null, results: null, baseline: null, fieldsCache: new Map(), screening: null, submodels: [], sensitivity: null, verification: null,
   step: 1, centerTab: 'floorplan', selectedDie: 0, resultsView: 'warpage', selectedT: 25, exaggeration: 5, cutLine: { axis: 'x', pos: 0 },
-  running: null, mesh: null, validation: { errors: [], warnings: [] }, geom: null, dirty: true,
+  job: null, analysisLost: false, mesh: null, validation: { errors: [], warnings: [] }, geom: null, dirty: true,
   workers: Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1, maxWorkers())), nestedWorkers: true,
   decisions: [], showOverlay: 'warpage', cutDirty: true,
   colorMap: prefs.get('colorMap', 'rainbow') === 'colorblind' ? 'colorblind' : 'rainbow',  // contour colours: rainbow or colorblind-safe
@@ -182,6 +182,12 @@ class WorkerClient {
     for (const p of this.pending.values()) p.reject(new Error('cancelled'));
     this.pending.clear();
     this.start();
+  }
+  /** Terminate for good (one-shot side workers); idempotent. */
+  stop() {
+    for (const p of this.pending.values()) p.reject(new Error('cancelled'));
+    this.pending.clear();
+    if (this.worker) { this.worker.terminate(); this.worker = null; }
   }
 }
 const worker = new WorkerClient();

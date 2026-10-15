@@ -2,7 +2,7 @@
 
 ## Project status (read this first)
 
-The build specification that follows (from "Build Prompt" onward) has been **implemented in full** and merged to `main` through nineteen pull requests (three of code and two of documentation for the build, then UI updates, two materials database passes, a parallel-worker setting, a legend fix, a glossary, UX refinements, a cancel fix, a cross-section stress view and status updates requested by the user). A new session should treat it as the reference design of an existing, working application, not as a task to start.
+The build specification that follows (from "Build Prompt" onward) has been **implemented in full** and merged to `main` through twenty pull requests (three of code and two of documentation for the build, then UI updates, two materials database passes, a parallel-worker setting, a legend fix, a glossary, UX refinements, a cancel fix, a cross-section stress view and status updates requested by the user). A new session should treat it as the reference design of an existing, working application, not as a task to start.
 
 | PR | Merged | Content |
 |---|---|---|
@@ -25,6 +25,7 @@ The build specification that follows (from "Build Prompt" onward) has been **imp
 | #17 | 2026-10-13 | Cancelling a job no longer strands the results: verification, mesh check and core study run on a one-shot side worker; cancelling a main-worker job shows a notice with Restore analysis instead of "No analysis in memory"; cancel with nothing running keeps the analysis; a cancelled sensitivity run reports no false failures |
 | #18 | 2026-10-14 | Documentation: PRs 16 and 17 added to the status tables |
 | #19 | 2026-10-14 | Cross-section stress view: click a horizontal or vertical line on the package and see any stress component (invariants, package-axis and line-frame components) on the vertical cut under it, from the top solder resist to the package top; zoom, element mesh overlay, bump-layer phase toggle, vertical scale, hover readout and CSV export; solder resist sub-layer stress recovered with out-of-plane stresses continuous through the band |
+| #20 | 2026-10-14 | Documentation: PRs 18 and 19 added to the status tables; from now on each PR adds its own row before it merges, with no separate status PR |
 
 Current state on `main`:
 
@@ -52,7 +53,7 @@ Current state on `main`:
   - Materials database additions that leave the defaults unchanged: V13, V14 and a check that every material evaluates (finite E(T), CTE(T) and stiffness from -80 to 300 °C).
   - Documentation only: no checks.
   Syntax: `node tools/verify.mjs V1,V2,V13` runs a subset; the smoke test uses Playwright and Chromium, with three.js served from a local stub because CDNs are blocked in the cloud sandbox.
-- **Status tables**: whenever a pull request merges (including one merged at the user's request during a session), update the status tables without being asked: open a documentation PR from a fresh branch off `main` that adds the merged PR to the table above and to the README table, updates the pull request count in both intro sentences, and refreshes "Current state" where it changed (suite result, timings, deliverable size). Use the merge date as the merge commit records it (`git log -1 --format=%cd --date=short <merge sha>`, the user's local time). A PR that only updates the status tables does not trigger another update of its own; it is listed with the next one, so the chain ends.
+- **Status tables**: every pull request updates the status tables itself, in the same PR; never open a separate documentation PR for them. Just before merging (including a merge the user asks for during a session), push a last commit to the PR branch that adds the PR's own row to the table above and to the README table, updates the pull request count in both intro sentences, and refreshes "Current state" where it changed (suite result, timings, deliverable size); then merge. Use the merge date in the user's local time (the merge commits record UTC-7: `TZ=America/Los_Angeles date +%F` at merge time); if the merge commit records another date (`git log -1 --format=%cd --date=short <merge sha>`), correct the row in the next PR.
 - **Git**: develop on the designated feature branch, open a pull request to `main`, and keep each PR focused. The repository has no CI workflows; the headless suite and the smoke test are the gate.
 - **Writing style** in UI copy, tooltips, comments and documentation: plain language, no em dashes (use commas or semicolons), units on every number, confidence labels on every result.
 

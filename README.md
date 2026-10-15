@@ -17,7 +17,7 @@ Workflow (left stepper):
 3. **Underfill, lid, stiffener** geometry.
 4. **Materials**: the cited database (101 materials, see "Materials database" below) with confidence badges, datasheet ranges, source tooltips, E(T) and CTE(T) plots, duplicate / reset.
 5. **Process and loads**: stress-free temperatures, reflow sweep, JESD22-A104 cycling, limits and fatigue constants.
-6. **Run and results**: fidelity preset, parallel worker count with the memory estimate, estimated DOF / memory / runtime, run controls, baseline pinning, mesh sensitivity check, the list of Estimated inputs in use, CSV export and printable report. Results views (center area): warpage (JEITA ED-7306 sign convention), die stress, bump loading, underfill interface tractions, solder fatigue screening and bump submodels, 3D view, sensitivity tornado charts, verification suite.
+6. **Run and results**: fidelity preset, parallel worker count with the memory estimate, estimated DOF / memory / runtime, run controls, baseline pinning, mesh sensitivity check, the list of Estimated inputs in use, CSV export and printable report. Results views (center area): warpage (JEITA ED-7306 sign convention), die stress, bump loading, underfill interface tractions, cross-section stress (click a horizontal or vertical line on the package and see any stress component on the vertical cut under it, from the top solder resist to the package top, zoomable, with an element mesh overlay and a CSV export), solder fatigue screening and bump submodels, 3D view, sensitivity tornado charts, verification suite.
 
 Every pane can be resized by dragging: the step list and the context panel (vertical splitters), the split between the floorplan and the cross-section, the 3D view (grip below it), and each plot or map (drag its bottom edge). Fields, dropdowns, tables and plots follow the new size; double-click a splitter or edge to restore its default. A narrow step list shows step numbers only.
 
@@ -226,7 +226,7 @@ Sources were read directly where the publisher allows it: manufacturer data shee
 | `src/core/14-sensitivity.js`, `15-verify.js` | Tornado inputs, bounds and cases; verification tests V1 to V15 |
 | `src/worker.js` | Worker driver and nested helper workers (parallel sweep and submodels) |
 | `src/ui/00-app.js`, `00b-tips.js`, `00c-layout.js`, `00d-glossary.js`, `01-plot.js` | App state, worker client, field helpers, tooltip dictionary and element, resizable panes and plot edge grips, glossary and automatic term linking, 2D plots and colour maps |
-| `src/ui/02-floorplan.js`, `03-panels.js`, `04-results.js`, `05-main.js` | Floorplan and cross-section editor, the six step panels, results views and report, shell and wiring |
+| `src/ui/02-floorplan.js`, `03-panels.js`, `04-results.js`, `04b-section.js`, `05-main.js` | Floorplan and cross-section editor, the six step panels, results views and report, the cross-section stress view, shell and wiring |
 | `tools/build.mjs` | Concatenates `src/` into the single HTML file |
 | `tools/verify.mjs` | Extracts the core block from the built file and runs the suite in Node |
 | `tools/smoke.mjs`, `tools/three-stub.js` | Playwright / Chromium end-to-end test, with a local three.js API stub for sandboxes that block CDNs |

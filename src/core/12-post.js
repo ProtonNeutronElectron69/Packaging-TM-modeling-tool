@@ -371,6 +371,127 @@ function ufTractions(model, geom, dieIdx, T, stage, u) {
   return { die: d.name, s: Float64Array.from(s), x: Float64Array.from(px), y: Float64Array.from(py), peelSide: Float64Array.from(peelSide), shearSide: Float64Array.from(shearSide), peelFace: Float64Array.from(peelFace), shearFace: Float64Array.from(shearFace), corners, maxPeelSide: mx(peelSide), maxShearSide: mx(shearSide), maxPeelFace: mx(peelFace), maxShearFace: mx(shearFace), T };
 }
 
+/**
+ * Stress in one sub-layer of a layered substrate element at (xi, eta, zeta),
+ * recovered as in laminate theory: the in-plane strains are the element's, while
+ * the out-of-plane stresses (szz, tyz, txz) are continuous through the band and
+ * equal to their thickness average over the sub-layers. The layered integration
+ * gives every sub-layer the element's out-of-plane strain (iso-strain), which is
+ * right for the band's stiffness but not for one sub-layer's stress (a thin soft
+ * layer would show the szz of its stiff neighbours). With sigma_V the iso-strain
+ * stress of the sub-layer and o = (zz, yz, xz), p = (xx, yy, xy):
+ * d_eps_o = D_oo^-1 (sigma_o,avg - sigma_V,o), sigma_p = sigma_V,p + D_po d_eps_o.
+ */
+function layeredPointStress(model, e, T, stage, q, xi, eta, zeta, st) {
+  const mesh = model.mesh, k = mesh.eIJK[3 * e + 2];
+  const sec = model.sections[mesh.subBand[k]], z0 = mesh.zs[k], hz = mesh.zs[k + 1] - z0;
+  const O = [2, 4, 5], Pp = [0, 1, 3];
+  const avg = [0, 0, 0];
+  for (const [za, zb] of sec.subZ) {
+    model.pointStress(e, T, stage, q, xi, eta, (za + zb - 2 * z0) / hz - 1, st);
+    for (let r = 0; r < 3; r++) avg[r] += (zb - za) / hz * st.sig[O[r]];
+  }
+  model.pointStress(e, T, stage, q, xi, eta, zeta, st);
+  const D = model._D, Doo = new Float64Array(9), inv = new Float64Array(9);
+  for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) Doo[3 * r + c] = D[6 * O[r] + O[c]];
+  inv3(Doo, inv);
+  const r0 = avg[0] - st.sig[2], r1 = avg[1] - st.sig[4], r2 = avg[2] - st.sig[5];
+  const de = [inv[0] * r0 + inv[1] * r1 + inv[2] * r2, inv[3] * r0 + inv[4] * r1 + inv[5] * r2, inv[6] * r0 + inv[7] * r1 + inv[8] * r2];
+  for (const p of Pp) st.sig[p] += D[6 * p + 2] * de[0] + D[6 * p + 4] * de[1] + D[6 * p + 5] * de[2];
+  for (let r = 0; r < 3; r++) st.sig[O[r]] = avg[r];
+  return st;
+}
+
+/**
+ * Stress on the vertical cut plane under a horizontal (cut.axis 'x') or
+ * vertical (cut.axis 'y') floorplan line from cut.a0 to cut.a1 at the
+ * crossing coordinate cut.c, from the bottom of the top solder resist up to
+ * the package top. Recovery follows Section 7.1: in every element the plane
+ * cuts, the stress is sampled at the 2 x 2 Gauss positions of the cut face
+ * (at the plane's position across the element) and extrapolated bilinearly
+ * to the face corners; corner values are averaged only among elements of the
+ * same group (material), never across interfaces. In the layered substrate
+ * band only the solder resist sub-layer is sampled (layeredPointStress).
+ * Superposed bump-layer cells give one quad per phase (pair = 1).
+ * Quad corners run (s0, z0), (s1, z0), (s1, z1), (s0, z1); sig holds the six
+ * components xx, yy, zz, xy, yz, xz per corner.
+ */
+function sectionStress(model, geom, cut, T, stage, u) {
+  const mesh = model.mesh;
+  const alongY = cut.axis === 'y';
+  const along = alongY ? mesh.ys : mesh.xs, across = alongY ? mesh.xs : mesh.ys;
+  const lo = Math.max(Math.min(cut.a0, cut.a1), along[0]), hi = Math.min(Math.max(cut.a0, cut.a1), along[along.length - 1]);
+  if (!(hi - lo > CONST.SECTION_MIN_LENGTH)) throw new Error('The section line has no length inside the substrate.');
+  const c = clamp(cut.c, across[0], across[across.length - 1]);
+  const jc = findInterval(across, c);
+  const pc = clamp(2 * (c - across[jc]) / (across[jc + 1] - across[jc]) - 1, -1, 1);
+  const sl = [lo];
+  for (const v of along) if (v > lo + 1e-9 && v < hi - 1e-9) sl.push(v);
+  sl.push(hi);
+  const topRow = geom.sub.rows[geom.sub.rows.length - 1];
+  const zMin = topRow && topRow.row.type === 'sr' ? topRow.z0 : geom.zt;
+  const zl = [zMin];
+  for (const v of mesh.zs) if (v > zMin + 1e-9) zl.push(v);
+  const ns = sl.length, nzl = zl.length, nn = ns * nzl, ng = model.groups.length;
+  const acc = new Float64Array(ng * nn * 7);
+  const quads = [];
+  const q = new Float64Array(33), st = { eps: new Float64Array(6), sig: new Float64Array(6), mech: new Float64Array(6) };
+  const gp = new Float64Array(24), g = GP2;
+  const ncy = mesh.ny - 1, ncz = mesh.nz - 1;
+  for (let b = 0; b + 1 < nzl; b++) {
+    const k = findInterval(mesh.zs, 0.5 * (zl[b] + zl[b + 1]));
+    const hz = mesh.zs[k + 1] - mesh.zs[k];
+    const zeta = z => 2 * (z - mesh.zs[k]) / hz - 1;
+    for (let a = 0; a + 1 < ns; a++) {
+      const ia = findInterval(along, 0.5 * (sl[a] + sl[a + 1]));
+      const ha = along[ia + 1] - along[ia];
+      const nat = s => 2 * (s - along[ia]) / ha - 1;
+      const i = alongY ? jc : ia, j = alongY ? ia : jc;
+      const cell = (i * ncy + j) * ncz + k;
+      const e0 = mesh.cellElems[2 * cell], e1 = mesh.cellElems[2 * cell + 1];
+      for (const e of [e0, e1]) {
+        if (e < 0) continue;
+        const grp = mesh.eGroup[e], layered = model.groups[grp].kind === 'layered';
+        // sampled face: the whole element, or the solder resist sub-layer of a layered element
+        const zm = layered ? 0.5 * (zeta(zl[b]) + zeta(zl[b + 1])) : 0, zh = layered ? 0.5 * (zeta(zl[b + 1]) - zeta(zl[b])) : 1;
+        model.elementState(e, T, stage, u, q);
+        for (let pp = 0; pp < 2; pp++) for (let zz = 0; zz < 2; zz++) {
+          const p = (2 * pp - 1) * g, zt = zm + (2 * zz - 1) * g * zh;
+          if (layered) layeredPointStress(model, e, T, stage, q, alongY ? pc : p, alongY ? p : pc, zt, st);
+          else model.pointStress(e, T, stage, q, alongY ? pc : p, alongY ? p : pc, zt, st);
+          gp.set(st.sig, 6 * (2 * pp + zz));
+        }
+        const corners = [[a, b], [a + 1, b], [a + 1, b + 1], [a, b + 1]];
+        corners.forEach(([ca, cb]) => {
+          // bilinear through the Gauss values, in coordinates scaled so the Gauss points sit at -1 and +1
+          const P = nat(sl[ca]) / g, Z = (zeta(zl[cb]) - zm) / (g * zh);
+          const w = [(1 - P) * (1 - Z) / 4, (1 - P) * (1 + Z) / 4, (1 + P) * (1 - Z) / 4, (1 + P) * (1 + Z) / 4];
+          const o = (grp * nn + ca * nzl + cb) * 7;
+          for (let cc = 0; cc < 6; cc++) {
+            acc[o + cc] += w[0] * gp[cc] + w[1] * gp[6 + cc] + w[2] * gp[12 + cc] + w[3] * gp[18 + cc];
+          }
+          acc[o + 6]++;
+        });
+        quads.push({ a, b, e, grp, part: mesh.ePart[e], pair: e0 >= 0 && e1 >= 0 ? 1 : 0, cutBelow: zl[b] > mesh.zs[k] + 1e-12 ? 1 : 0 });
+      }
+    }
+  }
+  const n = quads.length, sig = new Float32Array(24 * n);
+  const out = { T, axis: alongY ? 'y' : 'x', c, a0: lo, a1: hi, zMin, zTop: zl[nzl - 1], zt: geom.zt, sl: Float64Array.from(sl), zl: Float64Array.from(zl), n,
+    qa: new Int32Array(n), qb: new Int32Array(n), part: new Int8Array(n), grp: new Int16Array(n), pair: new Int8Array(n), cutBelow: new Int8Array(n), sig };
+  quads.forEach((Q, t) => {
+    out.qa[t] = Q.a; out.qb[t] = Q.b; out.part[t] = Q.part; out.grp[t] = Q.grp; out.pair[t] = Q.pair; out.cutBelow[t] = Q.cutBelow;
+    [[Q.a, Q.b], [Q.a + 1, Q.b], [Q.a + 1, Q.b + 1], [Q.a, Q.b + 1]].forEach(([ca, cb], v) => {
+      const o = (Q.grp * nn + ca * nzl + cb) * 7;
+      for (let cc = 0; cc < 6; cc++) sig[24 * t + 6 * v + cc] = acc[o + cc] / acc[o + 6];
+    });
+  });
+  const lib = model.lib;
+  out.groups = model.groups.map(gr => ({ name: gr.name, part: gr.part,
+    material: gr.kind === 'layered' ? (topRow && topRow.row.type === 'sr' ? findMaterial(lib, topRow.row.mat).name : '') : (gr.material ? gr.material.name : '') }));
+  return out;
+}
+
 /** Boundary quads of the structured mesh for the 3D view: [n0 n1 n2 n3] per face plus part id. */
 function boundaryFaces(mesh) {
   const nx = mesh.nx, ny = mesh.ny, nz = mesh.nz, ncy = ny - 1, ncz = nz - 1;

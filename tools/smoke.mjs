@@ -48,10 +48,16 @@ if (args.includes('--full')) {
     console.log('submodels:', JSON.stringify(sub));
   }
   // render results views
-  for (const view of ['warpage', 'dieStress', 'bumps', 'uf', 'fatigue', 'view3d', 'report']) {
+  await page.evaluate(() => { app.section = { axis: 'x', c: 0, a0: -20, a1: 20 }; app.sectionMesh = true; });
+  for (const view of ['warpage', 'dieStress', 'bumps', 'uf', 'section', 'fatigue', 'view3d', 'report']) {
     await page.evaluate(v => { app.resultsView = v; setCenterTab('results'); }, view);
     await page.waitForTimeout(400);
   }
+  // cross-section stress: the worker answers the line set above, the view draws the contour
+  await page.evaluate(() => { app.resultsView = 'section'; setCenterTab('results'); });
+  await page.waitForFunction(() => app.sectionCache.size > 0, null, { timeout: 30000 });
+  await page.waitForTimeout(300);
+  console.log('cross-section:', JSON.stringify(await page.evaluate(() => { const d = app.sectionCache.values().next().value; return { quads: d.n, error: d.error || null, plots: document.querySelectorAll('#center-body canvas.map').length }; })));
   const v3 = await page.evaluate(() => ({ threeLoaded: typeof THREE !== 'undefined', stub: !!(window.THREE && window.THREE.__stub), renders: window.__stubRenders || 0, faces: app.results.view3d ? app.results.view3d.part.length : 0, hasView: !!document.getElementById('view3d') }));
   console.log('3D view:', JSON.stringify(v3));
   // exercise the 3D controls while the view is active: colour modes, exaggeration, part toggles

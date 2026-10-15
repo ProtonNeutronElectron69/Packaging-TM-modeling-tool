@@ -6,6 +6,7 @@ const CONFIDENCE = {
   corner: 'Comparative only; singular locations, mesh dependent.',
   bumps: 'Comparative only; use for ranking designs and locations.',
   fatigue: 'Comparative only; use for ranking designs and locations.',
+  section: 'Interior of dies and lids: moderate confidence. Corners, fillet edges and material interfaces: comparative only; singular locations, mesh dependent.',
 };
 
 function renderRunPanel(root) {
@@ -107,7 +108,7 @@ function runFull() {
   const request = { type: 'run', cfg: structuredClone(app.cfg), preset: app.cfg.mesh.preset, evaluations: 'full', workers: app.workers };
   startRun(Object.assign({}, request), 'Full global analysis').then(res => {
     res.request = request; app.analysisLost = false;
-    app.results = res; app.fieldsCache.clear(); app.currentFields = res.at25; app.selectedT = 25; app.dirty = false;
+    app.results = res; app.fieldsCache.clear(); app.sectionCache.clear(); app.sectionDraft = null; app.currentFields = res.at25; app.selectedT = 25; app.dirty = false;
     app.screening = res.screening || null; app.submodels = [];
     setCenterTab('results'); renderAll();
     toast('Analysis complete in ' + fmt(res.totalMs / 1000, 1) + ' s (' + res.meshInfo.nDof + ' DOF, ' + res.workers + ' worker' + (res.workers > 1 ? 's' : '') + ').', 'ok');
@@ -118,7 +119,7 @@ function runPreview() {
   const request = { type: 'run', cfg: structuredClone(app.cfg), preset: 'draft', evaluations: 'preview' };
   startRun(Object.assign({}, request), 'Draft preview').then(res => {
     res.preview = true; res.request = request; app.analysisLost = false;
-    app.results = res; app.fieldsCache.clear(); app.currentFields = res.at25; app.selectedT = 25;
+    app.results = res; app.fieldsCache.clear(); app.sectionCache.clear(); app.sectionDraft = null; app.currentFields = res.at25; app.selectedT = 25;
     floorplan.draw();
     renderContext();
   }).catch(err => { if (err.message !== 'cancelled') toast('Preview failed: ' + err.message, 'error'); });
@@ -200,7 +201,7 @@ function runCoreStudy() {
 }
 
 // ---- results views in the center area ----
-const RESULT_VIEWS = [['warpage', 'Warpage', 'viewWarpage'], ['dieStress', 'Die stress', 'viewDieStress'], ['bumps', 'Bump loading', 'viewBumps'], ['uf', 'Underfill interface', 'viewUf'], ['fatigue', 'Solder fatigue', 'viewFatigue'], ['view3d', '3D view', 'view3d'], ['sensitivity', 'Sensitivity', 'viewSens'], ['verification', 'Verification', 'viewVerify'], ['report', 'Report', 'viewReport']];
+const RESULT_VIEWS = [['warpage', 'Warpage', 'viewWarpage'], ['dieStress', 'Die stress', 'viewDieStress'], ['bumps', 'Bump loading', 'viewBumps'], ['uf', 'Underfill interface', 'viewUf'], ['section', 'Cross-section stress', 'viewSection'], ['fatigue', 'Solder fatigue', 'viewFatigue'], ['view3d', '3D view', 'view3d'], ['sensitivity', 'Sensitivity', 'viewSens'], ['verification', 'Verification', 'viewVerify'], ['report', 'Report', 'viewReport']];
 
 function renderResults(root) {
   const res = app.results;
@@ -217,6 +218,7 @@ function renderResults(root) {
     case 'dieStress': renderDieStressView(root, res, f, Tsel); break;
     case 'bumps': renderBumpView(root, res, f, Tsel); break;
     case 'uf': renderUFView(root, res, f, Tsel); break;
+    case 'section': renderSectionView(root, res, f, Tsel); break;
     case 'fatigue': renderFatigueView(root, res); break;
     case 'view3d': renderView3D(root, res, f, Tsel); break;
     case 'sensitivity': renderSensitivityView(root); break;

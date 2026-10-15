@@ -12,10 +12,14 @@ const STEPS = [
 // Material data quality in the selection lists: names coloured by the number of Estimated values
 // (green none, orange up to MAT_TIER_SOME, red more) and sorted from fewest to most.
 const MAT_TIER_SOME = 4;
-/** Number of parameters of a material still flagged Estimated (elastic, CTE, cure, solidus, Anand); user edits count as sourced. */
+// Widths of the smoothed glass transition (modulus sigmoid w, CTE knee delta) are curve-shape settings, not
+// counted: doubling them all moves room-temperature and peak reflow warpage and die stress by under 0.5 %, and
+// warpage within a few degrees of a Tg (150 degC on the default package) by about 5 %.
+const MAT_SMOOTHING_PARAM = /(^|\.)(w|delta)$/;
+/** Number of material properties still flagged Estimated (elastic, CTE, cure, solidus, Anand); user edits count as sourced. */
 function materialEstimateCount(m) {
   let n = 0;
-  C.forEachParam({ elastic: m.elastic, cte: m.cte, cteXY: m.cteXY, cteZ: m.cteZ, cure: m.cure, solidus: m.solidus ? { solidus: m.solidus } : null, anand: m.anand }, p => { if ((p.c || 'Estimated') === 'Estimated') n++; });
+  C.forEachParam({ elastic: m.elastic, cte: m.cte, cteXY: m.cteXY, cteZ: m.cteZ, cure: m.cure, solidus: m.solidus ? { solidus: m.solidus } : null, anand: m.anand }, (p, path) => { if ((p.c || 'Estimated') === 'Estimated' && !MAT_SMOOTHING_PARAM.test(path)) n++; });
   if (m.elastic && m.elastic.E && m.elastic.E.type === 'table' && m.elastic.E.c === 'Estimated') n++;
   return n;
 }

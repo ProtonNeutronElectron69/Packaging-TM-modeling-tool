@@ -6835,7 +6835,7 @@ const TIPS = {
   footH: 'Derived: standoff + max die thickness + TIM BLT − adhesive thickness.',
   bltDie: 'Derived TIM bond line over this die (thicker for thinner dies).',
   // ---- step 4 ----
-  matTier: 'Colour shows how many of a material\'s values are placeholders flagged Estimated (no published source): green none, orange 1 to 4, red 5 or more. The count is in brackets, and each list runs from fewest to most, so the best-documented choices come first. Edited values count as sourced.',
+  matTier: 'Colour shows how many of a material\'s values are placeholders flagged Estimated (no published source): green none, orange 1 to 4, red 5 or more. The count is in brackets, and each list runs from fewest to most, so the best-documented choices come first. Edited values count as sourced; the widths that smooth the glass transition are not counted, since they barely affect results.',
   matSelect: 'Pick a material to inspect or edit. ● marks materials used by the current configuration.',
   matDup: 'Create an editable copy of this material (for variants or what-if studies).',
   matReset: 'Restore every property of this material to the database default.',
@@ -8005,10 +8005,14 @@ const STEPS = [
 // Material data quality in the selection lists: names coloured by the number of Estimated values
 // (green none, orange up to MAT_TIER_SOME, red more) and sorted from fewest to most.
 const MAT_TIER_SOME = 4;
-/** Number of parameters of a material still flagged Estimated (elastic, CTE, cure, solidus, Anand); user edits count as sourced. */
+// Widths of the smoothed glass transition (modulus sigmoid w, CTE knee delta) are curve-shape settings, not
+// counted: doubling them all moves room-temperature and peak reflow warpage and die stress by under 0.5 %, and
+// warpage within a few degrees of a Tg (150 degC on the default package) by about 5 %.
+const MAT_SMOOTHING_PARAM = /(^|\.)(w|delta)$/;
+/** Number of material properties still flagged Estimated (elastic, CTE, cure, solidus, Anand); user edits count as sourced. */
 function materialEstimateCount(m) {
   let n = 0;
-  C.forEachParam({ elastic: m.elastic, cte: m.cte, cteXY: m.cteXY, cteZ: m.cteZ, cure: m.cure, solidus: m.solidus ? { solidus: m.solidus } : null, anand: m.anand }, p => { if ((p.c || 'Estimated') === 'Estimated') n++; });
+  C.forEachParam({ elastic: m.elastic, cte: m.cte, cteXY: m.cteXY, cteZ: m.cteZ, cure: m.cure, solidus: m.solidus ? { solidus: m.solidus } : null, anand: m.anand }, (p, path) => { if ((p.c || 'Estimated') === 'Estimated' && !MAT_SMOOTHING_PARAM.test(path)) n++; });
   if (m.elastic && m.elastic.E && m.elastic.E.type === 'table' && m.elastic.E.c === 'Estimated') n++;
   return n;
 }

@@ -210,6 +210,13 @@
           post({ type: 'result', id, payload: f });
           break;
         }
+        case 'section': {
+          if (!state.an) throw new Error('No analysis in memory; run the analysis first.');
+          const an = state.an;
+          const u = an.fields.has(msg.T) ? an.fields.get(msg.T) : an.fieldAt(msg.T);
+          post({ type: 'result', id, payload: sectionStress(an.model, an.mesh.geom, msg.cut, msg.T, an.finalStage, u) });
+          break;
+        }
         case 'submodel': {
           if (!state.an) throw new Error('No analysis in memory; run the analysis first.');
           const sm = new BumpSubmodel(state.an, msg.die, msg.site, { nxy: msg.nxy, nz: msg.nz, progress: (f, m) => progress(id, f, m) });

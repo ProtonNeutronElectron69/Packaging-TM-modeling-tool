@@ -60,6 +60,7 @@ const CONST = Object.freeze({
   PATCH_SAMPLES: 5,          // samples per side inside a patch
   TRACTION_PATCH: 0.05,      // mm, 50 um x 50 um underfill traction patch
   TRACTION_SAMPLES: 3,
+  SECTION_MIN_LENGTH: 0.01, // mm, shortest section line
   DIAG_SAMPLES: 201,
   SIGN_MARGINAL: 0.25,       // |AB_max + AB_min + CD_max + CD_min| / |C| below this flags a marginal JEITA sign
   GF_PER_N: 101.97162,

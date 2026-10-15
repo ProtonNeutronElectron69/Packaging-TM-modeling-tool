@@ -44,6 +44,8 @@ const app = {
   job: null, analysisLost: false, mesh: null, validation: { errors: [], warnings: [] }, geom: null, dirty: true,
   workers: Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1, maxWorkers())), nestedWorkers: true,
   decisions: [], showOverlay: 'warpage', cutDirty: true,
+  // cross-section stress view: line {axis, c, a0, a1}, first click while drawing, display options, worker results by temperature and line
+  section: null, sectionDraft: null, sectionQty: 'vm', sectionPhase: 'uf', sectionMesh: false, sectionExag: 'fit', sectionRange: 'all', sectionResize: false, sectionCache: new Map(), sectionPending: null,
   colorMap: prefs.get('colorMap', 'rainbow') === 'colorblind' ? 'colorblind' : 'rainbow',  // contour colours: rainbow or colorblind-safe
 };
 
@@ -128,7 +130,7 @@ function numField(label, get, set, opts) {
     else inp.setAttribute('data-tip', (opts.min !== undefined || opts.max !== undefined) ? 'Allowed ' + (opts.min !== undefined ? opts.min * scale : '…') + ' to ' + (opts.max !== undefined ? opts.max * scale : '…') + (opts.plo !== undefined ? '; usual ' + opts.plo * scale + ' to ' + opts.phi * scale : '') : '');
     return true;
   };
-  inp.addEventListener('change', () => { if (check()) { set(parseFloat(inp.value) / scale); onConfigChanged(opts.section || 'geometry'); } });
+  inp.addEventListener('change', () => { if (check()) { set(parseFloat(inp.value) / scale); if (opts.onSet) opts.onSet(); else onConfigChanged(opts.section || 'geometry'); } });
   check();
   wrap.refresh = () => { inp.value = fmtInput(get() * scale, opts.digits); check(); };
   return wrap;

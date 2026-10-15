@@ -138,8 +138,10 @@ function numField(label, get, set, opts) {
 function fmtInput(v, digits) { if (!isFinite(v)) return ''; const s = Number(v.toPrecision(digits || 6)); return String(s); }
 function selectField(label, get, set, options, opts) {
   opts = opts || {};
-  const sel = h('select', null, ...options.map(o => h('option', { value: o.value, selected: o.value === String(get()) ? '' : null }, o.label)));
-  sel.addEventListener('change', () => { set(sel.value); onConfigChanged(opts.section || 'geometry'); });
+  const tiered = options.some(o => o.cls);  // material lists: options coloured by data quality (materialOptions)
+  const sel = h('select', tiered ? tip('matTier') : null, ...options.map(o => h('option', Object.assign({ value: o.value, selected: o.value === String(get()) ? '' : null }, o.cls ? { class: o.cls } : {}), o.label)));
+  if (tiered) paintMaterialSelect(sel);
+  sel.addEventListener('change', () => { if (tiered) paintMaterialSelect(sel); set(sel.value); onConfigChanged(opts.section || 'geometry'); });
   return h('div', { class: 'field' }, h('label', null, label, help(opts.help)), sel, h('span', { class: 'unit' }, opts.unit || ''));
 }
 function checkField(label, get, set, opts) {

@@ -29,7 +29,7 @@ Configurations are saved and loaded as JSON files. `localStorage` holds only con
 
 ## Project status
 
-The specification in `CLAUDE.md` is implemented in full. Twenty pull requests are merged on `main`:
+The specification in `CLAUDE.md` is implemented in full. Twenty-one pull requests are merged on `main`:
 
 | PR | Merged | Content |
 |---|---|---|
@@ -53,6 +53,7 @@ The specification in `CLAUDE.md` is implemented in full. Twenty pull requests ar
 | [#18](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/18) | 2026-10-14 | Documentation: PRs 16 and 17 added to the status tables |
 | [#19](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/19) | 2026-10-14 | Cross-section stress view: click a horizontal or vertical line on the package and see any stress component (invariants, package-axis and line-frame components) on the vertical cut under it, from the top solder resist to the package top; zoom, element mesh overlay, bump-layer phase toggle, vertical scale, hover readout and CSV export; solder resist sub-layer stress recovered with out-of-plane stresses continuous through the band |
 | [#20](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/20) | 2026-10-14 | Documentation: PRs 18 and 19 added to the status tables; from now on each PR adds its own row before it merges, with no separate status PR |
+| [#21](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/21) | 2026-10-15 | Material dropdowns in steps 1 to 3 sorted from fewest to most Estimated values and coloured green (none), orange (1 to 4) or red (5 or more), with the count in brackets and a legend; the glass-transition smoothing widths are not counted (doubling them moves RT and peak warpage and die stress by under 0.5 %) |
 
 Open items are listed under "Known issues and next steps" below. The largest is performance against the Section 13 targets.
 

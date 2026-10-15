@@ -82,6 +82,7 @@ const TIPS = {
   footH: 'Derived: standoff + max die thickness + TIM BLT − adhesive thickness.',
   bltDie: 'Derived TIM bond line over this die (thicker for thinner dies).',
   // ---- step 4 ----
+  matTier: 'Colour shows how many of a material\'s values are placeholders flagged Estimated (no published source): green none, orange 1 to 4, red 5 or more. The count is in brackets, and each list runs from fewest to most, so the best-documented choices come first. Edited values count as sourced.',
   matSelect: 'Pick a material to inspect or edit. ● marks materials used by the current configuration.',
   matDup: 'Create an editable copy of this material (for variants or what-if studies).',
   matReset: 'Restore every property of this material to the database default.',

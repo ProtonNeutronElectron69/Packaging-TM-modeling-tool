@@ -9,8 +9,34 @@ const STEPS = [
   { n: 6, label: 'Run and results', render: renderRunPanel },
 ];
 
+// Material data quality in the selection lists: names coloured by the number of Estimated values
+// (green none, orange up to MAT_TIER_SOME, red more) and sorted from fewest to most.
+const MAT_TIER_SOME = 4;
+/** Number of parameters of a material still flagged Estimated (elastic, CTE, cure, solidus, Anand); user edits count as sourced. */
+function materialEstimateCount(m) {
+  let n = 0;
+  C.forEachParam({ elastic: m.elastic, cte: m.cte, cteXY: m.cteXY, cteZ: m.cteZ, cure: m.cure, solidus: m.solidus ? { solidus: m.solidus } : null, anand: m.anand }, p => { if ((p.c || 'Estimated') === 'Estimated') n++; });
+  if (m.elastic && m.elastic.E && m.elastic.E.type === 'table' && m.elastic.E.c === 'Estimated') n++;
+  return n;
+}
+function materialHandbookCount(m) { let n = 0; C.forEachParam({ elastic: m.elastic, cte: m.cte, cteXY: m.cteXY, cteZ: m.cteZ, solidus: m.solidus ? { solidus: m.solidus } : null }, p => { if (p.c === 'Handbook') n++; }); return n; }
+function materialTierClass(n) { return n === 0 ? 'mat-good' : n <= MAT_TIER_SOME ? 'mat-some' : 'mat-many'; }
+
+/** Options for a material dropdown: fewest Estimated values first (then fewest Handbook values, then database order), coloured by tier. */
 function materialOptions(category) {
-  return app.cfg.materials.filter(m => !category || (Array.isArray(category) ? category.includes(m.category) : m.category === category)).map(m => ({ value: m.id, label: m.name + (m.modified ? ' (modified)' : '') }));
+  return app.cfg.materials.filter(m => !category || (Array.isArray(category) ? category.includes(m.category) : m.category === category))
+    .map((m, i) => ({ m, i, est: materialEstimateCount(m), hb: materialHandbookCount(m) }))
+    .sort((a, b) => a.est - b.est || a.hb - b.hb || a.i - b.i)
+    .map(({ m, est }) => ({ value: m.id, label: m.name + (m.modified ? ' (modified)' : '') + ' (' + est + ' est.)', cls: materialTierClass(est) }));
+}
+/** Colour a material select like its chosen option. */
+function paintMaterialSelect(sel) {
+  const o = sel.options[sel.selectedIndex];
+  sel.classList.remove('mat-good', 'mat-some', 'mat-many');
+  if (o && o.className) sel.classList.add(o.className);
+}
+function materialTierLegend() {
+  return h('div', tip('matTier', { class: 'small muted mat-legend' }), 'Material names: ', h('span', { class: 'mat-good' }, 'green, no estimated values'), '; ', h('span', { class: 'mat-some' }, 'orange, 1 to ' + MAT_TIER_SOME), '; ', h('span', { class: 'mat-many' }, 'red, ' + (MAT_TIER_SOME + 1) + ' or more'), '. Lists run from fewest to most estimated values.');
 }
 
 /** Property groups of a solder that still hold Estimated (placeholder) values: elastic, CTE, solidus, Anand. */
@@ -34,6 +60,7 @@ function renderPackagePanel(root) {
   root.append(numField('Size x', () => cfg.substrate.sx, v => { cfg.substrate.sx = v; }, { unit: 'mm', min: 1, max: 150, plo: 5, phi: 110, help: 'sx' }));
   root.append(numField('Size y', () => cfg.substrate.sy, v => { cfg.substrate.sy = v; }, { unit: 'mm', min: 1, max: 150, plo: 5, phi: 110, help: 'sy' }));
   root.append(h('h3', null, 'Layer stack (top to bottom)'));
+  root.append(materialTierLegend());
   const gen = { n: 6, dielT: 25, cuT: 15, coreT: 800, srT: 20, pth: 2, rPlane: 0.75, rSignal: 0.45 };
   const genRow = h('div', { class: 'card' }, h('h4', null, 'Generate N-2-N stack'),
     h('div', { class: 'row small' }, 'N ', h('input', tip('genN', { type: 'number', value: 6, class: 'grow', onchange: e => { gen.n = +e.target.value; } })), ' dielectric µm ', h('input', tip('genDiel', { type: 'number', value: 25, class: 'grow', onchange: e => { gen.dielT = +e.target.value; } })), ' Cu µm ', h('input', tip('genCu', { type: 'number', value: 15, class: 'grow', onchange: e => { gen.cuT = +e.target.value; } }))),
@@ -47,7 +74,8 @@ function renderPackagePanel(root) {
     const typeSel = h('select', { onchange: e => { changeRowType(r, e.target.value); onConfigChanged('geometry', { released: true }); renderContext(); } }, ...['sr', 'cu', 'diel', 'core'].map(t => h('option', { value: t, selected: r.type === t ? '' : null }, { sr: 'solder resist', cu: 'Cu pattern', diel: 'dielectric', core: 'core' }[t])));
     const matCat = r.type === 'sr' ? 'resist' : (r.type === 'core' ? 'core' : 'buildup');
     const matKey = r.type === 'cu' ? 'fill' : 'mat';
-    const matSel = h('select', { onchange: e => { r[matKey] = e.target.value; onConfigChanged('materials'); } }, ...materialOptions(matCat).map(o => h('option', { value: o.value, selected: r[matKey] === o.value ? '' : null }, o.label)));
+    const matSel = h('select', tip('matTier', { onchange: e => { r[matKey] = e.target.value; paintMaterialSelect(e.target); onConfigChanged('materials'); } }), ...materialOptions(matCat).map(o => h('option', { value: o.value, class: o.cls, selected: r[matKey] === o.value ? '' : null }, o.label)));
+    paintMaterialSelect(matSel);
     const tIn = h('input', { type: 'number', step: 1, value: fmtInput(r.t * 1000), onchange: e => { r.t = +e.target.value / 1000; onConfigChanged('geometry', { released: true }); } });
     let frac = h('span');
     if (r.type === 'cu') frac = h('input', { type: 'number', step: 0.05, min: 0, max: 1, value: r.r, 'data-tip': HELP.residual, onchange: e => { r.r = Math.min(1, Math.max(0, +e.target.value)); onConfigChanged('materials'); } });
@@ -119,6 +147,7 @@ function renderDiesPanel(root) {
   root.append(numField('SRO diameter', () => d.bump.sro, v => { d.bump.sro = v; }, { unit: 'µm', scale: 1000, min: 0.005, max: 1, help: 'sro' }));
   root.append(numField('Maximum bump diameter', () => d.bump.dmax, v => { d.bump.dmax = v; }, { unit: 'µm', scale: 1000, min: 0.005, max: 1.5, help: 'dmax' }));
   root.append(h('h4', null, 'Package-global bump technology'));
+  root.append(materialTierLegend());
   root.append(numField('Standoff height', () => cfg.bump.standoff, v => { cfg.bump.standoff = v; }, { unit: 'µm', scale: 1000, min: 0.02, max: 0.2, help: 'standoff' }));
   root.append(selectField('Solder alloy', () => cfg.bump.solder, v => { cfg.bump.solder = v; const est = solderEstimatedGroups(C.findMaterial(cfg.materials, v)); if (est.length) toast('The ' + C.findMaterial(cfg.materials, v).name + ' data include placeholder values flagged Estimated (' + est.join(', ') + '). Replace them in the Materials step before relying on fatigue or bump results.', 'warn', 9000); }, materialOptions('solder'), { section: 'materials', help: 'solder' }));
   const gd = app.geom && app.geom.dies[app.selectedDie];
@@ -130,6 +159,7 @@ function renderDiesPanel(root) {
 function renderConstructPanel(root) {
   const cfg = app.cfg;
   root.append(h('h2', null, '3. Underfill, lid, stiffener'));
+  root.append(materialTierLegend());
   root.append(h('h3', null, 'Capillary underfill'));
   root.append(selectField('Material', () => cfg.underfill.mat, v => { cfg.underfill.mat = v; }, materialOptions('underfill'), { section: 'materials', help: 'ufMat' }));
   root.append(numField('Fillet width W_f', () => cfg.underfill.Wf, v => { cfg.underfill.Wf = v; }, { unit: 'mm', min: 0.05, max: 5, plo: 0.3, phi: 2, help: 'Wf' }));

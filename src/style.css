@@ -175,3 +175,9 @@ td input[type=number], td input[type=text] { field-sizing: content; min-width: 4
 .gl-entry:nth-child(odd) { background: var(--panel2); }
 .gl-entry.gl-hit { outline: 2px solid var(--accent); }
 @media (max-width: 700px) { .gl-entry { grid-template-columns: 1fr; gap: 2px; } }
+.mat-good { color: var(--ok); } .mat-some { color: var(--warn); } .mat-many { color: var(--err); }
+/* .field select resets the colour with higher specificity; repeat it for material selects */
+select.mat-good { color: var(--ok); } select.mat-some { color: var(--warn); } select.mat-many { color: var(--err); }
+select.mat-good, select.mat-some, select.mat-many { font-weight: 600; }
+option.mat-good, option.mat-some, option.mat-many { font-weight: 600; }
+.mat-legend { margin: 2px 0 6px; }

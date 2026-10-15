@@ -29,7 +29,7 @@ Configurations are saved and loaded as JSON files. `localStorage` holds only con
 
 ## Project status
 
-The specification in `CLAUDE.md` is implemented in full. Seventeen pull requests are merged on `main`:
+The specification in `CLAUDE.md` is implemented in full. Nineteen pull requests are merged on `main`:
 
 | PR | Merged | Content |
 |---|---|---|
@@ -50,6 +50,8 @@ The specification in `CLAUDE.md` is implemented in full. Seventeen pull requests
 | [#15](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/15) | 2026-10-13 | Colour-scale end labels to 4 significant figures (scientific notation below 1); die corners numbered 1 to 4 clockwise from the bottom-right corner everywhere (underfill perimeter plots, die stress map and patches); line key on the die stress map; verification criteria shown before a run with a plain-language description of each test; explainer tooltips on the fatigue, sensitivity and verification tabs |
 | [#16](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/16) | 2026-10-13 | Documentation: PRs 13 to 15 added to the status tables; standing rule to update them after every merge |
 | [#17](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/17) | 2026-10-13 | Cancelling a job no longer strands the results: verification, mesh check and core study run on a one-shot side worker; cancelling a main-worker job shows a notice with Restore analysis instead of "No analysis in memory"; cancel with nothing running keeps the analysis; a cancelled sensitivity run reports no false failures |
+| [#18](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/18) | 2026-10-14 | Documentation: PRs 16 and 17 added to the status tables |
+| [#19](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/19) | 2026-10-14 | Cross-section stress view: click a horizontal or vertical line on the package and see any stress component (invariants, package-axis and line-frame components) on the vertical cut under it, from the top solder resist to the package top; zoom, element mesh overlay, bump-layer phase toggle, vertical scale, hover readout and CSV export; solder resist sub-layer stress recovered with out-of-plane stresses continuous through the band |
 
 Open items are listed under "Known issues and next steps" below. The largest is performance against the Section 13 targets.
 

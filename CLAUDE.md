@@ -2,7 +2,7 @@
 
 ## Project status (read this first)
 
-The build specification that follows (from "Build Prompt" onward) has been **implemented in full** and merged to `main` through seventeen pull requests (three of code and two of documentation for the build, then UI updates, two materials database passes, a parallel-worker setting, a legend fix, a glossary, UX refinements, a cancel fix and status updates requested by the user). A new session should treat it as the reference design of an existing, working application, not as a task to start.
+The build specification that follows (from "Build Prompt" onward) has been **implemented in full** and merged to `main` through nineteen pull requests (three of code and two of documentation for the build, then UI updates, two materials database passes, a parallel-worker setting, a legend fix, a glossary, UX refinements, a cancel fix, a cross-section stress view and status updates requested by the user). A new session should treat it as the reference design of an existing, working application, not as a task to start.
 
 | PR | Merged | Content |
 |---|---|---|
@@ -23,12 +23,14 @@ The build specification that follows (from "Build Prompt" onward) has been **imp
 | #15 | 2026-10-13 | Colour-scale end labels to 4 significant figures (scientific notation below 1); die corners numbered 1 to 4 clockwise from the bottom-right corner everywhere (underfill perimeter plots, die stress map and patches); line key on the die stress map; verification criteria shown before a run with a plain-language description of each test; explainer tooltips on the fatigue, sensitivity and verification tabs |
 | #16 | 2026-10-13 | Documentation: PRs 13 to 15 added to the status tables; standing rule to update them after every merge |
 | #17 | 2026-10-13 | Cancelling a job no longer strands the results: verification, mesh check and core study run on a one-shot side worker; cancelling a main-worker job shows a notice with Restore analysis instead of "No analysis in memory"; cancel with nothing running keeps the analysis; a cancelled sensitivity run reports no false failures |
+| #18 | 2026-10-14 | Documentation: PRs 16 and 17 added to the status tables |
+| #19 | 2026-10-14 | Cross-section stress view: click a horizontal or vertical line on the package and see any stress component (invariants, package-axis and line-frame components) on the vertical cut under it, from the top solder resist to the package top; zoom, element mesh overlay, bump-layer phase toggle, vertical scale, hover readout and CSV export; solder resist sub-layer stress recovered with out-of-plane stresses continuous through the band |
 
 Current state on `main`:
 
 - Verification suite: **15/15 pass** headless in Node (`dist/verification.json` holds the last run with measured values).
 - Performance (Chromium, 4-core container, 3 workers): full Standard analysis 147 s (target 90 s), screening 7 s (target 10 s), four submodels 286 s (target 120 s). The remaining gaps are the main open item; see README "Known issues and next steps". The drag preview and auto-solve of Section 4.3 were removed at the user's request (README deviations).
-- Deliverable: `dist/fcbga_thermomech_tool.html` (about 660 kB, committed; rebuilt from `src/` by `node tools/build.mjs`).
+- Deliverable: `dist/fcbga_thermomech_tool.html` (about 700 kB, committed; rebuilt from `src/` by `node tools/build.mjs`).
 
 `README.md` carries the detailed status: verification table, measured timings, every deviation from the specification, known issues, repository layout and development workflow.
 

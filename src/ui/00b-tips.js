@@ -134,7 +134,7 @@ const TIPS = {
   sectionQty: 'Stress shown on the cut. Invariants do not depend on direction; package-axis components use x, y, z of the floorplan; line-frame components use the direction along the line, across it (+y for a horizontal line, +x for a vertical one) and z.',
   sectionPhaseUf: 'Show the underfill stress in the bump layer (the matrix between the bumps).',
   sectionPhaseSolder: 'Show the solder stress inside the bump fields of the homogenized bump layer (iso-strain mixture); the keep-out band and the fillet still show underfill.',
-  sectionMesh: 'Overlay the edges of the elements the plane cuts. A dashed bottom edge in the substrate row means the element continues below the solder resist through the top build-up layers.',
+  sectionMesh: 'Overlay the edges of the elements the plane cuts. A dashed bottom edge in the substrate row means the element continues below the solder resist through the top build-up layers. Fillet elements under the sloped surface are boxes whose stiffness is scaled by the fraction of the box below the surface, so their edges can reach above the shaded wedge.',
   sectionExag: 'Vertical exaggeration of the plot: fit stretches the stack to the plot height; the other choices resize the plot to that exaggeration (within the plot height limits). The title gives the scale actually drawn.',
   sectionRange: 'Materials that set the colour range. Choosing one material spreads the colours over its values; other materials saturate at the ends of the scale.',
   sectionCsv: 'Download the six stress components at every corner of the cut elements, per material, as CSV.',

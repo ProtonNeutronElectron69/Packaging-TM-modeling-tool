@@ -412,7 +412,8 @@ function layeredPointStress(model, e, T, stage, q, xi, eta, zeta, st) {
  * to the face corners; corner values are averaged only among elements of the
  * same group (material), never across interfaces. In the layered substrate
  * band only the solder resist sub-layer is sampled (layeredPointStress).
- * Superposed bump-layer cells give one quad per phase (pair = 1).
+ * Superposed bump-layer cells give one quad per phase (pair = 1). Partly filled
+ * fillet cells carry the wedge surface height at both ends (topA, topB).
  * Quad corners run (s0, z0), (s1, z0), (s1, z1), (s0, z1); sig holds the six
  * components xx, yy, zz, xy, yz, xz per corner.
  */
@@ -485,6 +486,14 @@ function sectionStress(model, geom, cut, T, stage, u) {
       const o = (Q.grp * nn + ca * nzl + cb) * 7;
       for (let cc = 0; cc < 6; cc++) sig[24 * t + 6 * v + cc] = acc[o + cc] / acc[o + 6];
     });
+  });
+  // fillet cells above the active face are partly filled (stiffness scaled by the filled fraction): the
+  // wedge surface z at both ends of each such quad, so the plot can clip the cell to the fillet
+  out.topA = new Float32Array(n).fill(NaN); out.topB = new Float32Array(n).fill(NaN);
+  const surf = s => geom.zaf + filletHeight(geom, alongY ? c : s, alongY ? s : c).h;
+  quads.forEach((Q, t) => {
+    if (Q.part !== PART.UF_FILLET || zl[Q.b] < geom.zaf - 1e-9) return;
+    out.topA[t] = surf(sl[Q.a]); out.topB[t] = surf(sl[Q.a + 1]);
   });
   const lib = model.lib;
   out.groups = model.groups.map(gr => ({ name: gr.name, part: gr.part,

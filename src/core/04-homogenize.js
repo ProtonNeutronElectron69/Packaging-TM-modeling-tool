@@ -54,9 +54,10 @@ function substrateRowEC(row, T, lib, cuId) {
 
 /**
  * Bottom-up list of substrate rows with z ranges, and their grouping into
- * element bands (Section 5.3): bottom solder resist + bottom build-up = one band,
- * core (with its adjacent core Cu layers) = two bands split at the core
- * mid-plane, top build-up + top solder resist = one band.
+ * element bands (Section 5.3): three groups (bottom solder resist + bottom
+ * build-up; core with its adjacent core Cu layers; top build-up + top solder
+ * resist), each split into MIN_LAYERS_PER_REGION bands of equal thickness.
+ * Each band is one layered element layer; sub-layers it cuts are clipped.
  * Config rows are listed top to bottom.
  */
 function substrateBands(layers) {
@@ -71,18 +72,22 @@ function substrateBands(layers) {
   }
   const total = z;
   const coreAt = rows.findIndex(r => r.row.type === 'core');
-  let cuts;
+  let groups;
   if (coreAt >= 0) {
     const core = rows[coreAt];
     const below = coreAt > 0 && rows[coreAt - 1].row.type === 'cu' ? rows[coreAt - 1] : null;
     const above = coreAt + 1 < rows.length && rows[coreAt + 1].row.type === 'cu' ? rows[coreAt + 1] : null;
     const zLo = below ? below.z0 : core.z0;
-    const zMid = 0.5 * (core.z0 + core.z1);
     const zHi = above ? above.z1 : core.z1;
-    cuts = [0, zLo, zMid, zHi, total];
+    groups = [[0, zLo], [zLo, zHi], [zHi, total]];
   } else {
-    cuts = [0, 0.5 * total, total];
+    groups = [[0, total]];
   }
+  // each group (bottom build-up, core with its Cu foils, top build-up) is split into MIN_LAYERS_PER_REGION
+  // bands of equal thickness, one element layer each
+  const cuts = [0];
+  const nb = CONST.MIN_LAYERS_PER_REGION;
+  for (const [z0, z1] of groups) for (let q = 1; q <= nb; q++) cuts.push(z0 + (z1 - z0) * q / nb);
   // drop zero-thickness bands
   const planes = [cuts[0]];
   for (let i = 1; i < cuts.length; i++) if (cuts[i] - planes[planes.length - 1] > 1e-9) planes.push(cuts[i]);

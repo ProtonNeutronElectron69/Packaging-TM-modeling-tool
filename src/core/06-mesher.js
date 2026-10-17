@@ -124,7 +124,10 @@ function gridLines(lines, edges, hmin, hmax, spans) {
     const ids = [];
     for (let q = 0; q + 1 < lines.length; q++) if (lines[q] >= sp.a - 1e-9 && lines[q + 1] <= sp.b + 1e-9) ids.push(q);
     if (!ids.length) continue;
-    const need = Math.ceil(CONST.MIN_ELEMS_ACROSS_RING / ids.length);
+    // fillet columns: up to MIN_ELEMS_ACROSS_FILLET, but no narrower than FILLET_COL_MIN_FRACTION x h_min, so the
+    // grid has no abrupt size jump next to the fillet on coarse presets (it slows the multigrid solver)
+    const n = sp.fillet ? clamp(Math.ceil((sp.b - sp.a) / (CONST.FILLET_COL_MIN_FRACTION * hmin)), CONST.MIN_ELEMS_ACROSS_RING, CONST.MIN_ELEMS_ACROSS_FILLET) : CONST.MIN_ELEMS_ACROSS_RING;
+    const need = Math.ceil(n / ids.length);
     for (const q of ids) nmin[q] = Math.max(nmin[q], need);
   }
   const out = [lines[0]];
@@ -166,7 +169,7 @@ function axisFeatures(g, axis) {
     edges.push({ v: d.rect[k0], t: d.t }, { v: d.rect[k1], t: d.t });
     const fa = d.rect[k0] - g.uf.Wf, fb = d.rect[k1] + g.uf.Wf;
     add(fa, 1, d.name + ' fillet'); add(fb, 1, d.name + ' fillet');
-    spans.push({ a: Math.max(lo, fa), b: d.rect[k0] }, { a: d.rect[k1], b: Math.min(hi, fb) });
+    spans.push({ a: Math.max(lo, fa), b: d.rect[k0], fillet: true }, { a: d.rect[k1], b: Math.min(hi, fb), fillet: true });
     if (d.field) { add(d.field[k0], 1, d.name + ' bump field'); add(d.field[k1], 1, d.name + ' bump field'); }
     if (d.inner) { add(d.inner[k0], 1, d.name + ' bump ring'); add(d.inner[k1], 1, d.name + ' bump ring'); }
   }
@@ -196,30 +199,40 @@ function zPlanes(g) {
   if (g.stiff) { add(g.stiff.zAdhTop, 'stiffener adhesive top', 2); add(g.stiff.zTop, 'stiffener top', 2); }
   const merged = mergeFeatures(pl, CONST.PLANE_MERGE_TOL);
   const base = merged.lines;
-  // subdivision per band
+  // element layers per band: die bands (except slivers) and the lid plate start at two layers; then every
+  // physical region gets at least MIN_LAYERS_PER_REGION layers through its thickness (bump layer, fillet
+  // height, each die, TIM, lid plate and foot, adhesives, stiffener), each extra layer going to the band of
+  // the region with the largest element thickness. Substrate bands stay one layer each (substrateBands
+  // already splits the build-up and core groups).
   const nsub = [];
   for (let b = 0; b + 1 < base.length; b++) {
     const za = base[b], zb = base[b + 1], zc = 0.5 * (za + zb);
     let n = 1;
-    if (zb <= g.zt + 1e-9) n = 1;
-    else {
+    if (zb > g.zt + 1e-9) {
       let tDie = Infinity;
       for (const d of g.dies) if (zc > g.zaf && zc < d.ztop) tDie = Math.min(tDie, d.t);
-      if (isFinite(tDie)) n = (zb - za) < CONST.SLIVER_FRACTION * tDie ? 1 : 2;
+      if (isFinite(tDie) && zb - za >= CONST.SLIVER_FRACTION * tDie) n = 2;
       if (g.lid && zc > g.lid.zLidBot && zc < g.lid.zLidTop) n = 2;
     }
     nsub.push(n);
   }
-  // at least DIE_MIN_LAYERS element layers through every die
+  const regions = [[g.zt, g.zaf]];
   for (const d of g.dies) {
-    for (let guard = 0; guard < 20; guard++) {
-      let total = 0, thick = -1, tb = 0;
-      for (let b = 0; b + 1 < base.length; b++) {
-        const zc = 0.5 * (base[b] + base[b + 1]);
-        if (zc > g.zaf && zc < d.ztop) { total += nsub[b]; if (base[b + 1] - base[b] > tb) { tb = base[b + 1] - base[b]; thick = b; } }
-      }
-      if (total >= CONST.DIE_MIN_LAYERS || thick < 0) break;
-      nsub[thick]++;
+    regions.push([g.zaf, d.ztop]);
+    if (g.uf.Hf > 0) regions.push([g.zaf, g.zaf + Math.min(1, g.uf.Hf) * d.t]);
+    if (g.lid) regions.push([d.ztop, g.lid.zLidBot]);
+  }
+  if (g.lid) regions.push([g.zt, g.lid.zAdhTop], [g.lid.zAdhTop, g.lid.zLidBot], [g.lid.zLidBot, g.lid.zLidTop]);
+  if (g.stiff) regions.push([g.zt, g.stiff.zAdhTop], [g.stiff.zAdhTop, g.stiff.zTop]);
+  for (const [za, zb] of regions) {
+    const ids = [];
+    for (let b = 0; b + 1 < base.length; b++) { const zc = 0.5 * (base[b] + base[b + 1]); if (zc > za && zc < zb) ids.push(b); }
+    if (!ids.length) continue;
+    let total = ids.reduce((t, b) => t + nsub[b], 0);
+    while (total < CONST.MIN_LAYERS_PER_REGION) {
+      let best = ids[0];
+      for (const b of ids) if ((base[b + 1] - base[b]) / nsub[b] > (base[best + 1] - base[best]) / nsub[best]) best = b;
+      nsub[best]++; total++;
     }
   }
   const zs = [base[0]], band = [];
@@ -252,6 +265,13 @@ function packageGroups(cfg, g) {
   return { groups, G };
 }
 
+/** Volume fraction of the cell slab z0..z1 lying below the fillet surface z = zBase + h, averaged over the samples hs. */
+function fillFraction(hs, zBase, z0, z1) {
+  let f = 0;
+  for (let q = 0; q < hs.length; q++) f += clamp((zBase + hs[q] - z0) / (z1 - z0), 0, 1);
+  return f / hs.length;
+}
+
 /**
  * Cell material assignment for the package (Section 5.4).
  * Column descriptor: die under the centroid, bump fraction, fillet height,
@@ -268,6 +288,12 @@ function makePackageAssign(g, xs, ys, zs, G, layerBand) {
     const cell = { x0: xs[i], x1: xs[i + 1], y0: ys[j], y1: ys[j + 1] };
     const die = dieAt(g, xc, yc);
     c = { die, fb: die ? cellBumpFraction(die, cell) : 0, fil: die ? null : filletHeight(g, xc, yc) };
+    if (c.fil && c.fil.inFootprint) {
+      // fillet surface heights above the die active face at S x S points of the column, for the filled fraction
+      const S = CONST.FILLET_FILL_SAMPLES;
+      c.hs = new Float64Array(S * S);
+      for (let a = 0; a < S; a++) for (let b = 0; b < S; b++) c.hs[a * S + b] = filletHeight(g, xs[i] + (xs[i + 1] - xs[i]) * (a + 0.5) / S, ys[j] + (ys[j + 1] - ys[j]) * (b + 0.5) / S).h;
+    }
     if (g.lid) {
       c.lidOuter = pointInRect(g.lid.outer, xc, yc);
       c.lidFoot = c.lidOuter && !pointInRect(g.lid.inner, xc, yc);
@@ -303,7 +329,11 @@ function makePackageAssign(g, xs, ys, zs, G, layerBand) {
       return [];
     }
     if (c.fil && c.fil.inFootprint) {
-      if (zc < g.zaf || zc < g.zaf + c.fil.h) return [{ group: G.uf, scale: 1, part: PART.UF_FILLET }];
+      if (zc < g.zaf) return [{ group: G.uf, scale: 1, part: PART.UF_FILLET }];
+      // above the active face the linear wedge cuts through cells: the element carries the filled volume
+      // fraction of its cell as a stiffness and load scale, so the fillet acts as a continuous wedge
+      const f = fillFraction(c.hs, g.zaf, zs[k], zs[k + 1]);
+      if (f >= CONST.FILLET_FILL_MIN) return [{ group: G.uf, scale: f, part: PART.UF_FILLET }];
     }
     return [];
   };

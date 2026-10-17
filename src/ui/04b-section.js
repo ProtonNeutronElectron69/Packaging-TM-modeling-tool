@@ -190,7 +190,8 @@ function drawSectionPlot(cv, sec, F, scale, opts) {
   const img = ctx.createImageData(iw, ih), D = img.data;
   const colA = new Int32Array(iw), colT = new Float64Array(iw), rowB = new Int32Array(ih), rowT = new Float64Array(ih);
   for (let p = 0; p < iw; p++) { const s = x0 + (p + 0.5) / iw * (x1 - x0); if (s < sec.a0 || s > sec.a1) { colA[p] = -1; continue; } const a = bisect(sec.sl, s); colA[p] = a; colT[p] = (s - sec.sl[a]) / (sec.sl[a + 1] - sec.sl[a]); }
-  for (let r = 0; r < ih; r++) { const z = y1 - (r + 0.5) / ih * (y1 - y0); if (z < sec.zMin || z > sec.zTop) { rowB[r] = -1; continue; } const b = bisect(sec.zl, z); rowB[r] = b; rowT[r] = (z - sec.zl[b]) / (sec.zl[b + 1] - sec.zl[b]); }
+  const zRow = new Float64Array(ih);
+  for (let r = 0; r < ih; r++) { const z = zRow[r] = y1 - (r + 0.5) / ih * (y1 - y0); if (z < sec.zMin || z > sec.zTop) { rowB[r] = -1; continue; } const b = bisect(sec.zl, z); rowB[r] = b; rowT[r] = (z - sec.zl[b]) / (sec.zl[b + 1] - sec.zl[b]); }
   const { vals, idx, nzs } = F, span = scale.max - scale.min || 1;
   for (let r = 0; r < ih; r++) {
     const b = rowB[r]; if (b < 0) continue;
@@ -199,6 +200,7 @@ function drawSectionPlot(cv, sec, F, scale, opts) {
       const a = colA[p]; if (a < 0) continue;
       const q = idx[a * nzs + b]; if (q < 0) continue;
       const tx = colT[p], o = 4 * q;
+      if (sec.topA[q] === sec.topA[q] && zRow[r] > sec.topA[q] + tx * (sec.topB[q] - sec.topA[q])) continue;  // above the fillet surface
       const v = (1 - tx) * (1 - tz) * vals[o] + tx * (1 - tz) * vals[o + 1] + tx * tz * vals[o + 2] + (1 - tx) * tz * vals[o + 3];
       const li = 3 * Math.round(clampTo((v - scale.min) / span, 0, 1) * 255), di = 4 * (r * iw + p);
       D[di] = lut[li]; D[di + 1] = lut[li + 1]; D[di + 2] = lut[li + 2]; D[di + 3] = 255;
@@ -225,6 +227,19 @@ function drawSectionPlot(cv, sec, F, scale, opts) {
     const a = sec.qa[q], b = sec.qb[q], g = sec.grp[q];
     const s0 = sec.sl[a], s1 = sec.sl[a + 1], z0 = sec.zl[b], z1 = sec.zl[b + 1];
     const differs = n => n < 0 || sec.grp[n] !== g;
+    const tA = sec.topA[q], tB = sec.topB[q];
+    if (tA === tA) {
+      // partly filled fillet cell: its free surface is the wedge, drawn where it crosses the cell; edges facing void are not boundaries
+      const solid = n => n >= 0 && sec.grp[n] !== g;
+      if (solid(at(a - 1, b)) && tA > z0) seg(s0, z0, s0, Math.min(z1, tA));
+      if (solid(at(a + 1, b)) && tB > z0) seg(s1, z0, s1, Math.min(z1, tB));
+      if (differs(at(a, b - 1))) seg(s0, z0, s1, z0);
+      const sAt = z => tB === tA ? NaN : s0 + (z - tA) / (tB - tA) * (s1 - s0);
+      const ends = [[s0, tA], [s1, tB]].filter(([, t]) => t >= z0 && t <= z1);
+      for (const z of [z0, z1]) { const s = sAt(z); if (s > s0 && s < s1) ends.push([s, z]); }
+      if (ends.length >= 2) { ends.sort((p, r) => p[0] - r[0]); seg(ends[0][0], ends[0][1], ends[ends.length - 1][0], ends[ends.length - 1][1]); }
+      continue;
+    }
     if (differs(at(a - 1, b))) seg(s0, z0, s0, z1);
     if (differs(at(a + 1, b))) seg(s1, z0, s1, z1);
     if (differs(at(a, b - 1))) seg(s0, z0, s1, z0);
@@ -261,8 +276,9 @@ function sectionReadout(cv, sec, F, qty, e) {
   const pos = (sec.axis === 'x' ? 'x ' : 'y ') + fmt(s, 3) + ' mm, z ' + fmt(z, 4) + ' mm';
   if (s < sec.a0 || s > sec.a1 || z < sec.zMin || z > sec.zTop) return pos;
   const a = bisect(sec.sl, s), b = bisect(sec.zl, z), q = F.idx[a * F.nzs + b];
-  if (q < 0) return pos + ': void (no material)';
-  const tx = (s - sec.sl[a]) / (sec.sl[a + 1] - sec.sl[a]), tz = (z - sec.zl[b]) / (sec.zl[b + 1] - sec.zl[b]), o = 4 * q, V = F.vals;
+  const tx = q < 0 ? 0 : (s - sec.sl[a]) / (sec.sl[a + 1] - sec.sl[a]);
+  if (q < 0 || (sec.topA[q] === sec.topA[q] && z > sec.topA[q] + tx * (sec.topB[q] - sec.topA[q]))) return pos + ': void (no material)';
+  const tz = (z - sec.zl[b]) / (sec.zl[b + 1] - sec.zl[b]), o = 4 * q, V = F.vals;
   const v = (1 - tx) * (1 - tz) * V[o] + tx * (1 - tz) * V[o + 1] + tx * tz * V[o + 2] + (1 - tx) * tz * V[o + 3];
   return pos + ': ' + sectionPartName(sec, q) + ', ' + sectionQtyLabel(qty) + ' ' + fmt(v, 2) + ' MPa';
 }

@@ -212,9 +212,11 @@ function estimateRun(cfg, preset) {
     const perWorkerMB = inf.nDof * 27 * 9 * 8 / 3 / 1e6 * 1.6 + inf.nDof * 8 * 40 / 1e6 + 30;
     const nw = Math.max(1, app.workers || 1);
     const memMB = perWorkerMB + (nw - 1) * (perWorkerMB * 0.7);
-    const perSolve = inf.nDof / 28000 * 0.9; // s per solve, measured scaling (Node, this container)
+    // s per solve and sweep factor, measured on the 4-layer z mesh (headless Chromium, 4-core container): Draft 74k DOF
+    // preview 22 s, full 163 s; Standard 302k DOF full 867 s with 3 workers (sweep solves take about 1.9x the stage solves)
+    const perSolve = inf.nDof / 28000 * 2.5;
     const nEval = 41;
-    return { info: inf, warnings: C.meshWarnings(mesh), memMB, perWorkerMB, previewS: 4 * perSolve /* stage solves, 25 °C and the chip-join state */, fullS: (3 + nEval / nw + 1) * perSolve + 8 };
+    return { info: inf, warnings: C.meshWarnings(mesh), memMB, perWorkerMB, previewS: 4 * perSolve /* stage solves, 25 °C and the chip-join state */, fullS: (4 + 1.9 * nEval / nw) * perSolve + 8 };
   } catch (e) { return { error: e.message }; }
 }
 

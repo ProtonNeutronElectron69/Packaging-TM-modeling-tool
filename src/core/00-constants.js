@@ -29,18 +29,22 @@ const CONST = Object.freeze({
   PLANE_MERGE_TOL: 0.001,    // mm, z-planes closer than this are merged
   GROWTH_RATIO_MAX: 1.3,
   REFINE_ZONE_FACTOR: 2.0,   // refinement zone = 2 x local die thickness
-  MIN_ELEMS_ACROSS_RING: 3,  // fillet width, lid foot, stiffener ring
-  SLIVER_FRACTION: 0.125,    // die bands thinner than this x die thickness stay one element layer
-  DIE_MIN_LAYERS: 3,
+  MIN_ELEMS_ACROSS_RING: 3,  // lid foot, stiffener ring
+  SLIVER_FRACTION: 0.125,    // die bands thinner than this x die thickness start at one element layer, others at two
+  MIN_ELEMS_ACROSS_FILLET: 6, // underfill fillet width, at most (see FILLET_COL_MIN_FRACTION)
+  FILLET_COL_MIN_FRACTION: 0.5, // fillet columns no narrower than this x h_min (at least MIN_ELEMS_ACROSS_RING)
+  MIN_LAYERS_PER_REGION: 4,  // element layers through every region's thickness (each substrate group too)
+  FILLET_FILL_SAMPLES: 4,    // in-plane samples per side for the filled fraction of a fillet cell
+  FILLET_FILL_MIN: 0.05,     // fillet cells filled less than this are left void
   ASPECT_WARN: 50,
   SIZE_SAMPLES: 256,         // samples per interval for the size-function mapping
   CAP_GROWTH_PAD: 1.03,
   CAP_MAX_ITER: 12,
   CONSTRAINT_SPAN: 0.4,      // 3-2-1 points at 40 % of the smaller half-dimension
   MESH_PRESETS: {
-    draft:    { label: 'Draft',    hmin: 0.6,  hmax: 3.0, cap: 30000 },
-    standard: { label: 'Standard', hmin: 0.25, hmax: 1.5, cap: 120000 },
-    fine:     { label: 'Fine',     hmin: 0.10, hmax: 0.6, cap: 400000 },
+    draft:    { label: 'Draft',    hmin: 0.6,  hmax: 3.0, cap: 75000 },
+    standard: { label: 'Standard', hmin: 0.25, hmax: 1.5, cap: 330000 },
+    fine:     { label: 'Fine',     hmin: 0.10, hmax: 0.6, cap: 600000 },
   },
   // ---- solver -------------------------------------------------------------
   PCG_TOL: 1e-8,

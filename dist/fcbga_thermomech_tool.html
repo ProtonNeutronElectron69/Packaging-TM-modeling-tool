@@ -195,7 +195,7 @@ option.mat-good, option.mat-some, option.mat-many { font-weight: 600; }
 <body>
 <div id="app">
   <header id="topbar">
-    <div class="brand"><span class="logo">FCBGA</span> Thermomechanical Screening Tool <span class="build">build 2026-10-15</span></div>
+    <div class="brand"><span class="logo">FCBGA</span> Thermomechanical Screening Tool <span class="build">build 2026-10-17</span></div>
     <div class="banner" role="note">Screening tool. Results are approximate and intended for design comparison and trend studies, not sign-off.</div>
     <div class="topbtns">
       <button id="btn-theme" class="icon" aria-label="Toggle theme">◐</button>
@@ -248,18 +248,22 @@ const CONST = Object.freeze({
   PLANE_MERGE_TOL: 0.001,    // mm, z-planes closer than this are merged
   GROWTH_RATIO_MAX: 1.3,
   REFINE_ZONE_FACTOR: 2.0,   // refinement zone = 2 x local die thickness
-  MIN_ELEMS_ACROSS_RING: 3,  // fillet width, lid foot, stiffener ring
-  SLIVER_FRACTION: 0.125,    // die bands thinner than this x die thickness stay one element layer
-  DIE_MIN_LAYERS: 3,
+  MIN_ELEMS_ACROSS_RING: 3,  // lid foot, stiffener ring
+  SLIVER_FRACTION: 0.125,    // die bands thinner than this x die thickness start at one element layer, others at two
+  MIN_ELEMS_ACROSS_FILLET: 6, // underfill fillet width, at most (see FILLET_COL_MIN_FRACTION)
+  FILLET_COL_MIN_FRACTION: 0.5, // fillet columns no narrower than this x h_min (at least MIN_ELEMS_ACROSS_RING)
+  MIN_LAYERS_PER_REGION: 4,  // element layers through every region's thickness (each substrate group too)
+  FILLET_FILL_SAMPLES: 4,    // in-plane samples per side for the filled fraction of a fillet cell
+  FILLET_FILL_MIN: 0.05,     // fillet cells filled less than this are left void
   ASPECT_WARN: 50,
   SIZE_SAMPLES: 256,         // samples per interval for the size-function mapping
   CAP_GROWTH_PAD: 1.03,
   CAP_MAX_ITER: 12,
   CONSTRAINT_SPAN: 0.4,      // 3-2-1 points at 40 % of the smaller half-dimension
   MESH_PRESETS: {
-    draft:    { label: 'Draft',    hmin: 0.6,  hmax: 3.0, cap: 30000 },
-    standard: { label: 'Standard', hmin: 0.25, hmax: 1.5, cap: 120000 },
-    fine:     { label: 'Fine',     hmin: 0.10, hmax: 0.6, cap: 400000 },
+    draft:    { label: 'Draft',    hmin: 0.6,  hmax: 3.0, cap: 75000 },
+    standard: { label: 'Standard', hmin: 0.25, hmax: 1.5, cap: 330000 },
+    fine:     { label: 'Fine',     hmin: 0.10, hmax: 0.6, cap: 600000 },
   },
   // ---- solver -------------------------------------------------------------
   PCG_TOL: 1e-8,
@@ -1124,9 +1128,10 @@ function substrateRowEC(row, T, lib, cuId) {
 
 /**
  * Bottom-up list of substrate rows with z ranges, and their grouping into
- * element bands (Section 5.3): bottom solder resist + bottom build-up = one band,
- * core (with its adjacent core Cu layers) = two bands split at the core
- * mid-plane, top build-up + top solder resist = one band.
+ * element bands (Section 5.3): three groups (bottom solder resist + bottom
+ * build-up; core with its adjacent core Cu layers; top build-up + top solder
+ * resist), each split into MIN_LAYERS_PER_REGION bands of equal thickness.
+ * Each band is one layered element layer; sub-layers it cuts are clipped.
  * Config rows are listed top to bottom.
  */
 function substrateBands(layers) {
@@ -1141,18 +1146,22 @@ function substrateBands(layers) {
   }
   const total = z;
   const coreAt = rows.findIndex(r => r.row.type === 'core');
-  let cuts;
+  let groups;
   if (coreAt >= 0) {
     const core = rows[coreAt];
     const below = coreAt > 0 && rows[coreAt - 1].row.type === 'cu' ? rows[coreAt - 1] : null;
     const above = coreAt + 1 < rows.length && rows[coreAt + 1].row.type === 'cu' ? rows[coreAt + 1] : null;
     const zLo = below ? below.z0 : core.z0;
-    const zMid = 0.5 * (core.z0 + core.z1);
     const zHi = above ? above.z1 : core.z1;
-    cuts = [0, zLo, zMid, zHi, total];
+    groups = [[0, zLo], [zLo, zHi], [zHi, total]];
   } else {
-    cuts = [0, 0.5 * total, total];
+    groups = [[0, total]];
   }
+  // each group (bottom build-up, core with its Cu foils, top build-up) is split into MIN_LAYERS_PER_REGION
+  // bands of equal thickness, one element layer each
+  const cuts = [0];
+  const nb = CONST.MIN_LAYERS_PER_REGION;
+  for (const [z0, z1] of groups) for (let q = 1; q <= nb; q++) cuts.push(z0 + (z1 - z0) * q / nb);
   // drop zero-thickness bands
   const planes = [cuts[0]];
   for (let i = 1; i < cuts.length; i++) if (cuts[i] - planes[planes.length - 1] > 1e-9) planes.push(cuts[i]);
@@ -1747,7 +1756,10 @@ function gridLines(lines, edges, hmin, hmax, spans) {
     const ids = [];
     for (let q = 0; q + 1 < lines.length; q++) if (lines[q] >= sp.a - 1e-9 && lines[q + 1] <= sp.b + 1e-9) ids.push(q);
     if (!ids.length) continue;
-    const need = Math.ceil(CONST.MIN_ELEMS_ACROSS_RING / ids.length);
+    // fillet columns: up to MIN_ELEMS_ACROSS_FILLET, but no narrower than FILLET_COL_MIN_FRACTION x h_min, so the
+    // grid has no abrupt size jump next to the fillet on coarse presets (it slows the multigrid solver)
+    const n = sp.fillet ? clamp(Math.ceil((sp.b - sp.a) / (CONST.FILLET_COL_MIN_FRACTION * hmin)), CONST.MIN_ELEMS_ACROSS_RING, CONST.MIN_ELEMS_ACROSS_FILLET) : CONST.MIN_ELEMS_ACROSS_RING;
+    const need = Math.ceil(n / ids.length);
     for (const q of ids) nmin[q] = Math.max(nmin[q], need);
   }
   const out = [lines[0]];
@@ -1789,7 +1801,7 @@ function axisFeatures(g, axis) {
     edges.push({ v: d.rect[k0], t: d.t }, { v: d.rect[k1], t: d.t });
     const fa = d.rect[k0] - g.uf.Wf, fb = d.rect[k1] + g.uf.Wf;
     add(fa, 1, d.name + ' fillet'); add(fb, 1, d.name + ' fillet');
-    spans.push({ a: Math.max(lo, fa), b: d.rect[k0] }, { a: d.rect[k1], b: Math.min(hi, fb) });
+    spans.push({ a: Math.max(lo, fa), b: d.rect[k0], fillet: true }, { a: d.rect[k1], b: Math.min(hi, fb), fillet: true });
     if (d.field) { add(d.field[k0], 1, d.name + ' bump field'); add(d.field[k1], 1, d.name + ' bump field'); }
     if (d.inner) { add(d.inner[k0], 1, d.name + ' bump ring'); add(d.inner[k1], 1, d.name + ' bump ring'); }
   }
@@ -1819,30 +1831,40 @@ function zPlanes(g) {
   if (g.stiff) { add(g.stiff.zAdhTop, 'stiffener adhesive top', 2); add(g.stiff.zTop, 'stiffener top', 2); }
   const merged = mergeFeatures(pl, CONST.PLANE_MERGE_TOL);
   const base = merged.lines;
-  // subdivision per band
+  // element layers per band: die bands (except slivers) and the lid plate start at two layers; then every
+  // physical region gets at least MIN_LAYERS_PER_REGION layers through its thickness (bump layer, fillet
+  // height, each die, TIM, lid plate and foot, adhesives, stiffener), each extra layer going to the band of
+  // the region with the largest element thickness. Substrate bands stay one layer each (substrateBands
+  // already splits the build-up and core groups).
   const nsub = [];
   for (let b = 0; b + 1 < base.length; b++) {
     const za = base[b], zb = base[b + 1], zc = 0.5 * (za + zb);
     let n = 1;
-    if (zb <= g.zt + 1e-9) n = 1;
-    else {
+    if (zb > g.zt + 1e-9) {
       let tDie = Infinity;
       for (const d of g.dies) if (zc > g.zaf && zc < d.ztop) tDie = Math.min(tDie, d.t);
-      if (isFinite(tDie)) n = (zb - za) < CONST.SLIVER_FRACTION * tDie ? 1 : 2;
+      if (isFinite(tDie) && zb - za >= CONST.SLIVER_FRACTION * tDie) n = 2;
       if (g.lid && zc > g.lid.zLidBot && zc < g.lid.zLidTop) n = 2;
     }
     nsub.push(n);
   }
-  // at least DIE_MIN_LAYERS element layers through every die
+  const regions = [[g.zt, g.zaf]];
   for (const d of g.dies) {
-    for (let guard = 0; guard < 20; guard++) {
-      let total = 0, thick = -1, tb = 0;
-      for (let b = 0; b + 1 < base.length; b++) {
-        const zc = 0.5 * (base[b] + base[b + 1]);
-        if (zc > g.zaf && zc < d.ztop) { total += nsub[b]; if (base[b + 1] - base[b] > tb) { tb = base[b + 1] - base[b]; thick = b; } }
-      }
-      if (total >= CONST.DIE_MIN_LAYERS || thick < 0) break;
-      nsub[thick]++;
+    regions.push([g.zaf, d.ztop]);
+    if (g.uf.Hf > 0) regions.push([g.zaf, g.zaf + Math.min(1, g.uf.Hf) * d.t]);
+    if (g.lid) regions.push([d.ztop, g.lid.zLidBot]);
+  }
+  if (g.lid) regions.push([g.zt, g.lid.zAdhTop], [g.lid.zAdhTop, g.lid.zLidBot], [g.lid.zLidBot, g.lid.zLidTop]);
+  if (g.stiff) regions.push([g.zt, g.stiff.zAdhTop], [g.stiff.zAdhTop, g.stiff.zTop]);
+  for (const [za, zb] of regions) {
+    const ids = [];
+    for (let b = 0; b + 1 < base.length; b++) { const zc = 0.5 * (base[b] + base[b + 1]); if (zc > za && zc < zb) ids.push(b); }
+    if (!ids.length) continue;
+    let total = ids.reduce((t, b) => t + nsub[b], 0);
+    while (total < CONST.MIN_LAYERS_PER_REGION) {
+      let best = ids[0];
+      for (const b of ids) if ((base[b + 1] - base[b]) / nsub[b] > (base[best + 1] - base[best]) / nsub[best]) best = b;
+      nsub[best]++; total++;
     }
   }
   const zs = [base[0]], band = [];
@@ -1875,6 +1897,13 @@ function packageGroups(cfg, g) {
   return { groups, G };
 }
 
+/** Volume fraction of the cell slab z0..z1 lying below the fillet surface z = zBase + h, averaged over the samples hs. */
+function fillFraction(hs, zBase, z0, z1) {
+  let f = 0;
+  for (let q = 0; q < hs.length; q++) f += clamp((zBase + hs[q] - z0) / (z1 - z0), 0, 1);
+  return f / hs.length;
+}
+
 /**
  * Cell material assignment for the package (Section 5.4).
  * Column descriptor: die under the centroid, bump fraction, fillet height,
@@ -1891,6 +1920,12 @@ function makePackageAssign(g, xs, ys, zs, G, layerBand) {
     const cell = { x0: xs[i], x1: xs[i + 1], y0: ys[j], y1: ys[j + 1] };
     const die = dieAt(g, xc, yc);
     c = { die, fb: die ? cellBumpFraction(die, cell) : 0, fil: die ? null : filletHeight(g, xc, yc) };
+    if (c.fil && c.fil.inFootprint) {
+      // fillet surface heights above the die active face at S x S points of the column, for the filled fraction
+      const S = CONST.FILLET_FILL_SAMPLES;
+      c.hs = new Float64Array(S * S);
+      for (let a = 0; a < S; a++) for (let b = 0; b < S; b++) c.hs[a * S + b] = filletHeight(g, xs[i] + (xs[i + 1] - xs[i]) * (a + 0.5) / S, ys[j] + (ys[j + 1] - ys[j]) * (b + 0.5) / S).h;
+    }
     if (g.lid) {
       c.lidOuter = pointInRect(g.lid.outer, xc, yc);
       c.lidFoot = c.lidOuter && !pointInRect(g.lid.inner, xc, yc);
@@ -1926,7 +1961,11 @@ function makePackageAssign(g, xs, ys, zs, G, layerBand) {
       return [];
     }
     if (c.fil && c.fil.inFootprint) {
-      if (zc < g.zaf || zc < g.zaf + c.fil.h) return [{ group: G.uf, scale: 1, part: PART.UF_FILLET }];
+      if (zc < g.zaf) return [{ group: G.uf, scale: 1, part: PART.UF_FILLET }];
+      // above the active face the linear wedge cuts through cells: the element carries the filled volume
+      // fraction of its cell as a stiffness and load scale, so the fillet acts as a continuous wedge
+      const f = fillFraction(c.hs, g.zaf, zs[k], zs[k + 1]);
+      if (f >= CONST.FILLET_FILL_MIN) return [{ group: G.uf, scale: f, part: PART.UF_FILLET }];
     }
     return [];
   };
@@ -4520,7 +4559,8 @@ function layeredPointStress(model, e, T, stage, q, xi, eta, zeta, st) {
  * to the face corners; corner values are averaged only among elements of the
  * same group (material), never across interfaces. In the layered substrate
  * band only the solder resist sub-layer is sampled (layeredPointStress).
- * Superposed bump-layer cells give one quad per phase (pair = 1).
+ * Superposed bump-layer cells give one quad per phase (pair = 1). Partly filled
+ * fillet cells carry the wedge surface height at both ends (topA, topB).
  * Quad corners run (s0, z0), (s1, z0), (s1, z1), (s0, z1); sig holds the six
  * components xx, yy, zz, xy, yz, xz per corner.
  */
@@ -4593,6 +4633,14 @@ function sectionStress(model, geom, cut, T, stage, u) {
       const o = (Q.grp * nn + ca * nzl + cb) * 7;
       for (let cc = 0; cc < 6; cc++) sig[24 * t + 6 * v + cc] = acc[o + cc] / acc[o + 6];
     });
+  });
+  // fillet cells above the active face are partly filled (stiffness scaled by the filled fraction): the
+  // wedge surface z at both ends of each such quad, so the plot can clip the cell to the fillet
+  out.topA = new Float32Array(n).fill(NaN); out.topB = new Float32Array(n).fill(NaN);
+  const surf = s => geom.zaf + filletHeight(geom, alongY ? c : s, alongY ? s : c).h;
+  quads.forEach((Q, t) => {
+    if (Q.part !== PART.UF_FILLET || zl[Q.b] < geom.zaf - 1e-9) return;
+    out.topA[t] = surf(sl[Q.a]); out.topB[t] = surf(sl[Q.a + 1]);
   });
   const lib = model.lib;
   out.groups = model.groups.map(gr => ({ name: gr.name, part: gr.part,
@@ -6735,9 +6783,11 @@ function estimateRun(cfg, preset) {
     const perWorkerMB = inf.nDof * 27 * 9 * 8 / 3 / 1e6 * 1.6 + inf.nDof * 8 * 40 / 1e6 + 30;
     const nw = Math.max(1, app.workers || 1);
     const memMB = perWorkerMB + (nw - 1) * (perWorkerMB * 0.7);
-    const perSolve = inf.nDof / 28000 * 0.9; // s per solve, measured scaling (Node, this container)
+    // s per solve and sweep factor, measured on the 4-layer z mesh (headless Chromium, 4-core container): Draft 74k DOF
+    // preview 22 s, full 163 s; Standard 302k DOF full 867 s with 3 workers (sweep solves take about 1.9x the stage solves)
+    const perSolve = inf.nDof / 28000 * 2.5;
     const nEval = 41;
-    return { info: inf, warnings: C.meshWarnings(mesh), memMB, perWorkerMB, previewS: 4 * perSolve /* stage solves, 25 °C and the chip-join state */, fullS: (3 + nEval / nw + 1) * perSolve + 8 };
+    return { info: inf, warnings: C.meshWarnings(mesh), memMB, perWorkerMB, previewS: 4 * perSolve /* stage solves, 25 °C and the chip-join state */, fullS: (4 + 1.9 * nEval / nw) * perSolve + 8 };
   } catch (e) { return { error: e.message }; }
 }
 
@@ -6887,7 +6937,7 @@ const TIPS = {
   sectionQty: 'Stress shown on the cut. Invariants do not depend on direction; package-axis components use x, y, z of the floorplan; line-frame components use the direction along the line, across it (+y for a horizontal line, +x for a vertical one) and z.',
   sectionPhaseUf: 'Show the underfill stress in the bump layer (the matrix between the bumps).',
   sectionPhaseSolder: 'Show the solder stress inside the bump fields of the homogenized bump layer (iso-strain mixture); the keep-out band and the fillet still show underfill.',
-  sectionMesh: 'Overlay the edges of the elements the plane cuts. A dashed bottom edge in the substrate row means the element continues below the solder resist through the top build-up layers.',
+  sectionMesh: 'Overlay the edges of the elements the plane cuts. A dashed bottom edge in the substrate row means the element continues below the solder resist through the top build-up layers. Fillet elements under the sloped surface are boxes whose stiffness is scaled by the fraction of the box below the surface, so their edges can reach above the shaded wedge.',
   sectionExag: 'Vertical exaggeration of the plot: fit stretches the stack to the plot height; the other choices resize the plot to that exaggeration (within the plot height limits). The title gives the scale actually drawn.',
   sectionRange: 'Materials that set the colour range. Choosing one material spreads the colours over its values; other materials saturate at the ends of the scale.',
   sectionCsv: 'Download the six stress components at every corner of the cut elements, per material, as CSV.',
@@ -9018,7 +9068,7 @@ function limitationsList(res) {
     'Polymer properties above Tg are partly estimated (rubbery moduli of ABF and solder resist, all Poisson ratios of polymers, TIM gel; for most underfills and adhesives added from data sheets, the rubbery modulus is a fixed fraction of the glassy modulus). Values flagged Estimated should be replaced by measured or DMA data.',
     'Substrate layers are homogenized with mixture rules (Voigt / Reuss / Turner) per physical layer and integrated layer by layer within four element bands; a Cu pattern is treated as a uniform fraction, not as routed geometry.',
     'Bumps are homogenized in the global model as a superposed solder phase and underfill phase sharing nodes (iso-strain / Voigt), exact for the through-thickness and transverse shear load paths of short columns, an upper bound for in-plane membrane stiffness.',
-    'The underfill fillet is a stair-stepped approximation of a linear wedge on the global z-planes.',
+    'The underfill fillet is a linear wedge: box elements under its sloped surface carry their stiffness and thermal load scaled by the fraction of the box below the surface, so the fillet acts as a continuous wedge without sloped elements; peel and shear at the fillet surface are approximate.',
     'Solder above its solidus (217 °C for SAC305) is represented by a modulus floor of 1 % of E(217 °C); states above the solidus are flagged "solder molten".',
     'Uniform temperature only: no power maps or gradients. No BGA balls or PCB (second-level), no mold compound, no passives, no moisture swelling, no Cu plasticity, no fracture mechanics, no initial substrate warpage from fabrication, no gravity.',
     'Singular quantities (die corners, interface corners, fatigue indices) are mesh dependent and reported as comparative metrics over fixed physical patches.',
@@ -9227,7 +9277,8 @@ function drawSectionPlot(cv, sec, F, scale, opts) {
   const img = ctx.createImageData(iw, ih), D = img.data;
   const colA = new Int32Array(iw), colT = new Float64Array(iw), rowB = new Int32Array(ih), rowT = new Float64Array(ih);
   for (let p = 0; p < iw; p++) { const s = x0 + (p + 0.5) / iw * (x1 - x0); if (s < sec.a0 || s > sec.a1) { colA[p] = -1; continue; } const a = bisect(sec.sl, s); colA[p] = a; colT[p] = (s - sec.sl[a]) / (sec.sl[a + 1] - sec.sl[a]); }
-  for (let r = 0; r < ih; r++) { const z = y1 - (r + 0.5) / ih * (y1 - y0); if (z < sec.zMin || z > sec.zTop) { rowB[r] = -1; continue; } const b = bisect(sec.zl, z); rowB[r] = b; rowT[r] = (z - sec.zl[b]) / (sec.zl[b + 1] - sec.zl[b]); }
+  const zRow = new Float64Array(ih);
+  for (let r = 0; r < ih; r++) { const z = zRow[r] = y1 - (r + 0.5) / ih * (y1 - y0); if (z < sec.zMin || z > sec.zTop) { rowB[r] = -1; continue; } const b = bisect(sec.zl, z); rowB[r] = b; rowT[r] = (z - sec.zl[b]) / (sec.zl[b + 1] - sec.zl[b]); }
   const { vals, idx, nzs } = F, span = scale.max - scale.min || 1;
   for (let r = 0; r < ih; r++) {
     const b = rowB[r]; if (b < 0) continue;
@@ -9236,6 +9287,7 @@ function drawSectionPlot(cv, sec, F, scale, opts) {
       const a = colA[p]; if (a < 0) continue;
       const q = idx[a * nzs + b]; if (q < 0) continue;
       const tx = colT[p], o = 4 * q;
+      if (sec.topA[q] === sec.topA[q] && zRow[r] > sec.topA[q] + tx * (sec.topB[q] - sec.topA[q])) continue;  // above the fillet surface
       const v = (1 - tx) * (1 - tz) * vals[o] + tx * (1 - tz) * vals[o + 1] + tx * tz * vals[o + 2] + (1 - tx) * tz * vals[o + 3];
       const li = 3 * Math.round(clampTo((v - scale.min) / span, 0, 1) * 255), di = 4 * (r * iw + p);
       D[di] = lut[li]; D[di + 1] = lut[li + 1]; D[di + 2] = lut[li + 2]; D[di + 3] = 255;
@@ -9262,6 +9314,19 @@ function drawSectionPlot(cv, sec, F, scale, opts) {
     const a = sec.qa[q], b = sec.qb[q], g = sec.grp[q];
     const s0 = sec.sl[a], s1 = sec.sl[a + 1], z0 = sec.zl[b], z1 = sec.zl[b + 1];
     const differs = n => n < 0 || sec.grp[n] !== g;
+    const tA = sec.topA[q], tB = sec.topB[q];
+    if (tA === tA) {
+      // partly filled fillet cell: its free surface is the wedge, drawn where it crosses the cell; edges facing void are not boundaries
+      const solid = n => n >= 0 && sec.grp[n] !== g;
+      if (solid(at(a - 1, b)) && tA > z0) seg(s0, z0, s0, Math.min(z1, tA));
+      if (solid(at(a + 1, b)) && tB > z0) seg(s1, z0, s1, Math.min(z1, tB));
+      if (differs(at(a, b - 1))) seg(s0, z0, s1, z0);
+      const sAt = z => tB === tA ? NaN : s0 + (z - tA) / (tB - tA) * (s1 - s0);
+      const ends = [[s0, tA], [s1, tB]].filter(([, t]) => t >= z0 && t <= z1);
+      for (const z of [z0, z1]) { const s = sAt(z); if (s > s0 && s < s1) ends.push([s, z]); }
+      if (ends.length >= 2) { ends.sort((p, r) => p[0] - r[0]); seg(ends[0][0], ends[0][1], ends[ends.length - 1][0], ends[ends.length - 1][1]); }
+      continue;
+    }
     if (differs(at(a - 1, b))) seg(s0, z0, s0, z1);
     if (differs(at(a + 1, b))) seg(s1, z0, s1, z1);
     if (differs(at(a, b - 1))) seg(s0, z0, s1, z0);
@@ -9298,8 +9363,9 @@ function sectionReadout(cv, sec, F, qty, e) {
   const pos = (sec.axis === 'x' ? 'x ' : 'y ') + fmt(s, 3) + ' mm, z ' + fmt(z, 4) + ' mm';
   if (s < sec.a0 || s > sec.a1 || z < sec.zMin || z > sec.zTop) return pos;
   const a = bisect(sec.sl, s), b = bisect(sec.zl, z), q = F.idx[a * F.nzs + b];
-  if (q < 0) return pos + ': void (no material)';
-  const tx = (s - sec.sl[a]) / (sec.sl[a + 1] - sec.sl[a]), tz = (z - sec.zl[b]) / (sec.zl[b + 1] - sec.zl[b]), o = 4 * q, V = F.vals;
+  const tx = q < 0 ? 0 : (s - sec.sl[a]) / (sec.sl[a + 1] - sec.sl[a]);
+  if (q < 0 || (sec.topA[q] === sec.topA[q] && z > sec.topA[q] + tx * (sec.topB[q] - sec.topA[q]))) return pos + ': void (no material)';
+  const tz = (z - sec.zl[b]) / (sec.zl[b + 1] - sec.zl[b]), o = 4 * q, V = F.vals;
   const v = (1 - tx) * (1 - tz) * V[o] + tx * (1 - tz) * V[o + 1] + tx * tz * V[o + 2] + (1 - tx) * tz * V[o + 3];
   return pos + ': ' + sectionPartName(sec, q) + ', ' + sectionQtyLabel(qty) + ' ' + fmt(v, 2) + ' MPa';
 }

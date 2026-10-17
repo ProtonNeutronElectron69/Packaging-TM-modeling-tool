@@ -277,13 +277,13 @@ Last headless run (Node 22, 4-core container), 15 of 15 pass. `dist/verification
 | V2 | Patch test, incompatible-mode hex, distorted mesh | displacement 6.8e-17, strain 6.5e-16 | 1e-9 | pass |
 | V3 | Bimaterial plate curvature vs Timoshenko | 2.0692e-3 vs 2.0692e-3 1/mm (0.00 %) | 3 % | pass |
 | V4 | Three-layer laminate vs classical lamination theory | kx 0.01 %, ky 0.17 % | 3 % | pass |
-| V5 | Layered integration vs one element per layer | 104.95 vs 105.11 µm (0.15 %) | 1 % | pass |
+| V5 | Layered integration vs one element per layer | 104.89 vs 105.11 µm (0.21 %) | 1 % | pass |
 | V6 | Anand saturation stress vs closed form | 42.04 / 22.81 / 13.02 MPa vs 42.09 / 22.83 / 13.04 | 1 % | pass |
-| V7 | Submodel consistency with homogenized bump layer | 0.18 % (bump-layer domain, uniform phases); 0.47 % with the production domain, reported as information | 2 % | pass |
-| V8 | Symmetry of the warpage field | 1.3e-11 (x), 2.0e-11 (y), 7.3e-12 (diagonal), 1.3e-11 mirrored | 1e-6 | pass |
-| V9 | Physical sanity on the presets | bare RT +236 µm convex; backside +89 MPa tensile; 0.8 mm core 174 vs 313 µm; 795G LH 182 vs 705G 278 µm | all four | pass |
-| V10 | Mesh convergence, Standard vs Fine | warpage 0.59 %, die interior peak 2.95 % (113k vs 383k DOF) | 5 % | pass |
-| V11 | Solver integrity | residual 9.1e-11, reactions 2.8e-11 of the force scale, energy balance 2.4e-13 | 1e-8 / 1e-9 | pass |
+| V7 | Submodel consistency with homogenized bump layer | 0.24 % (bump-layer domain, uniform phases); 0.25 % with the production domain, reported as information | 2 % | pass |
+| V8 | Symmetry of the warpage field | 2.0e-11 (x), 3.4e-11 (y), 3.6e-11 (diagonal), 1.2e-10 mirrored | 1e-6 | pass |
+| V9 | Physical sanity on the presets | bare RT +235 µm convex; backside +85 MPa tensile; 0.8 mm core 171 vs 310 µm; 795G LH 181 vs 705G 277 µm | all four | pass |
+| V10 | Mesh convergence, Standard vs Fine | warpage 0.39 %, die interior peak 1.46 % (302k vs 563k DOF) | 5 % | pass |
+| V11 | Solver integrity | residual 7.6e-11, reactions 3.6e-11 of the force scale, energy balance 1.5e-13 | 1e-8 / 1e-9 | pass |
 | V12 | JEITA sign and magnitude on synthetic domes | signs +1 / -1, magnitude error 0.0 | exact / 1e-9 | pass |
 | V13 | Unit checks (Si CTE, rotated Si moduli, SAC305 E, AlSiC-9 strain, Turner, Voigt, Reuss) | all exact | 1e-9 (formulas), printed precision (rounded references) | pass |
 | V14 | JSON save / load round trip | identical hash | identical | pass |
@@ -291,22 +291,22 @@ Last headless run (Node 22, 4-core container), 15 of 15 pass. `dist/verification
 
 ## Measured performance
 
-Headless Chromium on a 4-core cloud container with 3 workers, Section 13 targets in parentheses. A 2023-class laptop should be somewhat faster per core.
+Headless Chromium on a 4-core cloud container with 3 workers, Section 13 targets in the last column. A 2023-class laptop should be somewhat faster per core. Since the through-thickness refinement (deviation 13) the meshes hold about 2.7 times the DOF at the same in-plane element sizes, and the multigrid solver needs about 2 to 3 times the iterations on them, so runs are about 5 to 6 times longer than before (previous values in brackets).
 
 | Job | Measured | Target |
 |---|---|---|
-| Quick preview (Draft, step 6 button; the drag preview was removed) | about 8 s | none (drag preview target 2 s no longer applies) |
-| Full Draft analysis (stages, 25 °C, chip-join state, reflow sweep, cycling samples) | 33 s | none |
-| Full Standard analysis | 147 s | 90 s |
-| Full Fine analysis | not run end to end; stage chain alone about 190 s at 383k DOF | 10 min |
-| Screening over all 17,424 bumps of the default die | 7 s | 10 s |
-| Four bump submodels, 16×16×14, 3 cycles | 286 s on 3 workers (145 s per bump) | 120 s |
-| Sensitivity (Draft, default input set, worker pool) | about 15 to 20 s per case, roughly 2 to 3 min on 8 cores | 3 min |
-| Peak memory at Standard | about 330 MB per worker | 600 MB |
-| V15, stage chain + 25 °C, Draft 28k DOF | multigrid 4.7 s, IC(0) 37.7 s | report |
-| V15, stage chain + 25 °C, Standard 113k DOF | multigrid 23.6 s, IC(0) 170 s | report |
+| Quick preview (Draft, step 6 button; the drag preview was removed) | about 22 s at 74k DOF (8 s) | none (drag preview target 2 s no longer applies) |
+| Full Draft analysis (stages, 25 °C, chip-join state, reflow sweep, cycling samples) | 163 s at 74k DOF (33 s) | none |
+| Full Standard analysis | 867 s at 302k DOF (147 s at 113k) | 90 s |
+| Full Fine analysis | not run end to end; at 563k DOF expect well over 30 min | 10 min |
+| Screening over all 17,424 bumps of the default die | 9 s | 10 s |
+| Four bump submodels, 16×16×14, 3 cycles | 286 s on 3 workers (145 s per bump); not re-measured, the submodel mesh is unchanged | 120 s |
+| Sensitivity (Draft, default input set, worker pool) | not re-measured; expect about 5 times the previous 15 to 20 s per case | 3 min |
+| Peak memory at Standard | about 850 MB per worker (Node RSS at 320k DOF; 330 MB at 113k before) | 600 MB |
+| V15, stage chain + 25 °C, Draft 74k DOF | multigrid 24.6 s; IC(0) does not converge in 2000 iterations (159 s, then the multigrid fallback) | report |
+| V15, stage chain + 25 °C, Standard 302k DOF | multigrid 118 s; IC(0) does not converge in 2000 iterations (862 s) | report |
 
-Multigrid wins by about 6× at both presets and is the default preconditioner; IC(0) remains the fallback. PCG iterations per solve: bare 25, lidded 26, two-die stiffener 42 at Standard.
+Multigrid is the default preconditioner; on the refined meshes IC(0) no longer converges within 2000 iterations and is kept only as the first fallback. Multigrid PCG iterations per solve on the lidded default: 37 to 74 for the stage solves and 30 to 180 in the temperature sweep at Standard (26 to 50 before the refinement).
 
 ## Deviations from the specification
 
@@ -318,17 +318,19 @@ Each is also listed in the in-app "Assumptions and limitations" panel.
 4. **Layered sub-layer stiffness** uses the continuum-shell form (plane-stress in-plane block, uncoupled thickness modulus); one thickness strain shared across a band's sub-layers over-constrained the softer ones (V5 at 1.5 %, now 0.15 %).
 5. **Preconditioner rebuild policy** is also keyed on the process stage and the solder regime (below or above the solidus), with a mid-solve rebuild when the 2× budget is exceeded; without it the solidus crossing stalled at 2000 iterations.
 6. **Reflow sweep sampling** is 15 °C above the cycling range and 10 °C near a Tg, plus the report temperatures and the solidus; the 10 / 5 °C rule of Section 9.2 applies to the cycling samples.
-7. **V7** is run with 25 °C process temperatures and a bump-layer-only domain of uniform homogenized phases, because the spec's perturbation submodel coincides with the global total formulation only when the 25 °C state is stress-free; the production domain with materially consistent silicon and substrate slices is reported as information (0.47 %).
+7. **V7** is run with 25 °C process temperatures and a bump-layer-only domain of uniform homogenized phases, because the spec's perturbation submodel coincides with the global total formulation only when the 25 °C state is stress-free; the production domain with materially consistent silicon and substrate slices is reported as information (0.25 %).
 8. **V11** is solved to 1e-10 to meet the 1e-9 reaction criterion; **V13** compares rounded reference values at their printed precision.
 9. **Submodel Newton** refreshes the consistent tangent on the first iterations and on stalls, and freezes it while the residual shrinks (modified Newton); the inner PCG uses an inexact-Newton tolerance.
 10. **No drag preview and no auto-solve on die release** (Section 4.3 asks for both). Removed at the user's request: moving a die starts no solve, and the floorplan overlay is hidden while the geometry differs from the results it was computed for. The analysis runs from step 6 (full, or Quick preview on the Draft mesh).
 11. **Rainbow colour scale by default** (Section 4.8 asks for colorblind-safe, perceptually uniform maps). Changed at the user's request; the rainbow is neither colorblind safe nor perceptually uniform, so bright yellow and cyan bands can look like features. The colorblind-safe scales remain one click away in the Results bar.
 12. **Estimated material values** (rubbery moduli of ABF and solder resist, polymer Poisson ratios, core through-thickness and shear moduli, TIM gel) are flagged in the materials editor, listed in the run panel and report, and included in the default sensitivity set. SAC387 has measured elastic, CTE and solidus data with SAC305 Anand placeholders; the SAC405 Anand set comes from water-quenched specimens and overstates the strength of reflowed bumps. Above-Tg (rubbery) moduli of most underfills, adhesives and solder resists are not published and are estimated as a fixed fraction of the glassy modulus; through-thickness CTEs of most cores are not published and are taken from MCL-E-795G or HL832NS. Core in-plane CTE is held at its below-Tg value even where a data sheet gives a lower above-Tg value (MGC BT laminates), which matters only above the core's TMA Tg (200 to 270 °C).
+13. **Finer through-thickness mesh and larger DOF caps** (Sections 5.3 and 13). At the user's request every region has at least 4 element layers through its thickness: bump-layer underfill, fillet height, each die, TIM, lid plate and foot, adhesives, stiffener, and each of the three substrate groups (bottom build-up, core, top build-up), which are split into 4 layered bands each instead of 1, 2 and 1. The default lidded package goes from 14 to 31 z-planes. To keep the previous in-plane element sizes, also at the user's choice, the DOF caps are 75k / 330k / 600k (Draft / Standard / Fine) instead of 30k / 120k / 400k; Fine still ends up with in-plane elements about 30 % larger than before (h_min 0.18 instead of 0.14 mm on the default package) because 850k DOF would exceed browser memory. Runs take longer accordingly (see Measured performance).
+14. **Continuous fillet wedge** (Section 5.4 accepts a stair-stepped fillet). Fillet cells above the die active face carry their stiffness and thermal load scaled by the fraction of the cell below the wedge surface (sampled 4 × 4 in plane, exact in z; cells under 5 % filled are void), and the fillet width gets up to 6 columns (never narrower than half of h_min). The fillet therefore acts as a continuous wedge without sloped elements, and the cross-section stress view clips the shading to the wedge. Peel and shear right at the fillet surface remain approximate.
 
 ## Known issues and next steps
 
-- **Performance targets are still missed** by 1.6× to 2.4× (Standard, submodels; Fine not measured end to end). Candidates: WebAssembly or SIMD kernels for the matrix-vector product and the column smoother, a sparse direct solver for the 13k-DOF submodel, and fewer sweep temperatures when no Tg lies in the range.
-- **Fine preset** full analysis has not been timed; V10 covers its accuracy against Standard.
+- **Performance targets are missed** by about 10× at Standard since the through-thickness refinement (867 s against 90 s) and by 2.4× for the submodels; Fine has not been run end to end. The multigrid needs 2 to 3 times more iterations with 4 element layers in the compliant layers (bump underfill, TIM, adhesives); grouping their interior nodes differently in the shell aggregates did not help. Candidates: a coarse space that treats each compliant layer as a shear layer between its two stiff stacks, WebAssembly or SIMD kernels for the matrix-vector product and the column smoother, a sparse direct solver for the 13k-DOF submodel, and fewer sweep temperatures when no Tg lies in the range.
+- **Fine preset** full analysis has not been timed; V10 covers its accuracy against Standard. Its in-plane elements are about 30 % larger than before the refinement because the 600k cap keeps it within browser memory.
 - **JEITA sign on ring and saddle surfaces** is inherently fragile (the lidded default at 25 °C is a ring profile); the shape class, the sign-confidence metric and the magnitude curve are shown so the user can judge. A customer-specific sign rule could be added as an option.
 - **Peak memory grows with the worker count** (each helper holds its own model copy); the run panel shows the estimate.
 - **3D view** has been exercised only against the local three.js stub in the sandbox; a check in a browser with CDN access is still worthwhile.

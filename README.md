@@ -17,7 +17,7 @@ Workflow (left stepper):
 3. **Underfill, lid, stiffener** geometry.
 4. **Materials**: the cited database (101 materials, see "Materials database" below) with confidence badges, datasheet ranges, source tooltips, E(T) and CTE(T) plots, duplicate / reset.
 5. **Process and loads**: stress-free temperatures, reflow sweep, JESD22-A104 cycling, limits and fatigue constants.
-6. **Run and results**: fidelity preset, parallel worker count with the memory estimate, estimated DOF / memory / runtime, run controls, baseline pinning, mesh sensitivity check, the list of Estimated inputs in use, CSV export and printable report. Results views (center area): warpage (JEITA ED-7306 sign convention), die stress, bump loading, underfill interface tractions, cross-section stress (click a horizontal or vertical line on the package and see any stress component on the vertical cut under it, from the top solder resist to the package top, zoomable, with an element mesh overlay and a CSV export), solder fatigue screening and bump submodels, 3D view, sensitivity tornado charts, verification suite.
+6. **Run and results**: fidelity preset, parallel worker count with the memory estimate, estimated DOF / memory / runtime, run controls, baseline pinning, mesh sensitivity check, the list of Estimated inputs in use, CSV export and printable report. Results views (center area): warpage (JEITA ED-7306 sign convention), die stress, bump loading, underfill interface tractions, cross-section stress (click a horizontal or vertical line on the package and see any stress component on the vertical cut under it, from the top solder resist to the package top, zoomable, with an element mesh overlay and a CSV export), solder fatigue screening and bump submodels, submodel cross-section (the underfill, solder, die and substrate slice stress on a vertical cut through a bump submodel at the end of each ramp and dwell of the last cycle, as the change from the as-assembled 25 °C state, with the underfill or solder coloured and the rest grey, a voxel mesh overlay and a CSV export), 3D view (with an element mesh overlay on the outer faces of the shown parts), sensitivity tornado charts, verification suite.
 
 Every pane can be resized by dragging: the step list and the context panel (vertical splitters), the split between the floorplan and the cross-section, the 3D view (grip below it), and each plot or map (drag its bottom edge). Fields, dropdowns, tables and plots follow the new size; double-click a splitter or edge to restore its default. A narrow step list shows step numbers only.
 
@@ -29,7 +29,7 @@ Configurations are saved and loaded as JSON files. `localStorage` holds only con
 
 ## Project status
 
-The specification in `CLAUDE.md` is implemented in full. Twenty-four pull requests are merged on `main`:
+The specification in `CLAUDE.md` is implemented in full. Twenty-five pull requests are merged on `main`:
 
 | PR | Merged | Content |
 |---|---|---|
@@ -57,6 +57,7 @@ The specification in `CLAUDE.md` is implemented in full. Twenty-four pull reques
 | [#22](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/22) | 2026-10-16 | At least 4 element layers through every region (bump underfill, fillet, dies, TIM, lid, adhesives, stiffener; substrate groups split into 4 bands each), DOF caps 75k / 330k / 600k to keep the in-plane element sizes; continuous fillet wedge (partly filled cells scaled by their volume fraction, up to 6 columns), drawn as a triangle in the cross-section view; runs about 5 to 6 times longer (Standard full analysis 867 s) |
 | [#23](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/23) | 2026-10-18 | Documentation: hand-off notes for the next session ("Where to pick up" in CLAUDE.md), verify and smoke-test run times after the mesh refinement, repository layout and modeling summary refreshed, in-app limitations text updated for the twelve substrate bands |
 | [#24](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/24) | 2026-10-18 | TIM back to one element layer (the other regions keep at least four): four TIM layers changed no result by more than 0.3 % on the default lidded package and raised the lid-stage PCG iterations (55 and 38 to 76 and 48); stage chain plus 25 °C about 17 % faster at a fixed in-plane grid |
+| [#25](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/25) | 2026-10-18 | Submodel cross-section stress view: each bump submodel stores its stress field at the end of each ramp and dwell of the last cycle, shown on a vertical cut along x or y through the pitch cell (underfill or solder coloured, the rest grey; any stress component, voxel mesh overlay, plan view to place the cut, CSV export; change from the as-assembled 25 °C state); element mesh toggle in the 3D view |
 
 Open items are listed under "Known issues and next steps" below. The largest is performance against the Section 13 targets.
 
@@ -233,7 +234,7 @@ Sources were read directly where the publisher allows it: manufacturer data shee
 | `src/core/14-sensitivity.js`, `15-verify.js` | Tornado inputs, bounds and cases; verification tests V1 to V15 |
 | `src/worker.js` | Worker driver and nested helper workers (parallel sweep and submodels) |
 | `src/ui/00-app.js`, `00b-tips.js`, `00c-layout.js`, `00d-glossary.js`, `01-plot.js` | App state, worker client, field helpers, tooltip dictionary and element, resizable panes and plot edge grips, glossary and automatic term linking, 2D plots and colour maps |
-| `src/ui/02-floorplan.js`, `03-panels.js`, `04-results.js`, `04b-section.js`, `05-main.js` | Floorplan and cross-section editor, the six step panels, results views and report, the cross-section stress view, shell and wiring |
+| `src/ui/02-floorplan.js`, `03-panels.js`, `04-results.js`, `04b-section.js`, `04c-subsection.js`, `05-main.js` | Floorplan and cross-section editor, the six step panels, results views and report (including the 3D view and its mesh overlay), the cross-section stress view, the submodel cross-section view, shell and wiring |
 | `tools/build.mjs` | Concatenates `src/` into the single HTML file |
 | `tools/verify.mjs` | Extracts the core block from the built file and runs the suite in Node |
 | `tools/smoke.mjs`, `tools/three-stub.js` | Playwright / Chromium end-to-end test, with a local three.js API stub for sandboxes that block CDNs |
@@ -336,5 +337,6 @@ Each is also listed in the in-app "Assumptions and limitations" panel.
 - **Fine preset** full analysis has not been timed; V10 covers its accuracy against Standard. Its in-plane elements are about 30 % larger than before the refinement because the 600k cap keeps it within browser memory.
 - **JEITA sign on ring and saddle surfaces** is inherently fragile (the lidded default at 25 °C is a ring profile); the shape class, the sign-confidence metric and the magnitude curve are shown so the user can judge. A customer-specific sign rule could be added as an option.
 - **Peak memory grows with the worker count** (each helper holds its own model copy); the run panel shows the estimate.
-- **3D view** has been exercised only against the local three.js stub in the sandbox; a check in a browser with CDN access is still worthwhile.
+- **3D view** is exercised against the local three.js stub by the smoke test; the mesh overlay was also checked once with three.js r128 served locally (software WebGL). A check in a browser with CDN access is still worthwhile.
+- **Submodel cross-section** shows the stress change over the temperature cycle, not the total stress: the submodel is a perturbation from the as-assembled 25 °C state (Section 9.3), so the residual assembly stress of the underfill is not included. Adding it would need the process stages (element birth) in the submodel.
 - **Possible future work**: mesh-independent corner metrics across presets (currently fixed physical patches), a warpage-only fast mode for sensitivity, calibrating effective stress-free temperatures against measured warpage, and an optional viscoelastic underfill model.

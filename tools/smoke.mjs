@@ -43,13 +43,27 @@ if (args.includes('--full')) {
       const t = performance.now();
       const res = app.results; const sel = defaultSubmodelSelection(res); const keys = Array.from(sel);
       const jobs = keys.map(k => { const [die, q] = k.split(':').map(Number); const s = res.screening[die]; return { die, site: { x: s.x[q], y: s.y[q], ix: s.ix[q], iy: s.iy[q] } }; });
-      worker.send({ type: 'submodels', jobs, nxy: app.cfg.submodel.nxy, nz: app.cfg.submodel.nz, workers }).then(r => resolve({ ms: performance.now() - t, n: r.length, dW: r.map(x => x.dW), life: r.map(x => x.life.syedEnergy), steps: r.map(x => x.steps), perBumpMs: r.map(x => x.ms) })).catch(e => reject(e.message));
+      worker.send({ type: 'submodels', jobs, nxy: app.cfg.submodel.nxy, nz: app.cfg.submodel.nz, workers }).then(r => { app.submodels = r; resolve({ ms: performance.now() - t, n: r.length, dW: r.map(x => x.dW), life: r.map(x => x.life.syedEnergy), steps: r.map(x => x.steps), perBumpMs: r.map(x => x.ms), snapshots: r.map(x => x.section ? x.section.snaps.length : 0) }); }).catch(e => reject(e.message));
     }), workers);
     console.log('submodels:', JSON.stringify(sub));
+    // submodel cross-section: every moment, both cut directions, all three material focus choices
+    await page.evaluate(() => { app.resultsView = 'subSection'; setCenterTab('results'); });
+    await page.waitForTimeout(300);
+    const ss = await page.evaluate(async () => {
+      const st = app.subSection, out = [];
+      for (const axis of ['x', 'y']) for (const focus of ['uf', 'solder', 'all']) {
+        st.axis = axis; st.focus = focus; st.pos = null; st.mesh = focus === 'all';
+        for (let k = 0; k < app.submodels[0].section.snaps.length; k++) { st.snap = k; renderCenter(); await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); }
+        out.push(axis + '/' + focus);
+      }
+      const sec = C.submodelSection(app.submodels[0], st.snap, st.axis, st.pos);
+      return { combos: out.length, plots: document.querySelectorAll('#center-body canvas.map').length, quads: sec.n, finite: sec.sig.every(Number.isFinite), stats: document.querySelectorAll('#center-body table tr').length - 1 };
+    });
+    console.log('submodel section:', JSON.stringify(ss));
   }
   // render results views
   await page.evaluate(() => { app.section = { axis: 'x', c: 0, a0: -20, a1: 20 }; app.sectionMesh = true; });
-  for (const view of ['warpage', 'dieStress', 'bumps', 'uf', 'section', 'fatigue', 'view3d', 'report']) {
+  for (const view of ['warpage', 'dieStress', 'bumps', 'uf', 'section', 'fatigue', 'subSection', 'view3d', 'report']) {
     await page.evaluate(v => { app.resultsView = v; setCenterTab('results'); }, view);
     await page.waitForTimeout(400);
   }
@@ -64,7 +78,8 @@ if (args.includes('--full')) {
   await page.evaluate(() => { app.resultsView = 'view3d'; setCenterTab('results'); });
   await page.waitForTimeout(500);
   await page.evaluate(() => { app.view3dOpts.color = 'stress'; update3D(); app.view3dOpts.color = 'part'; update3D(); app.view3dOpts.scale = 50; app.view3dOpts.hidden.add(4); update3D(); });
-  const v3b = await page.evaluate(() => ({ renders: window.__stubRenders || 0, hasView: !!document.getElementById('view3d'), active: !!three }));
+  await page.evaluate(() => { app.view3dOpts.mesh = true; update3D(); app.view3dOpts.hidden.delete(4); update3D(); });
+  const v3b = await page.evaluate(() => { const p = three.lines ? three.lines.geometry.attributes.position.array : null; return { renders: window.__stubRenders || 0, hasView: !!document.getElementById('view3d'), active: !!three, meshEdges: p ? p.length / 6 : 0, meshFinite: p ? p.every(Number.isFinite) : null, meshVisible: three.lines ? three.lines.visible : null }; });
   console.log('3D view after control changes:', JSON.stringify(v3b));
   await page.evaluate(() => setCenterTab('floorplan'));
   await page.waitForTimeout(300);

@@ -4864,6 +4864,15 @@ class AnandPoint {
     return -dphi_dd / dphi_ds;
   }
 
+  /** Stress at the committed plastic strain for mechanical strain eps, with no further flow (state untouched). */
+  stressAt(eps, T, sig) {
+    const E = this.E(T), G = E / (2 * (1 + this.nu)), K = E / (3 * (1 - 2 * this.nu));
+    const vol = (eps[0] + eps[1] + eps[2]) / 3, sm = 3 * K * vol, ep = this.ep;
+    for (let i = 0; i < 3; i++) sig[i] = 2 * G * (eps[i] - vol - ep[i]) + sm;
+    for (let i = 3; i < 6; i++) sig[i] = 2 * G * (0.5 * eps[i] - ep[i]);
+    return sig;
+  }
+
   commit() {
     const tr = this._trial;
     this.ep.set(tr.ep); this.s = tr.s; this.ebar = tr.ebar; this.W = tr.W; this.sigEq = tr.sigEq;
@@ -5552,6 +5561,43 @@ class BumpSubmodel {
     return { converged, newton: it, dMax };
   }
 
+  /**
+   * Stress change from the as-assembled 25 degC state in every element at T, for the
+   * cross-section view: Gauss-point stresses extrapolated to the 8 corners
+   * (GP_TO_NODE). Elastic parts: sigma = D(T) (eps - [F(T) - F(25)]); solder:
+   * the Anand stress at the committed plastic strain. Float32Array(48 per element).
+   */
+  _stressSnapshot(T) {
+    const m = this.mesh, out = new Float32Array(m.ne * 48);
+    const ue = new Float64Array(24), eps = new Float64Array(6), sig = new Float64Array(6), gp = new Float64Array(48);
+    const elas = new Map();
+    for (let e = 0; e < m.ne; e++) {
+      const mat = m.eGroup[e], Ball = this.bbList[this.eBb[e]].B, pt0 = this.anand[e * 8];
+      for (let a = 0; a < 8; a++) { const n = m.conn[8 * e + a]; ue[3 * a] = this.u[3 * n]; ue[3 * a + 1] = this.u[3 * n + 1]; ue[3 * a + 2] = this.u[3 * n + 2]; }
+      let rec = null;
+      if (!pt0) { rec = elas.get(mat); if (!rec) { rec = { D: new Float64Array(36), eth: new Float64Array(6) }; rec.kind = this._elastic(mat, T, rec.D, rec.eth); elas.set(mat, rec); } }
+      for (let gq = 0; gq < 8; gq++) {
+        const Bb = Ball.subarray(144 * gq, 144 * gq + 144);
+        for (let r = 0; r < 6; r++) { let s = 0; const ro = r * 24; for (let c = 0; c < 24; c++) s += Bb[ro + c] * ue[c]; eps[r] = s; }
+        if (pt0) {
+          const pt = this.anand[e * 8 + gq], f = pt.thermalStrain(T) - pt.thermalStrain(25);
+          eps[0] -= f; eps[1] -= f; eps[2] -= f;
+          pt.stressAt(eps, T, sig);
+        } else {
+          eps[0] -= rec.eth[0]; eps[1] -= rec.eth[1]; eps[2] -= rec.eth[2];
+          for (let r = 0; r < 6; r++) { let s = 0; for (let c = 0; c < 6; c++) s += rec.D[r * 6 + c] * eps[c]; sig[r] = s; }
+        }
+        gp.set(sig, 6 * gq);
+      }
+      for (let a = 0; a < 8; a++) for (let c = 0; c < 6; c++) {
+        let v = 0;
+        for (let gq = 0; gq < 8; gq++) v += GP_TO_NODE[a * 8 + gq] * gp[6 * gq + c];
+        out[48 * e + 6 * a + c] = v;
+      }
+    }
+    return out;
+  }
+
   /** Save / restore the solder states and displacement for cutbacks. */
   _snapshot() { return { u: Float64Array.from(this.u), st: this.anand.map(p => p ? p.save() : null) }; }
   _restore(s) { this.u.set(s.u); this.anand.forEach((p, i) => { if (p) p.restore(s.st[i]); }); }
@@ -5604,6 +5650,8 @@ class BumpSubmodel {
       loop.t.push(t); loop.T.push(T); loop.tau.push(wS ? tS / wS : NaN); loop.gamma.push(wS ? gS / wS : NaN); loop.tauSub.push(wB ? tB / wB : NaN); loop.gammaSub.push(wB ? gB / wB : NaN);
     };
     sampleLoop(25, 0);
+    // stress snapshots for the cross-section view: the end of each ramp and dwell of the last cycle
+    const snaps = [], snapOn = !this.opts.uniformMaterial;
     for (let k = 1; k < nsteps; k++) {
       if (this.opts.cancelled && this.opts.cancelled()) throw new Error('cancelled');
       const T0 = hist.T[k - 1], T1 = hist.T[k], t0s = hist.t[k - 1], t1s = hist.t[k];
@@ -5627,6 +5675,7 @@ class BumpSubmodel {
       if (!done) throw new Error('Submodel step failed to converge after cutbacks at T = ' + T1.toFixed(1) + ' °C');
       sampleLoop(T1, t1s);
       const c = hist.cycle[k];
+      if (snapOn && c === hist.cycles && (k === nsteps - 1 || hist.phase[k + 1] !== hist.phase[k])) snaps.push({ T: T1, t: t1s, cycle: c, phase: hist.phase[k], sig: this._stressSnapshot(T1) });
       Wcyc.die[c] = avg(dieLayer, p => p.W); Wcyc.sub[c] = avg(subLayer, p => p.W);
       Wcyc.eDie[c] = avg(dieLayer, p => p.ebar); Wcyc.eSub[c] = avg(subLayer, p => p.ebar);
       if (this.opts.progress) this.opts.progress(k / (nsteps - 1), 'Submodel step ' + k + '/' + (nsteps - 1) + ' at ' + T1.toFixed(0) + ' °C');
@@ -5645,8 +5694,67 @@ class BumpSubmodel {
       die: this.die.name, site: { x: this.site.x, y: this.site.y, ix: this.site.ix, iy: this.site.iy }, nxy: this.opts.nxy, nz: this.opts.nz, nElem: m.ne, ndof: this.ndof,
       dW, dWdie, dWsub, dE, dEdie, dEsub, critical: dWdie >= dWsub ? 'die side' : 'substrate side', stabChange, stabWarn: isFinite(stabChange) && stabChange > CONST.STABILIZATION_WARN,
       perCycle, loop, life, dJoint, steps, cutbacks, newtonPerStep: totalNewton / Math.max(steps, 1), ms: nowMs() - t0,
+      section: snapOn ? {
+        xs: Float64Array.from(m.xs), ys: Float64Array.from(m.ys), zs: Float64Array.from(m.zs), grp: Int8Array.from(m.eGroup), cx: this.site.x, cy: this.site.y, zt: g.zt, zaf: g.zaf, dieCx: this.die.cx, dieCy: this.die.cy, radii: { top: this.die.profile.rt, bottom: this.die.profile.rb, max: this.die.profile.rm },
+        groups: [{ name: 'Substrate slice', material: 'top ' + Math.round(CONST.SUB_MARGIN * 1000) + ' µm, homogenized' }, { name: 'Solder', material: this.solderMat.name }, { name: 'Underfill', material: this.ufMat.name }, { name: 'Silicon', material: '' }],
+        snaps,
+      } : null,
     };
   }
+}
+
+/**
+ * Vertical cut through a bump submodel result sm along the x or y grid lines at
+ * grid-line index jc across the cut, for snapshot si. Returns the record the
+ * cross-section plot draws (see sectionStress), in local coordinates: s in um from
+ * the bump axis, z in um above the substrate top. A cut along a voxel face between
+ * two materials shows the element nearer the bump axis; corner values are averaged
+ * only within one material.
+ */
+function submodelSection(sm, si, axis, jc) {
+  const S = sm.section, snap = S.snaps[si];
+  const alongY = axis === 'y';
+  const along = alongY ? S.ys : S.xs, across = alongY ? S.xs : S.ys;
+  const nx = S.xs.length - 1, ny = S.ys.length - 1, nz = S.zs.length - 1;
+  const na = along.length - 1, nc = across.length - 1;
+  jc = Math.max(0, Math.min(nc, Math.round(jc)));
+  const c0 = alongY ? S.cx : S.cy;
+  const cell = (ia, ic, k) => (alongY ? (ic * ny + ia) : (ia * ny + ic)) * nz + k;
+  // corner order of the cut face (s-, z-), (s+, z-), (s+, z+), (s-, z+) on the element below (A, its + face) and above (B, its - face) the cut
+  const faceA = alongY ? [1, 2, 6, 5] : [3, 2, 6, 7], faceB = alongY ? [0, 3, 7, 4] : [0, 1, 5, 4];
+  const toUm = 1000;
+  const sl = Float64Array.from(along, v => (v - (alongY ? S.cy : S.cx)) * toUm), zl = Float64Array.from(S.zs, v => (v - S.zt) * toUm);
+  const ns = na + 1, nzl = nz + 1, ng = S.groups.length, nn = ns * nzl;
+  const acc = new Float64Array(ng * nn * 7), quads = [], face = new Float64Array(24);
+  for (let k = 0; k < nz; k++) for (let ia = 0; ia < na; ia++) {
+    const eA = jc > 0 ? cell(ia, jc - 1, k) : -1, eB = jc < nc ? cell(ia, jc, k) : -1;
+    let use;
+    if (eA >= 0 && eB >= 0 && S.grp[eA] !== S.grp[eB]) {
+      const dA = Math.abs(0.5 * (across[jc - 1] + across[jc]) - c0), dB = Math.abs(0.5 * (across[jc] + across[jc + 1]) - c0);
+      use = dA < dB ? [[eA, faceA]] : [[eB, faceB]];
+    } else use = [[eA, faceA], [eB, faceB]].filter(([e]) => e >= 0);
+    face.fill(0);
+    for (const [e, fc] of use) for (let v = 0; v < 4; v++) for (let cc = 0; cc < 6; cc++) face[6 * v + cc] += snap.sig[48 * e + 6 * fc[v] + cc] / use.length;
+    const grp = S.grp[use[0][0]];
+    [[ia, k], [ia + 1, k], [ia + 1, k + 1], [ia, k + 1]].forEach(([ca, cb], v) => {
+      const o = (grp * nn + ca * nzl + cb) * 7;
+      for (let cc = 0; cc < 6; cc++) acc[o + cc] += face[6 * v + cc];
+      acc[o + 6]++;
+    });
+    quads.push({ a: ia, b: k, grp });
+  }
+  const n = quads.length, sig = new Float32Array(24 * n);
+  const out = { T: snap.T, axis: alongY ? 'y' : 'x', c: +((across[jc] - c0) * toUm).toFixed(6), a0: sl[0], a1: sl[na], zMin: zl[0], zTop: zl[nz], sl, zl, n,
+    qa: new Int32Array(n), qb: new Int32Array(n), part: new Int8Array(n), grp: new Int16Array(n), pair: new Int8Array(n), cutBelow: new Int8Array(n), sig,
+    topA: new Float32Array(n).fill(NaN), topB: new Float32Array(n).fill(NaN), groups: S.groups, submodel: true };
+  quads.forEach((Q, t) => {
+    out.qa[t] = Q.a; out.qb[t] = Q.b; out.part[t] = Q.grp; out.grp[t] = Q.grp;
+    [[Q.a, Q.b], [Q.a + 1, Q.b], [Q.a + 1, Q.b + 1], [Q.a, Q.b + 1]].forEach(([ca, cb], v) => {
+      const o = (Q.grp * nn + ca * nzl + cb) * 7;
+      for (let cc = 0; cc < 6; cc++) sig[24 * t + 6 * v + cc] = acc[o + cc] / acc[o + 6];
+    });
+  });
+  return out;
 }
 
 // ===== Sensitivity analysis: tornado charts (Section 10) ===================
@@ -6616,6 +6724,8 @@ const app = {
   workers: Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1, maxWorkers())), nestedWorkers: true,
   decisions: [], showOverlay: 'warpage', cutDirty: true,
   // cross-section stress view: line {axis, c, a0, a1}, first click while drawing, display options, worker results by temperature and line
+  // submodel cross-section view: submodel key (die:ix:iy), stored moment, cut direction and grid-line index, display options
+  subSection: { key: null, snap: null, axis: 'x', pos: null, qty: 'vm', focus: 'uf', mesh: false },
   section: null, sectionDraft: null, sectionQty: 'vm', sectionPhase: 'uf', sectionMesh: false, sectionExag: 'fit', sectionRange: 'all', sectionResize: false, sectionCache: new Map(), sectionPending: null,
   colorMap: prefs.get('colorMap', 'rainbow') === 'colorblind' ? 'colorblind' : 'rainbow',  // contour colours: rainbow or colorblind-safe
 };
@@ -6947,7 +7057,19 @@ const TIPS = {
   sectionEnds: 'Start (B) and end (B′) of the line along its direction, mm from the package centre.',
   sectionStats: 'Lowest and highest value of the chosen quantity on the cut per material, at element corners (nodal averaged within the material).',
   viewFatigue: 'Ranks every solder bump by the creep work it absorbs per temperature cycle (a screening index from the Anand solder model), then lets you model the worst bumps in detail for hysteresis loops and comparative fatigue lives.',
-  view3d: 'Exaggerated deformed shape coloured by displacement or stress, with part visibility toggles.',
+  viewSubSection: 'Stress on a vertical cut through a bump submodel (solder joint, surrounding underfill, die and substrate slices) at the end of each ramp and dwell of the last simulated cycle; run bump submodels on the Solder fatigue tab first.',
+  openSubSection: 'Open the Submodel section tab on this bump: the underfill and solder stress on a vertical cut through the joint.',
+  subSecModel: 'Bump submodel to cut; the list holds the submodels of the last run.',
+  subSecMoment: 'Moment of the last simulated cycle: the end of each ramp (start of the following dwell) and the end of each dwell. Comparing the start and end of a dwell shows how much the solder relaxes by creep and how the underfill picks up the load.',
+  subSecAxis: 'Direction of the vertical cut: along x (seen from the −y side) or along y (seen from the +x side).',
+  subSecPos: 'Position of the cut across its direction, on the voxel grid lines of the submodel; the middle position runs through the bump axis.',
+  subSecFocus: 'Material coloured on the plot and used for the colour range; the other materials are drawn grey for context. "All materials" colours everything on one scale.',
+  subSecMesh: 'Overlay the voxel edges of the submodel on the cut, which shows how the stair-stepped joint outline resolves the truncated sphere.',
+  subSecPlan: 'Pitch cell around the bump seen from the top, with the cut line and the direction to the die centre. Click to move the cut to the nearest grid line.',
+  subSecStats: 'Lowest and highest value of the chosen quantity on the cut per material, at voxel corners (averaged within the material).',
+  subSecPlot: 'Stress change from the as-assembled 25 °C state on the vertical cut through the submodel, in µm from the bump axis and from the substrate top. Thick lines are material boundaries; wheel to zoom, drag to pan, double-click to reset; point at the plot to read a value.',
+  subSecCsv: 'Download the six stress components at every voxel corner on the cut, per material, in package coordinates (mm), as CSV.',
+  view3d: 'Exaggerated deformed shape coloured by displacement or stress, with part visibility toggles and an optional element mesh overlay.',
   viewSens: 'Shows which inputs drive the results most: each input is moved to the low and high end of its plausible range and the resulting change in warpage, die stress and bump fatigue is drawn as a tornado chart, biggest effect on top.',
   viewVerify: 'Runs built-in benchmark tests (V1 to V15) that check the solver against textbook solutions, independent calculations and common-sense trends, so you can confirm the physics engine works correctly in your browser.',
   viewReport: 'Printable report and CSV export.',
@@ -7012,6 +7134,7 @@ const TIPS = {
   exag3d: 'Multiplies the displacements before drawing.',
   color3d: 'Colour the surface by out-of-plane displacement, by the nodal max principal stress of each part, or by part.',
   partToggle: 'Show or hide this part.',
+  mesh3d: 'Overlay the element edges on the outer faces of every shown part: the in-plane grid, refined near die edges, and the element layers through each region (at least four per region except the TIM). Hide parts to see the mesh of the parts under them. Superposed solder and underfill elements of the bump layer share one cell and are drawn once.',
   // sensitivity
   sensInput: 'Input moved to the low and high end of its range in the tornado run. "est." marks Estimated database values.',
   sensRun: 'Runs 2 × (inputs) + 1 Draft analyses on the number of workers chosen under Parallel workers (step 6); results are cached by configuration hash.',
@@ -8420,6 +8543,7 @@ const CONFIDENCE = {
   bumps: 'Comparative only; use for ranking designs and locations.',
   fatigue: 'Comparative only; use for ranking designs and locations.',
   section: 'Interior of dies and lids: moderate confidence. Corners, fillet edges and material interfaces: comparative only; singular locations, mesh dependent.',
+  subSection: 'Comparative only; stress change over the temperature cycle on a stair-stepped joint; pad edges and joint corners are singular and mesh dependent.',
 };
 
 function renderRunPanel(root) {
@@ -8614,7 +8738,7 @@ function runCoreStudy() {
 }
 
 // ---- results views in the center area ----
-const RESULT_VIEWS = [['warpage', 'Warpage', 'viewWarpage'], ['dieStress', 'Die stress', 'viewDieStress'], ['bumps', 'Bump loading', 'viewBumps'], ['uf', 'Underfill interface', 'viewUf'], ['section', 'Cross-section stress', 'viewSection'], ['fatigue', 'Solder fatigue', 'viewFatigue'], ['view3d', '3D view', 'view3d'], ['sensitivity', 'Sensitivity', 'viewSens'], ['verification', 'Verification', 'viewVerify'], ['report', 'Report', 'viewReport']];
+const RESULT_VIEWS = [['warpage', 'Warpage', 'viewWarpage'], ['dieStress', 'Die stress', 'viewDieStress'], ['bumps', 'Bump loading', 'viewBumps'], ['uf', 'Underfill interface', 'viewUf'], ['section', 'Cross-section stress', 'viewSection'], ['fatigue', 'Solder fatigue', 'viewFatigue'], ['subSection', 'Submodel section', 'viewSubSection'], ['view3d', '3D view', 'view3d'], ['sensitivity', 'Sensitivity', 'viewSens'], ['verification', 'Verification', 'viewVerify'], ['report', 'Report', 'viewReport']];
 
 function renderResults(root) {
   const res = app.results;
@@ -8633,6 +8757,7 @@ function renderResults(root) {
     case 'uf': renderUFView(root, res, f, Tsel); break;
     case 'section': renderSectionView(root, res, f, Tsel); break;
     case 'fatigue': renderFatigueView(root, res); break;
+    case 'subSection': renderSubmodelSectionView(root); break;
     case 'view3d': renderView3D(root, res, f, Tsel); break;
     case 'sensitivity': renderSensitivityView(root); break;
     case 'verification': renderVerificationView(root); break;
@@ -8818,6 +8943,7 @@ function renderSubmodelCard(sm) {
   const card = h('div', { class: 'card' }, h('h3', null, 'Submodel: ' + sm.die + ' bump at (' + fmt(sm.site.x, 2) + ', ' + fmt(sm.site.y, 2) + ') mm, ' + sm.nxy + '×' + sm.nxy + '×' + sm.nz + ' voxels'),
     h('div', { class: 'kv' }, kl('ΔW stabilized cycle (critical layer: ' + sm.critical + ')', 'subDW'), h('b', null, fmtE(sm.dW, 3) + ' MPa/cycle'), kl('die side / substrate side', 'subDW'), h('span', null, fmtE(sm.dWdie, 3) + ' / ' + fmtE(sm.dWsub, 3)), kl('Equivalent inelastic strain range', 'subDE'), h('span', null, fmtE(sm.dE, 3)), kl('Cycle-to-cycle change of ΔW', 'subStab'), h('span', { class: sm.stabWarn ? 'warnc' : 'ok' }, fmt(100 * sm.stabChange, 1) + ' %' + (sm.stabWarn ? ' (not stabilized; run more cycles)' : '')), kl('Life, Syed energy model', 'lifeSyedE'), h('b', null, fmt(life.syedEnergy, 0) + ' cycles'), kl('Life, Syed strain model', 'lifeSyedS'), h('span', null, fmt(life.syedStrain, 0) + ' cycles'), kl('Life, Darveaux', 'lifeDarv'), h('span', null, life.darveaux === null ? 'enter K1 to K4 in step 5' : fmt(life.darveaux, 0) + ' cycles (N0 ' + fmt(life.darveauxN0, 0) + ', a = ' + fmt(sm.dJoint * 1000, 0) + ' µm)'), app.baseline && app.baseline.submodels && app.baseline.submodels[0] ? kl('Life ratio vs baseline', 'lifeRatio') : null, app.baseline && app.baseline.submodels && app.baseline.submodels[0] ? h('b', null, fmt(life.syedEnergy / app.baseline.submodels[0].life.syedEnergy, 2)) : null, kl('Steps / cutbacks / Newton per step', 'subSteps'), h('span', null, sm.steps + ' / ' + sm.cutbacks + ' / ' + fmt(sm.newtonPerStep, 1) + ', ' + fmt(sm.ms / 1000, 1) + ' s')),
     c1, h('div', { class: 'small muted' }, 'Per cycle: ' + sm.perCycle.map(c => 'cycle ' + c.cycle + ': ' + fmtE(Math.max(c.dWdie, c.dWsub), 2)).join('; ')),
+    sm.section ? h('button', tip('openSubSection', { class: 'small', onclick: () => { app.subSection.key = subSecKey(sm); app.subSection.snap = null; app.subSection.pos = null; app.resultsView = 'subSection'; renderCenter(); } }), 'Cross-section of this submodel') : null,
     h('details', null, h('summary', null, 'What this means'), h('p', { class: 'small' }, 'The submodel resolves one solder joint with the Anand viscoplastic model, driven by cut-boundary displacements from the global model. ΔW is the inelastic work density of the last simulated cycle averaged over a 25 µm layer at each interface; the larger side is used. Energy-based lives use Syed\'s constant (fitted to a different model and joint geometry) and are order-of-magnitude. The Darveaux model needs constants calibrated to this averaging scheme. The solder is assumed stress-free at 25 °C in the as-assembled state (room-temperature relaxation).')));
   requestAnimationFrame(() => linePlot(c1, [{ x: sm.loop.gamma, y: sm.loop.tau, label: 'die-side layer' }, { x: sm.loop.gammaSub, y: sm.loop.tauSub, label: 'substrate-side layer', dash: [3, 3] }], { title: 'Shear hysteresis (volume averaged in the interface layers, radial direction)', xlabel: 'shear strain γ', ylabel: 'τ, MPa', zero: false }));
   return card;
@@ -8832,11 +8958,14 @@ function renderView3D(root, res, f, Tsel) {
     return;
   }
   if (!res.view3d) { root.append(h('div', { class: 'msg info' }, 'The 3D view needs the full analysis.')); return; }
-  const v = app.view3dOpts || (app.view3dOpts = { scale: 20, color: 'warpage', hidden: new Set() });
-  const ctl = h('div', { class: 'row' }, h('b', null, '3D deformed shape'), ' at ', Tsel, h('label', tip('exag3d'), ' exaggeration ', h('input', { type: 'range', min: 1, max: 200, value: v.scale, oninput: e => { v.scale = +e.target.value; update3D(); } })), h('label', tip('color3d'), ' color by ', h('select', { onchange: e => { v.color = e.target.value; update3D(); } }, h('option', { value: 'warpage', selected: v.color === 'warpage' ? '' : null }, 'out-of-plane displacement'), h('option', { value: 'stress', selected: v.color === 'stress' ? '' : null }, 'max principal stress (per part)'), h('option', { value: 'part', selected: v.color === 'part' ? '' : null }, 'part'))), ...C.PART_NAMES.map((n, i) => (res.view3d.part.includes(i) ? h('label', tip('partToggle', { class: 'small' }), h('input', { type: 'checkbox', checked: v.hidden.has(i) ? null : '', onchange: e => { if (e.target.checked) v.hidden.delete(i); else v.hidden.add(i); update3D(); } }), ' ' + n) : null)));
+  const v = app.view3dOpts || (app.view3dOpts = { scale: 20, color: 'warpage', hidden: new Set(), mesh: false });
+  const mi = res.meshInfo;
+  const meshNote = h('div', { class: 'small muted', style: v.mesh ? '' : 'display:none' }, 'Element mesh: ' + mi.nElem.toLocaleString() + ' hexahedral elements, ' + mi.nNodes.toLocaleString() + ' nodes (' + mi.nDof.toLocaleString() + ' DOF), ' + (mi.nx - 1) + ' × ' + (mi.ny - 1) + ' in-plane cells and ' + (mi.nz - 1) + ' element layers through the stack, ' + mi.preset + ' preset (h ' + fmt(mi.hmin, 2) + ' to ' + fmt(mi.hmax, 2) + ' mm). Only the outer faces of the shown parts are drawn; hide parts to see the mesh under them.');
+  const meshBox = h('label', tip('mesh3d', { class: 'small' }), h('input', { type: 'checkbox', checked: v.mesh ? '' : null, onchange: e => { v.mesh = e.target.checked; meshNote.style.display = v.mesh ? '' : 'none'; update3D(); } }), ' element mesh');
+  const ctl = h('div', { class: 'row' }, h('b', null, '3D deformed shape'), ' at ', Tsel, h('label', tip('exag3d'), ' exaggeration ', h('input', { type: 'range', min: 1, max: 200, value: v.scale, oninput: e => { v.scale = +e.target.value; update3D(); } })), h('label', tip('color3d'), ' color by ', h('select', { onchange: e => { v.color = e.target.value; update3D(); } }, h('option', { value: 'warpage', selected: v.color === 'warpage' ? '' : null }, 'out-of-plane displacement'), h('option', { value: 'stress', selected: v.color === 'stress' ? '' : null }, 'max principal stress (per part)'), h('option', { value: 'part', selected: v.color === 'part' ? '' : null }, 'part'))), meshBox, ...C.PART_NAMES.map((n, i) => (res.view3d.part.includes(i) ? h('label', tip('partToggle', { class: 'small' }), h('input', { type: 'checkbox', checked: v.hidden.has(i) ? null : '', onchange: e => { if (e.target.checked) v.hidden.delete(i); else v.hidden.add(i); update3D(); } }), ' ' + n) : null)));
   root.append(ctl);
   const el = h('div', { id: 'view3d' });
-  root.append(el, view3dSplitter(), h('div', { class: 'legend', id: 'legend3d' }), h('div', { class: 'small muted' }, 'Drag to rotate, wheel to zoom, right-drag to pan.'));
+  root.append(el, view3dSplitter(), h('div', { class: 'legend', id: 'legend3d' }), meshNote, h('div', { class: 'small muted' }, 'Drag to rotate, wheel to zoom, right-drag to pan.'));
   requestAnimationFrame(() => setup3D(el, res, f));
 }
 let three = null;
@@ -8858,7 +8987,8 @@ function setup3D(el, res, f) {
   const pos = new Float32Array(nf * 6 * 3), col = new Float32Array(nf * 6 * 3);
   geom.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   geom.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  const mesh = new THREE.Mesh(geom, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }));
+  // faces pushed back slightly in depth so the mesh overlay lines draw on top of them
+  const mesh = new THREE.Mesh(geom, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 }));
   scene.add(mesh);
   three = { renderer, scene, camera, geom, pos, col, el, res, f, target: new THREE.Vector3(0, 0, 0) };
   // follow the pane size (3D grip, side-panel splitters, window resize)
@@ -8885,6 +9015,43 @@ function setup3D(el, res, f) {
   });
   el.addEventListener('wheel', e => { e.preventDefault(); if (!three) return; const cam = three.camera, t = three.target; const off = cam.position.clone().sub(t).multiplyScalar(e.deltaY > 0 ? 1.1 : 0.9); cam.position.copy(t).add(off); cam.lookAt(t); three.renderer.render(three.scene, cam); }, { passive: false });
   update3D();
+}
+/** Unique edges of the boundary quads, per part (an edge between two parts is kept once for each, so hiding one keeps the other's). */
+function meshEdges3D(view) {
+  if (view.edges) return view.edges;
+  const q = view.quads, part = view.part, nn = view.coords.length / 3;
+  const seen = new Set(), list = [], parts = [];
+  for (let f = 0; f < part.length; f++) for (let v = 0; v < 4; v++) {
+    const a = q[4 * f + v], b = q[4 * f + (v + 1) % 4], lo = Math.min(a, b), hi = Math.max(a, b);
+    const key = (part[f] * nn + lo) * nn + hi;
+    if (seen.has(key)) continue;
+    seen.add(key); list.push(lo, hi); parts.push(part[f]);
+  }
+  view.edges = { nodes: Int32Array.from(list), part: Int8Array.from(parts) };
+  return view.edges;
+}
+/** Element edges as line segments on the deformed shape (created on first use). */
+function updateMesh3D(u, ex, zmid) {
+  const v = app.view3dOpts;
+  if (!v.mesh) { if (three.lines) three.lines.visible = false; return; }
+  const view = three.res.view3d, E = meshEdges3D(view), coords = view.coords;
+  if (!three.lines) {
+    const g = new THREE.BufferGeometry(), pos = new Float32Array(E.part.length * 6);
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    three.lines = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: isDark() ? 0xdde2ea : 0x15181d, transparent: true, opacity: isDark() ? 0.45 : 0.4 }));
+    three.scene.add(three.lines);
+  }
+  const g = three.lines.geometry, pos = g.attributes.position.array;
+  for (let s = 0; s < E.part.length; s++) {
+    const o = 6 * s;
+    if (v.hidden.has(E.part[s])) { pos.fill(0, o, o + 6); continue; }  // zero-length segment: not drawn
+    for (let t = 0; t < 2; t++) {
+      const n = E.nodes[2 * s + t], p = o + 3 * t;
+      pos[p] = coords[3 * n] + ex * u[3 * n]; pos[p + 1] = coords[3 * n + 1] + ex * u[3 * n + 1]; pos[p + 2] = (coords[3 * n + 2] - zmid) + ex * u[3 * n + 2];
+    }
+  }
+  g.attributes.position.needsUpdate = true; g.computeBoundingSphere();
+  three.lines.visible = true;
 }
 function update3D() {
   if (!three) return;
@@ -8916,6 +9083,7 @@ function update3D() {
   }
   geom.attributes.position.needsUpdate = true; geom.attributes.color.needsUpdate = true;
   geom.computeVertexNormals(); geom.computeBoundingSphere();
+  updateMesh3D(u, ex, zmid);
   three.renderer.render(three.scene, three.camera);
   const lg = $('#legend3d');
   if (lg) { lg.innerHTML = ''; if (scale) lg.append(...legendItems(scale, v.color === 'warpage' ? 'u_z, µm (deformation exaggerated ' + ex + '×)' : 'max principal stress, MPa, nodal averaged per part')); }
@@ -9124,12 +9292,14 @@ function sectionValue(qty, alongY, s, o, eig, tmp) {
 /** Display name of the material of section quad q. */
 function sectionPartName(sec, q) {
   const g = sec.groups[sec.grp[q]];
+  if (sec.submodel) return g.name + (g.material ? ' (' + g.material + ')' : '');
   const part = sec.part[q] === C.PART.SUB ? 'Top solder resist' : C.PART_NAMES[sec.part[q]];
   return part + (g.material ? ' (' + g.material + ')' : '');
 }
 
 /** Quads shown for the bump-layer phase choice: the underfill phase hides solder; the solder phase hides underfill where both share a cell. */
 function sectionVisible(sec, q, phase) {
+  if (phase === 'all') return true;  // submodel sections: every voxel holds one material
   const p = sec.part[q];
   return phase === 'solder' ? !(p === C.PART.UF_BUMP && sec.pair[q]) : p !== C.PART.SOLDER;
 }
@@ -9247,7 +9417,7 @@ function sectionFields(sec, qty, phase) {
 
 /** Contour of the cut plane: bilinear shading per quad, material boundaries, optional element edges. */
 function drawSectionPlot(cv, sec, F, scale, opts) {
-  if (app.sectionResize && cv.isConnected) {
+  if (!sec.submodel && app.sectionResize && cv.isConnected) {
     // one-shot: size the plot so the chosen vertical exaggeration fits, and remember the height like a manual resize
     app.sectionResize = false;
     const key = canvasKey(cv), w0 = cv.getBoundingClientRect().width;
@@ -9279,7 +9449,7 @@ function drawSectionPlot(cv, sec, F, scale, opts) {
   for (let p = 0; p < iw; p++) { const s = x0 + (p + 0.5) / iw * (x1 - x0); if (s < sec.a0 || s > sec.a1) { colA[p] = -1; continue; } const a = bisect(sec.sl, s); colA[p] = a; colT[p] = (s - sec.sl[a]) / (sec.sl[a + 1] - sec.sl[a]); }
   const zRow = new Float64Array(ih);
   for (let r = 0; r < ih; r++) { const z = zRow[r] = y1 - (r + 0.5) / ih * (y1 - y0); if (z < sec.zMin || z > sec.zTop) { rowB[r] = -1; continue; } const b = bisect(sec.zl, z); rowB[r] = b; rowT[r] = (z - sec.zl[b]) / (sec.zl[b + 1] - sec.zl[b]); }
-  const { vals, idx, nzs } = F, span = scale.max - scale.min || 1;
+  const { vals, idx, nzs } = F, span = scale.max - scale.min || 1, grey = opts.grey || null;  // grey[q]: grey level of a context material, 0 = coloured
   for (let r = 0; r < ih; r++) {
     const b = rowB[r]; if (b < 0) continue;
     const tz = rowT[r];
@@ -9288,8 +9458,10 @@ function drawSectionPlot(cv, sec, F, scale, opts) {
       const q = idx[a * nzs + b]; if (q < 0) continue;
       const tx = colT[p], o = 4 * q;
       if (sec.topA[q] === sec.topA[q] && zRow[r] > sec.topA[q] + tx * (sec.topB[q] - sec.topA[q])) continue;  // above the fillet surface
+      const di = 4 * (r * iw + p);
+      if (grey && grey[q]) { D[di] = D[di + 1] = D[di + 2] = grey[q]; D[di + 3] = 255; continue; }
       const v = (1 - tx) * (1 - tz) * vals[o] + tx * (1 - tz) * vals[o + 1] + tx * tz * vals[o + 2] + (1 - tx) * tz * vals[o + 3];
-      const li = 3 * Math.round(clampTo((v - scale.min) / span, 0, 1) * 255), di = 4 * (r * iw + p);
+      const li = 3 * Math.round(clampTo((v - scale.min) / span, 0, 1) * 255);
       D[di] = lut[li]; D[di + 1] = lut[li + 1]; D[di + 2] = lut[li + 2]; D[di + 3] = 255;
     }
   }
@@ -9348,10 +9520,11 @@ function drawSectionPlot(cv, sec, F, scale, opts) {
   if (x1 >= sec.a1 - 1e-9) ctx.fillText('B′', L + pw - 3, T + 3);
   const ex = (ph / (y1 - y0)) / (pw / (x1 - x0));
   ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-  ctx.fillText(sectionQtyLabel(opts.qty) + ', MPa, at ' + sec.T + ' °C; vertical scale ×' + fmt(ex, ex < 10 ? 1 : 0), L + pw / 2, 4);
+  const lb = sec.labels || {};
+  ctx.fillText(lb.title || (sectionQtyLabel(opts.qty) + ', MPa, at ' + sec.T + ' °C; vertical scale ×' + fmt(ex, ex < 10 ? 1 : 0)), L + pw / 2, 4);
   ctx.font = '11px ' + cssVar('--font'); ctx.textBaseline = 'bottom';
-  ctx.fillText(sec.axis === 'x' ? 'x, mm (line at y = ' + sec.c + ' mm, seen from the −y side)' : 'y, mm (line at x = ' + sec.c + ' mm, seen from the +x side)', L + pw / 2, H - 2);
-  ctx.save(); ctx.translate(12, T + ph / 2); ctx.rotate(-Math.PI / 2); ctx.textBaseline = 'top'; ctx.fillText('z, mm above the substrate bottom', 0, -6); ctx.restore();
+  ctx.fillText(lb.s || (sec.axis === 'x' ? 'x, mm (line at y = ' + sec.c + ' mm, seen from the −y side)' : 'y, mm (line at x = ' + sec.c + ' mm, seen from the +x side)'), L + pw / 2, H - 2);
+  ctx.save(); ctx.translate(12, T + ph / 2); ctx.rotate(-Math.PI / 2); ctx.textBaseline = 'top'; ctx.fillText(lb.z || 'z, mm above the substrate bottom', 0, -6); ctx.restore();
 }
 
 /** Value under the pointer on the section plot. */
@@ -9360,7 +9533,8 @@ function sectionReadout(cv, sec, F, qty, e) {
   const r = cv.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
   if (px < m.L || px > m.L + m.pw || py < m.T || py > m.T + m.ph) return '';
   const s = m.x0 + (px - m.L) / m.pw * (m.x1 - m.x0), z = m.y1 - (py - m.T) / m.ph * (m.y1 - m.y0);
-  const pos = (sec.axis === 'x' ? 'x ' : 'y ') + fmt(s, 3) + ' mm, z ' + fmt(z, 4) + ' mm';
+  const lb = sec.labels || {}, unit = lb.unit || 'mm', dg = unit === 'µm' ? 1 : 3;
+  const pos = (lb.sName || (sec.axis === 'x' ? 'x' : 'y')) + ' ' + fmt(s, dg) + ' ' + unit + ', ' + (lb.zName || 'z') + ' ' + fmt(z, dg + 1) + ' ' + unit;
   if (s < sec.a0 || s > sec.a1 || z < sec.zMin || z > sec.zTop) return pos;
   const a = bisect(sec.sl, s), b = bisect(sec.zl, z), q = F.idx[a * F.nzs + b];
   const tx = q < 0 ? 0 : (s - sec.sl[a]) / (sec.sl[a + 1] - sec.sl[a]);
@@ -9371,7 +9545,8 @@ function sectionReadout(cv, sec, F, qty, e) {
 }
 
 function exportSectionCSV(sec) {
-  const lines = ['# cross-section B-B\' at ' + sec.T + ' degC: line along ' + sec.axis + ' at ' + (sec.axis === 'x' ? 'y' : 'x') + ' = ' + sec.c + ' mm; nodal values averaged within each material; MPa',
+  const cs = sec.csv;  // submodel sections bring their own header, columns, point mapping and file name
+  const lines = cs ? [cs.header, cs.columns] : ['# cross-section B-B\' at ' + sec.T + ' degC: line along ' + sec.axis + ' at ' + (sec.axis === 'x' ? 'y' : 'x') + ' = ' + sec.c + ' mm; nodal values averaged within each material; MPa',
     'x_mm,y_mm,z_mm,material,sxx,syy,szz,txy,tyz,txz'];
   const seen = new Set();
   for (let q = 0; q < sec.n; q++) [[0, 0], [1, 0], [1, 1], [0, 1]].forEach(([da, db], v) => {
@@ -9379,10 +9554,10 @@ function exportSectionCSV(sec) {
     if (seen.has(key)) return;
     seen.add(key);
     const s = sec.sl[a], o = 24 * q + 6 * v;
-    lines.push([sec.axis === 'x' ? s : sec.c, sec.axis === 'x' ? sec.c : s, sec.zl[b], '"' + sectionPartName(sec, q) + '"'].concat(Array.from(sec.sig.subarray(o, o + 6), x => x.toPrecision(6))).join(','));
+    lines.push((cs ? cs.point(s, sec.zl[b]) : [sec.axis === 'x' ? s : sec.c, sec.axis === 'x' ? sec.c : s, sec.zl[b]]).concat('"' + sectionPartName(sec, q) + '"').concat(Array.from(sec.sig.subarray(o, o + 6), x => x.toPrecision(6))).join(','));
   });
   const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
-  const a = h('a', { href: URL.createObjectURL(blob), download: (app.cfg.name || 'fcbga').replace(/[^\w.-]+/g, '_') + '_section_' + sec.T + 'C.csv' });
+  const a = h('a', { href: URL.createObjectURL(blob), download: (app.cfg.name || 'fcbga').replace(/[^\w.-]+/g, '_') + (cs ? cs.file : '_section_' + sec.T + 'C') + '.csv' });
   document.body.appendChild(a); a.click(); a.remove();
 }
 
@@ -9457,6 +9632,168 @@ function renderSectionView(root, res, f, Tsel) {
 }
 
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && app.sectionDraft) { app.sectionDraft = null; if (app.centerTab === 'results' && app.resultsView === 'section') renderCenter(); } });
+
+// ===== UI: bump submodel cross-section stress view ================================
+// Stress on a vertical cut through one bump submodel (one pitch cell around a solder
+// joint) at the end of each ramp and dwell of the last simulated cycle. The core
+// (C.submodelSection) cuts the corner stresses stored with the submodel result; the
+// plot reuses the package cross-section drawing (drawSectionPlot) in micrometres
+// from the bump axis and from the substrate top.
+
+const SUBSEC_FOCUS = [['uf', 'underfill (others grey)'], ['solder', 'solder (others grey)'], ['all', 'all materials']];
+const SUBSEC_GROUP = { uf: 2, solder: 1 };  // submodel material groups: 0 substrate slice, 1 solder, 2 underfill, 3 silicon
+const SUBSEC_GREY = { light: [205, 178, 192, 226], dark: [72, 98, 85, 112] };  // grey level per group when shown as context
+const SUBSEC_PLOT_H = 420;  // px, default height of the plot
+const SUBSEC_PLAN_H = 260;  // px, height of the plan view of the pitch cell
+
+function subSecKey(sm) { return sm.dieIdx + ':' + sm.site.ix + ':' + sm.site.iy; }
+
+/** Plain-language name of a stored moment of the last cycle. */
+function subSecMoment(snap) {
+  const T = fmt(snap.T, 0) + ' °C';
+  const what = { 'ramp up': 'end of ramp to ' + T + ' (start of hot dwell)', 'dwell hot': 'end of hot dwell at ' + T, 'ramp down': 'end of ramp to ' + T + ' (start of cold dwell)', 'dwell cold': 'end of cold dwell at ' + T }[snap.phase] || T;
+  return 'cycle ' + snap.cycle + ', ' + what;
+}
+
+/** Plan view of the pitch cell: voxel grid, joint outline, the cut line and the direction to the die centre; a click moves the cut. */
+function subSecPlan(sm, st, nAcross) {
+  const S = sm.section;
+  const cv = h('canvas', tip('subSecPlan', { class: 'map', style: 'width:100%;height:' + SUBSEC_PLAN_H + 'px;cursor:crosshair' }));
+  const px = S.xs[S.xs.length - 1] - S.xs[0], py = S.ys[S.ys.length - 1] - S.ys[0];
+  let tx = null;
+  const draw = () => {
+    const { ctx, w, h: H } = setupCanvas(cv);
+    ctx.clearRect(0, 0, w, H);
+    const pad = 26, sc = Math.min((w - 2 * pad) / px, (H - 2 * pad) / py);
+    const X = x => w / 2 + (x - S.cx) * sc, Y = y => H / 2 - (y - S.cy) * sc;
+    tx = { X, Y, sc, w, H };
+    const grid = cssVar('--grid'), text = cssVar('--text'), muted = cssVar('--muted');
+    ctx.fillStyle = isDark() ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)';
+    ctx.fillRect(X(S.xs[0]), Y(S.ys[S.ys.length - 1]), px * sc, py * sc);
+    ctx.strokeStyle = grid; ctx.lineWidth = 1;
+    for (const x of S.xs) { ctx.beginPath(); ctx.moveTo(X(x), Y(S.ys[0])); ctx.lineTo(X(x), Y(S.ys[S.ys.length - 1])); ctx.stroke(); }
+    for (const y of S.ys) { ctx.beginPath(); ctx.moveTo(X(S.xs[0]), Y(y)); ctx.lineTo(X(S.xs[S.xs.length - 1]), Y(y)); ctx.stroke(); }
+    // joint outline: widest section solid, die-side (UBM) and substrate-side (SRO) diameters dashed
+    ctx.strokeStyle = text; ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.arc(X(S.cx), Y(S.cy), S.radii.max * sc, 0, 2 * Math.PI); ctx.stroke();
+    ctx.setLineDash([4, 3]); ctx.strokeStyle = muted;
+    for (const r of [S.radii.top, S.radii.bottom]) { ctx.beginPath(); ctx.arc(X(S.cx), Y(S.cy), r * sc, 0, 2 * Math.PI); ctx.stroke(); }
+    ctx.setLineDash([]);
+    // direction to the die centre
+    const dx = S.dieCx - S.cx, dy = S.dieCy - S.cy, dl = Math.hypot(dx, dy);
+    if (dl > 1e-9) {
+      const L = 0.42 * Math.min(px, py), ex = S.cx + dx / dl * L, ey = S.cy + dy / dl * L;
+      ctx.strokeStyle = muted; ctx.fillStyle = muted; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(X(S.cx), Y(S.cy)); ctx.lineTo(X(ex), Y(ey)); ctx.stroke();
+      const a = Math.atan2(-(dy / dl), dx / dl);
+      ctx.beginPath(); ctx.moveTo(X(ex), Y(ey)); ctx.lineTo(X(ex) - 8 * Math.cos(a - 0.4), Y(ey) - 8 * Math.sin(a - 0.4)); ctx.lineTo(X(ex) - 8 * Math.cos(a + 0.4), Y(ey) - 8 * Math.sin(a + 0.4)); ctx.closePath(); ctx.fill();
+      ctx.font = '11px ' + cssVar('--font'); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('die centre', X(ex) + 10 * Math.cos(a) * 3, Y(ey) + 10 * Math.sin(a) * 1.6);
+    }
+    // the cut
+    const alongY = st.axis === 'y', c = (alongY ? S.xs : S.ys)[st.pos];
+    const seg = alongY ? [c, S.ys[0], c, S.ys[S.ys.length - 1]] : [S.xs[0], c, S.xs[S.xs.length - 1], c];
+    drawSectionLine(ctx, X, Y, alongY ? { axis: 'y', c, a0: seg[1], a1: seg[3] } : { axis: 'x', c, a0: seg[0], a1: seg[2] }, cssVar('--accent2'));
+  };
+  cv.addEventListener('click', e => {
+    if (!tx) return;
+    const r = cv.getBoundingClientRect();
+    const x = S.cx + (e.clientX - r.left - tx.w / 2) / tx.sc, y = S.cy - (e.clientY - r.top - tx.H / 2) / tx.sc;
+    const lines = st.axis === 'y' ? S.xs : S.ys, v = st.axis === 'y' ? x : y;
+    let best = 0;
+    for (let q = 1; q < lines.length; q++) if (Math.abs(lines[q] - v) < Math.abs(lines[best] - v)) best = q;
+    st.pos = Math.max(0, Math.min(nAcross, best));
+    renderCenter();
+  });
+  requestAnimationFrame(() => { autoRedraw(cv, draw); draw(); });
+  return cv;
+}
+
+function renderSubmodelSectionView(root) {
+  root.append(h('div', { class: 'row' }, h('b', null, 'Submodel cross-section stress'), h('span', { class: 'conf' }, CONFIDENCE.subSection)));
+  const list = app.submodels.filter(sm => sm.section && sm.section.snaps.length);
+  if (!list.length) {
+    root.append(h('div', { class: 'msg info' }, app.submodels.length ? 'These submodel results carry no stress fields; run the bump submodels again.' : 'Run bump submodels first (Solder fatigue tab, "Run bump submodels for selected sites"); each submodel stores the stress field of its last cycle for this view.'),
+      h('button', tip('viewFatigue', { class: 'small', onclick: () => { app.resultsView = 'fatigue'; renderCenter(); } }), 'Go to Solder fatigue'));
+    return;
+  }
+  const st = app.subSection;
+  let sm = list.find(x => subSecKey(x) === st.key);
+  if (!sm) { sm = list[0]; st.key = subSecKey(sm); st.snap = null; st.pos = null; }
+  const S = sm.section;
+  if (st.snap === null || st.snap >= S.snaps.length) st.snap = S.snaps.length - 1;  // default: end of the cold dwell
+  const nAcross = (st.axis === 'y' ? S.xs : S.ys).length - 1;
+  if (st.pos === null || st.pos > nAcross) st.pos = Math.round(nAcross / 2);  // default: through the bump axis
+  const sec = C.submodelSection(sm, st.snap, st.axis, st.pos);
+  const snap = S.snaps[st.snap];
+  const sName = st.axis === 'x' ? 'x − x_bump' : 'y − y_bump', cName = st.axis === 'x' ? 'y − y_bump' : 'x − x_bump';
+  sec.labels = {
+    title: sectionQtyLabel(st.qty) + ', MPa, change from the as-assembled 25 °C state; ' + subSecMoment(snap),
+    s: sName + ', µm (cut at ' + cName + ' = ' + fmt(sec.c, 1) + ' µm, seen from the ' + (st.axis === 'x' ? '−y' : '+x') + ' side)',
+    z: 'z above the substrate top, µm', unit: 'µm', sName, zName: 'z',
+  };
+  const ax = st.axis === 'x' ? 'x' : 'y', cx = st.axis === 'x' ? 'y' : 'x';
+  sec.csv = {
+    header: '# bump submodel ' + sm.die + ' at (' + sm.site.x + ', ' + sm.site.y + ') mm, ' + subSecMoment(snap) + '; stress change from the as-assembled 25 degC state; cut along ' + ax + ' at ' + cx + ' - ' + cx + '_bump = ' + sec.c + ' um; corner values averaged within each material; MPa',
+    columns: 'x_mm,y_mm,z_mm,material,sxx,syy,szz,txy,tyz,txz',
+    point: (s, z) => { const a = s / 1000, c = sec.c / 1000, zz = z / 1000 + S.zt; return st.axis === 'x' ? [+(S.cx + a).toFixed(6), +(S.cy + c).toFixed(6), +zz.toFixed(6)] : [+(S.cx + c).toFixed(6), +(S.cy + a).toFixed(6), +zz.toFixed(6)]; },
+    file: '_submodel_' + sm.die.replace(/[^\w.-]+/g, '_') + '_' + sm.site.ix + '_' + sm.site.iy + '_' + snap.phase.replace(/ /g, '_') + '_' + fmt(snap.T, 0) + 'C',
+  };
+  const smSel = h('select', tip('subSecModel', { onchange: e => { st.key = e.target.value; st.snap = null; st.pos = null; renderCenter(); } }),
+    ...list.map(x => h('option', { value: subSecKey(x), selected: x === sm ? '' : null }, x.die + ' bump at (' + fmt(x.site.x, 2) + ', ' + fmt(x.site.y, 2) + ') mm')));
+  const snapSel = h('select', tip('subSecMoment', { onchange: e => { st.snap = +e.target.value; renderCenter(); } }),
+    ...S.snaps.map((s, i) => h('option', { value: i, selected: i === st.snap ? '' : null }, subSecMoment(s))));
+  const axisSel = h('select', tip('subSecAxis', { onchange: e => { st.axis = e.target.value; st.pos = null; renderCenter(); } }),
+    h('option', { value: 'x', selected: st.axis === 'x' ? '' : null }, 'along x'), h('option', { value: 'y', selected: st.axis === 'y' ? '' : null }, 'along y'));
+  const posIn = h('input', tip('subSecPos', { type: 'range', class: 'grow', min: 0, max: nAcross, step: 1, value: st.pos, onchange: e => { st.pos = +e.target.value; renderCenter(); } }));
+  const qtySel = h('select', tip('sectionQty', { onchange: e => { st.qty = e.target.value; renderCenter(); } }),
+    ...SECTION_QTY.map(([g, items]) => h('optgroup', { label: g }, ...items.map(([k, l]) => h('option', { value: k, selected: k === st.qty ? '' : null }, l)))));
+  const focusSel = h('select', tip('subSecFocus', { onchange: e => { st.focus = e.target.value; renderCenter(); } }), ...SUBSEC_FOCUS.map(([k, l]) => h('option', { value: k, selected: k === st.focus ? '' : null }, l)));
+  const meshBox = h('label', tip('subSecMesh', { class: 'small' }), h('input', { type: 'checkbox', checked: st.mesh ? '' : null, onchange: e => { st.mesh = e.target.checked; renderCenter(); } }), ' voxel mesh');
+  root.append(h('div', { class: 'row' }, h('span', null, 'submodel ', smSel), h('span', null, 'moment ', snapSel)),
+    h('div', { class: 'row' }, h('span', null, 'cut ', axisSel), h('span', { class: 'grow row' }, 'position ', posIn, h('span', { class: 'small muted' }, fmt(sec.c, 1) + ' µm from the bump axis')), h('span', null, 'quantity ', qtySel), h('span', null, 'show ', focusSel), meshBox,
+      h('button', tip('subSecCsv', { class: 'small', onclick: () => exportSectionCSV(sec) }), 'Export section CSV')));
+  // values: all corners, or the focused material only
+  const F = sectionFields(sec, st.qty, 'all');
+  const focusGrp = SUBSEC_GROUP[st.focus];
+  const shown = q => focusGrp === undefined || sec.grp[q] === focusGrp;
+  const stats = new Map();
+  let mn = Infinity, mx = -Infinity;
+  for (let q = 0; q < sec.n; q++) {
+    const name = sectionPartName(sec, q), s = stats.get(name) || { lo: Infinity, hi: -Infinity, grp: sec.grp[q] };
+    for (let v = 0; v < 4; v++) {
+      const x = F.vals[4 * q + v];
+      s.lo = Math.min(s.lo, x); s.hi = Math.max(s.hi, x);
+      if (shown(q) && isFinite(x)) { mn = Math.min(mn, x); mx = Math.max(mx, x); }
+    }
+    stats.set(name, s);
+  }
+  const left = h('div', null, subSecPlan(sm, st, nAcross), h('div', { class: 'small muted' }, 'Pitch cell around the bump, seen from the top: voxel grid, widest joint outline (solid) and the die-side and substrate-side pad diameters (dashed). Click to move the cut to the nearest grid line.'));
+  const right = h('div', null, h('div', { class: 'card' }, h('h3', null, sm.die + ' bump at (' + fmt(sm.site.x, 2) + ', ' + fmt(sm.site.y, 2) + ') mm, ' + sm.nxy + ' × ' + sm.nxy + ' × ' + sm.nz + ' voxels'),
+    h('table', tip('subSecStats', { class: 'small' }), h('tr', null, h('th', null, 'Material on the cut'), h('th', null, 'min, MPa'), h('th', null, 'max, MPa')),
+      ...Array.from(stats, ([name, s]) => h('tr', null, h('td', null, name), h('td', null, fmt(s.lo, 1)), h('td', null, fmt(s.hi, 1))))),
+    h('div', { class: 'small muted' }, sectionQtyLabel(st.qty) + ' at the voxel corners on the cut (values averaged within each material, never across interfaces), ' + subSecMoment(snap) + '.'),
+    h('details', null, h('summary', null, 'What this means'),
+      h('p', { class: 'small' }, 'The bump submodel resolves one solder joint as a truncated sphere surrounded by underfill, between a slice of the die and a slice of the substrate, in a voxel grid of one bump pitch. It is driven by the global displacements on its cut faces and steps through the temperature cycles with the Anand solder model. This view shows the stress on a vertical plane through that cell at the end of each ramp and dwell of the last cycle, so the underfill stress next to the joint, at the joint neck and at the pad edges becomes visible, which the homogenized bump layer of the global model cannot show.'),
+      h('p', { class: 'small' }, 'The submodel works relative to the as-assembled state at 25 °C: the stresses shown are the change caused by the temperature cycle, not the total stress. The residual assembly stress of the underfill (from its cure temperature down to 25 °C) comes on top; the Cross-section stress tab shows its homogenized value. The solder starts stress-free at 25 °C, assuming room-temperature relaxation.'),
+      h('p', { class: 'small' }, 'The joint is stair-stepped on the voxel grid, so the corners where the solder meets the pads and the underfill are singular and mesh dependent: compare peak values between designs and bump locations, do not read them as strengths. A cut that runs along a voxel face between two materials shows the voxel nearer the bump axis.'))));
+  root.append(h('div', { class: 'grid2' }, left, right));
+  // contour across the full width
+  const dark = isDark(), greys = dark ? SUBSEC_GREY.dark : SUBSEC_GREY.light;
+  const grey = new Uint8Array(sec.n);
+  if (focusGrp !== undefined) for (let q = 0; q < sec.n; q++) if (sec.grp[q] !== focusGrp) grey[q] = greys[sec.grp[q]];
+  if (!isFinite(mn)) { mn = 0; mx = 0; }
+  const scale = makeScale(mn, mx, st.qty !== 'vm' && mn < 0 && mx > 0);
+  const cv = h('canvas', tip('subSecPlot', { class: 'map', style: 'width:100%;height:' + SUBSEC_PLOT_H + 'px' }));
+  const hint = 'Point at the plot to read the value.';
+  const readout = h('div', { class: 'small muted', style: 'min-height:1.4em' }, hint);
+  cv.addEventListener('pointermove', e => { readout.textContent = sectionReadout(cv, sec, F, st.qty, e) || hint; });
+  const sign = st.qty === 'vm' ? 'always positive' : ['s1', 's3', 'hyd', 'sxx', 'syy', 'szz', 'sss', 'snn'].includes(st.qty) ? 'tension positive' : 'sign follows the axes named';
+  const focusName = focusGrp === undefined ? '' : '; colours for the ' + S.groups[focusGrp].name.toLowerCase() + ' only, other materials grey';
+  root.append(cv, legendRow(scale, sectionQtyLabel(st.qty) + ', MPa, change from the as-assembled 25 °C state (' + sign + ')' + focusName), readout,
+    lineKey([{ label: 'material boundary', color: cssVar('--text') }].concat(st.mesh ? [{ label: 'voxel edge', color: 'rgba(0,0,0,0.45)' }] : [])));
+  requestAnimationFrame(() => { const draw = () => drawSectionPlot(cv, sec, F, scale, { qty: st.qty, phase: 'all', mesh: st.mesh, grey }); autoRedraw(cv, draw); draw(); });
+}
 
 // ===== UI: shell, navigation, wiring ===========================================
 

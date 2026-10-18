@@ -7,6 +7,7 @@ const CONFIDENCE = {
   bumps: 'Comparative only; use for ranking designs and locations.',
   fatigue: 'Comparative only; use for ranking designs and locations.',
   section: 'Interior of dies and lids: moderate confidence. Corners, fillet edges and material interfaces: comparative only; singular locations, mesh dependent.',
+  subSection: 'Comparative only; stress change over the temperature cycle on a stair-stepped joint; pad edges and joint corners are singular and mesh dependent.',
 };
 
 function renderRunPanel(root) {
@@ -201,7 +202,7 @@ function runCoreStudy() {
 }
 
 // ---- results views in the center area ----
-const RESULT_VIEWS = [['warpage', 'Warpage', 'viewWarpage'], ['dieStress', 'Die stress', 'viewDieStress'], ['bumps', 'Bump loading', 'viewBumps'], ['uf', 'Underfill interface', 'viewUf'], ['section', 'Cross-section stress', 'viewSection'], ['fatigue', 'Solder fatigue', 'viewFatigue'], ['view3d', '3D view', 'view3d'], ['sensitivity', 'Sensitivity', 'viewSens'], ['verification', 'Verification', 'viewVerify'], ['report', 'Report', 'viewReport']];
+const RESULT_VIEWS = [['warpage', 'Warpage', 'viewWarpage'], ['dieStress', 'Die stress', 'viewDieStress'], ['bumps', 'Bump loading', 'viewBumps'], ['uf', 'Underfill interface', 'viewUf'], ['section', 'Cross-section stress', 'viewSection'], ['fatigue', 'Solder fatigue', 'viewFatigue'], ['subSection', 'Submodel section', 'viewSubSection'], ['view3d', '3D view', 'view3d'], ['sensitivity', 'Sensitivity', 'viewSens'], ['verification', 'Verification', 'viewVerify'], ['report', 'Report', 'viewReport']];
 
 function renderResults(root) {
   const res = app.results;
@@ -220,6 +221,7 @@ function renderResults(root) {
     case 'uf': renderUFView(root, res, f, Tsel); break;
     case 'section': renderSectionView(root, res, f, Tsel); break;
     case 'fatigue': renderFatigueView(root, res); break;
+    case 'subSection': renderSubmodelSectionView(root); break;
     case 'view3d': renderView3D(root, res, f, Tsel); break;
     case 'sensitivity': renderSensitivityView(root); break;
     case 'verification': renderVerificationView(root); break;
@@ -405,6 +407,7 @@ function renderSubmodelCard(sm) {
   const card = h('div', { class: 'card' }, h('h3', null, 'Submodel: ' + sm.die + ' bump at (' + fmt(sm.site.x, 2) + ', ' + fmt(sm.site.y, 2) + ') mm, ' + sm.nxy + '×' + sm.nxy + '×' + sm.nz + ' voxels'),
     h('div', { class: 'kv' }, kl('ΔW stabilized cycle (critical layer: ' + sm.critical + ')', 'subDW'), h('b', null, fmtE(sm.dW, 3) + ' MPa/cycle'), kl('die side / substrate side', 'subDW'), h('span', null, fmtE(sm.dWdie, 3) + ' / ' + fmtE(sm.dWsub, 3)), kl('Equivalent inelastic strain range', 'subDE'), h('span', null, fmtE(sm.dE, 3)), kl('Cycle-to-cycle change of ΔW', 'subStab'), h('span', { class: sm.stabWarn ? 'warnc' : 'ok' }, fmt(100 * sm.stabChange, 1) + ' %' + (sm.stabWarn ? ' (not stabilized; run more cycles)' : '')), kl('Life, Syed energy model', 'lifeSyedE'), h('b', null, fmt(life.syedEnergy, 0) + ' cycles'), kl('Life, Syed strain model', 'lifeSyedS'), h('span', null, fmt(life.syedStrain, 0) + ' cycles'), kl('Life, Darveaux', 'lifeDarv'), h('span', null, life.darveaux === null ? 'enter K1 to K4 in step 5' : fmt(life.darveaux, 0) + ' cycles (N0 ' + fmt(life.darveauxN0, 0) + ', a = ' + fmt(sm.dJoint * 1000, 0) + ' µm)'), app.baseline && app.baseline.submodels && app.baseline.submodels[0] ? kl('Life ratio vs baseline', 'lifeRatio') : null, app.baseline && app.baseline.submodels && app.baseline.submodels[0] ? h('b', null, fmt(life.syedEnergy / app.baseline.submodels[0].life.syedEnergy, 2)) : null, kl('Steps / cutbacks / Newton per step', 'subSteps'), h('span', null, sm.steps + ' / ' + sm.cutbacks + ' / ' + fmt(sm.newtonPerStep, 1) + ', ' + fmt(sm.ms / 1000, 1) + ' s')),
     c1, h('div', { class: 'small muted' }, 'Per cycle: ' + sm.perCycle.map(c => 'cycle ' + c.cycle + ': ' + fmtE(Math.max(c.dWdie, c.dWsub), 2)).join('; ')),
+    sm.section ? h('button', tip('openSubSection', { class: 'small', onclick: () => { app.subSection.key = subSecKey(sm); app.subSection.snap = null; app.subSection.pos = null; app.resultsView = 'subSection'; renderCenter(); } }), 'Cross-section of this submodel') : null,
     h('details', null, h('summary', null, 'What this means'), h('p', { class: 'small' }, 'The submodel resolves one solder joint with the Anand viscoplastic model, driven by cut-boundary displacements from the global model. ΔW is the inelastic work density of the last simulated cycle averaged over a 25 µm layer at each interface; the larger side is used. Energy-based lives use Syed\'s constant (fitted to a different model and joint geometry) and are order-of-magnitude. The Darveaux model needs constants calibrated to this averaging scheme. The solder is assumed stress-free at 25 °C in the as-assembled state (room-temperature relaxation).')));
   requestAnimationFrame(() => linePlot(c1, [{ x: sm.loop.gamma, y: sm.loop.tau, label: 'die-side layer' }, { x: sm.loop.gammaSub, y: sm.loop.tauSub, label: 'substrate-side layer', dash: [3, 3] }], { title: 'Shear hysteresis (volume averaged in the interface layers, radial direction)', xlabel: 'shear strain γ', ylabel: 'τ, MPa', zero: false }));
   return card;
@@ -419,11 +422,14 @@ function renderView3D(root, res, f, Tsel) {
     return;
   }
   if (!res.view3d) { root.append(h('div', { class: 'msg info' }, 'The 3D view needs the full analysis.')); return; }
-  const v = app.view3dOpts || (app.view3dOpts = { scale: 20, color: 'warpage', hidden: new Set() });
-  const ctl = h('div', { class: 'row' }, h('b', null, '3D deformed shape'), ' at ', Tsel, h('label', tip('exag3d'), ' exaggeration ', h('input', { type: 'range', min: 1, max: 200, value: v.scale, oninput: e => { v.scale = +e.target.value; update3D(); } })), h('label', tip('color3d'), ' color by ', h('select', { onchange: e => { v.color = e.target.value; update3D(); } }, h('option', { value: 'warpage', selected: v.color === 'warpage' ? '' : null }, 'out-of-plane displacement'), h('option', { value: 'stress', selected: v.color === 'stress' ? '' : null }, 'max principal stress (per part)'), h('option', { value: 'part', selected: v.color === 'part' ? '' : null }, 'part'))), ...C.PART_NAMES.map((n, i) => (res.view3d.part.includes(i) ? h('label', tip('partToggle', { class: 'small' }), h('input', { type: 'checkbox', checked: v.hidden.has(i) ? null : '', onchange: e => { if (e.target.checked) v.hidden.delete(i); else v.hidden.add(i); update3D(); } }), ' ' + n) : null)));
+  const v = app.view3dOpts || (app.view3dOpts = { scale: 20, color: 'warpage', hidden: new Set(), mesh: false });
+  const mi = res.meshInfo;
+  const meshNote = h('div', { class: 'small muted', style: v.mesh ? '' : 'display:none' }, 'Element mesh: ' + mi.nElem.toLocaleString() + ' hexahedral elements, ' + mi.nNodes.toLocaleString() + ' nodes (' + mi.nDof.toLocaleString() + ' DOF), ' + (mi.nx - 1) + ' × ' + (mi.ny - 1) + ' in-plane cells and ' + (mi.nz - 1) + ' element layers through the stack, ' + mi.preset + ' preset (h ' + fmt(mi.hmin, 2) + ' to ' + fmt(mi.hmax, 2) + ' mm). Only the outer faces of the shown parts are drawn; hide parts to see the mesh under them.');
+  const meshBox = h('label', tip('mesh3d', { class: 'small' }), h('input', { type: 'checkbox', checked: v.mesh ? '' : null, onchange: e => { v.mesh = e.target.checked; meshNote.style.display = v.mesh ? '' : 'none'; update3D(); } }), ' element mesh');
+  const ctl = h('div', { class: 'row' }, h('b', null, '3D deformed shape'), ' at ', Tsel, h('label', tip('exag3d'), ' exaggeration ', h('input', { type: 'range', min: 1, max: 200, value: v.scale, oninput: e => { v.scale = +e.target.value; update3D(); } })), h('label', tip('color3d'), ' color by ', h('select', { onchange: e => { v.color = e.target.value; update3D(); } }, h('option', { value: 'warpage', selected: v.color === 'warpage' ? '' : null }, 'out-of-plane displacement'), h('option', { value: 'stress', selected: v.color === 'stress' ? '' : null }, 'max principal stress (per part)'), h('option', { value: 'part', selected: v.color === 'part' ? '' : null }, 'part'))), meshBox, ...C.PART_NAMES.map((n, i) => (res.view3d.part.includes(i) ? h('label', tip('partToggle', { class: 'small' }), h('input', { type: 'checkbox', checked: v.hidden.has(i) ? null : '', onchange: e => { if (e.target.checked) v.hidden.delete(i); else v.hidden.add(i); update3D(); } }), ' ' + n) : null)));
   root.append(ctl);
   const el = h('div', { id: 'view3d' });
-  root.append(el, view3dSplitter(), h('div', { class: 'legend', id: 'legend3d' }), h('div', { class: 'small muted' }, 'Drag to rotate, wheel to zoom, right-drag to pan.'));
+  root.append(el, view3dSplitter(), h('div', { class: 'legend', id: 'legend3d' }), meshNote, h('div', { class: 'small muted' }, 'Drag to rotate, wheel to zoom, right-drag to pan.'));
   requestAnimationFrame(() => setup3D(el, res, f));
 }
 let three = null;
@@ -445,7 +451,8 @@ function setup3D(el, res, f) {
   const pos = new Float32Array(nf * 6 * 3), col = new Float32Array(nf * 6 * 3);
   geom.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   geom.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  const mesh = new THREE.Mesh(geom, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }));
+  // faces pushed back slightly in depth so the mesh overlay lines draw on top of them
+  const mesh = new THREE.Mesh(geom, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 }));
   scene.add(mesh);
   three = { renderer, scene, camera, geom, pos, col, el, res, f, target: new THREE.Vector3(0, 0, 0) };
   // follow the pane size (3D grip, side-panel splitters, window resize)
@@ -472,6 +479,43 @@ function setup3D(el, res, f) {
   });
   el.addEventListener('wheel', e => { e.preventDefault(); if (!three) return; const cam = three.camera, t = three.target; const off = cam.position.clone().sub(t).multiplyScalar(e.deltaY > 0 ? 1.1 : 0.9); cam.position.copy(t).add(off); cam.lookAt(t); three.renderer.render(three.scene, cam); }, { passive: false });
   update3D();
+}
+/** Unique edges of the boundary quads, per part (an edge between two parts is kept once for each, so hiding one keeps the other's). */
+function meshEdges3D(view) {
+  if (view.edges) return view.edges;
+  const q = view.quads, part = view.part, nn = view.coords.length / 3;
+  const seen = new Set(), list = [], parts = [];
+  for (let f = 0; f < part.length; f++) for (let v = 0; v < 4; v++) {
+    const a = q[4 * f + v], b = q[4 * f + (v + 1) % 4], lo = Math.min(a, b), hi = Math.max(a, b);
+    const key = (part[f] * nn + lo) * nn + hi;
+    if (seen.has(key)) continue;
+    seen.add(key); list.push(lo, hi); parts.push(part[f]);
+  }
+  view.edges = { nodes: Int32Array.from(list), part: Int8Array.from(parts) };
+  return view.edges;
+}
+/** Element edges as line segments on the deformed shape (created on first use). */
+function updateMesh3D(u, ex, zmid) {
+  const v = app.view3dOpts;
+  if (!v.mesh) { if (three.lines) three.lines.visible = false; return; }
+  const view = three.res.view3d, E = meshEdges3D(view), coords = view.coords;
+  if (!three.lines) {
+    const g = new THREE.BufferGeometry(), pos = new Float32Array(E.part.length * 6);
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    three.lines = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: isDark() ? 0xdde2ea : 0x15181d, transparent: true, opacity: isDark() ? 0.45 : 0.4 }));
+    three.scene.add(three.lines);
+  }
+  const g = three.lines.geometry, pos = g.attributes.position.array;
+  for (let s = 0; s < E.part.length; s++) {
+    const o = 6 * s;
+    if (v.hidden.has(E.part[s])) { pos.fill(0, o, o + 6); continue; }  // zero-length segment: not drawn
+    for (let t = 0; t < 2; t++) {
+      const n = E.nodes[2 * s + t], p = o + 3 * t;
+      pos[p] = coords[3 * n] + ex * u[3 * n]; pos[p + 1] = coords[3 * n + 1] + ex * u[3 * n + 1]; pos[p + 2] = (coords[3 * n + 2] - zmid) + ex * u[3 * n + 2];
+    }
+  }
+  g.attributes.position.needsUpdate = true; g.computeBoundingSphere();
+  three.lines.visible = true;
 }
 function update3D() {
   if (!three) return;
@@ -503,6 +547,7 @@ function update3D() {
   }
   geom.attributes.position.needsUpdate = true; geom.attributes.color.needsUpdate = true;
   geom.computeVertexNormals(); geom.computeBoundingSphere();
+  updateMesh3D(u, ex, zmid);
   three.renderer.render(three.scene, three.camera);
   const lg = $('#legend3d');
   if (lg) { lg.innerHTML = ''; if (scale) lg.append(...legendItems(scale, v.color === 'warpage' ? 'u_z, µm (deformation exaggerated ' + ex + '×)' : 'max principal stress, MPa, nodal averaged per part')); }

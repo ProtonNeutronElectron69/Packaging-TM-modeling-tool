@@ -154,6 +154,15 @@ class AnandPoint {
     return -dphi_dd / dphi_ds;
   }
 
+  /** Stress at the committed plastic strain for mechanical strain eps, with no further flow (state untouched). */
+  stressAt(eps, T, sig) {
+    const E = this.E(T), G = E / (2 * (1 + this.nu)), K = E / (3 * (1 - 2 * this.nu));
+    const vol = (eps[0] + eps[1] + eps[2]) / 3, sm = 3 * K * vol, ep = this.ep;
+    for (let i = 0; i < 3; i++) sig[i] = 2 * G * (eps[i] - vol - ep[i]) + sm;
+    for (let i = 3; i < 6; i++) sig[i] = 2 * G * (0.5 * eps[i] - ep[i]);
+    return sig;
+  }
+
   commit() {
     const tr = this._trial;
     this.ep.set(tr.ep); this.s = tr.s; this.ebar = tr.ebar; this.W = tr.W; this.sigEq = tr.sigEq;
@@ -842,6 +851,43 @@ class BumpSubmodel {
     return { converged, newton: it, dMax };
   }
 
+  /**
+   * Stress change from the as-assembled 25 degC state in every element at T, for the
+   * cross-section view: Gauss-point stresses extrapolated to the 8 corners
+   * (GP_TO_NODE). Elastic parts: sigma = D(T) (eps - [F(T) - F(25)]); solder:
+   * the Anand stress at the committed plastic strain. Float32Array(48 per element).
+   */
+  _stressSnapshot(T) {
+    const m = this.mesh, out = new Float32Array(m.ne * 48);
+    const ue = new Float64Array(24), eps = new Float64Array(6), sig = new Float64Array(6), gp = new Float64Array(48);
+    const elas = new Map();
+    for (let e = 0; e < m.ne; e++) {
+      const mat = m.eGroup[e], Ball = this.bbList[this.eBb[e]].B, pt0 = this.anand[e * 8];
+      for (let a = 0; a < 8; a++) { const n = m.conn[8 * e + a]; ue[3 * a] = this.u[3 * n]; ue[3 * a + 1] = this.u[3 * n + 1]; ue[3 * a + 2] = this.u[3 * n + 2]; }
+      let rec = null;
+      if (!pt0) { rec = elas.get(mat); if (!rec) { rec = { D: new Float64Array(36), eth: new Float64Array(6) }; rec.kind = this._elastic(mat, T, rec.D, rec.eth); elas.set(mat, rec); } }
+      for (let gq = 0; gq < 8; gq++) {
+        const Bb = Ball.subarray(144 * gq, 144 * gq + 144);
+        for (let r = 0; r < 6; r++) { let s = 0; const ro = r * 24; for (let c = 0; c < 24; c++) s += Bb[ro + c] * ue[c]; eps[r] = s; }
+        if (pt0) {
+          const pt = this.anand[e * 8 + gq], f = pt.thermalStrain(T) - pt.thermalStrain(25);
+          eps[0] -= f; eps[1] -= f; eps[2] -= f;
+          pt.stressAt(eps, T, sig);
+        } else {
+          eps[0] -= rec.eth[0]; eps[1] -= rec.eth[1]; eps[2] -= rec.eth[2];
+          for (let r = 0; r < 6; r++) { let s = 0; for (let c = 0; c < 6; c++) s += rec.D[r * 6 + c] * eps[c]; sig[r] = s; }
+        }
+        gp.set(sig, 6 * gq);
+      }
+      for (let a = 0; a < 8; a++) for (let c = 0; c < 6; c++) {
+        let v = 0;
+        for (let gq = 0; gq < 8; gq++) v += GP_TO_NODE[a * 8 + gq] * gp[6 * gq + c];
+        out[48 * e + 6 * a + c] = v;
+      }
+    }
+    return out;
+  }
+
   /** Save / restore the solder states and displacement for cutbacks. */
   _snapshot() { return { u: Float64Array.from(this.u), st: this.anand.map(p => p ? p.save() : null) }; }
   _restore(s) { this.u.set(s.u); this.anand.forEach((p, i) => { if (p) p.restore(s.st[i]); }); }
@@ -894,6 +940,8 @@ class BumpSubmodel {
       loop.t.push(t); loop.T.push(T); loop.tau.push(wS ? tS / wS : NaN); loop.gamma.push(wS ? gS / wS : NaN); loop.tauSub.push(wB ? tB / wB : NaN); loop.gammaSub.push(wB ? gB / wB : NaN);
     };
     sampleLoop(25, 0);
+    // stress snapshots for the cross-section view: the end of each ramp and dwell of the last cycle
+    const snaps = [], snapOn = !this.opts.uniformMaterial;
     for (let k = 1; k < nsteps; k++) {
       if (this.opts.cancelled && this.opts.cancelled()) throw new Error('cancelled');
       const T0 = hist.T[k - 1], T1 = hist.T[k], t0s = hist.t[k - 1], t1s = hist.t[k];
@@ -917,6 +965,7 @@ class BumpSubmodel {
       if (!done) throw new Error('Submodel step failed to converge after cutbacks at T = ' + T1.toFixed(1) + ' °C');
       sampleLoop(T1, t1s);
       const c = hist.cycle[k];
+      if (snapOn && c === hist.cycles && (k === nsteps - 1 || hist.phase[k + 1] !== hist.phase[k])) snaps.push({ T: T1, t: t1s, cycle: c, phase: hist.phase[k], sig: this._stressSnapshot(T1) });
       Wcyc.die[c] = avg(dieLayer, p => p.W); Wcyc.sub[c] = avg(subLayer, p => p.W);
       Wcyc.eDie[c] = avg(dieLayer, p => p.ebar); Wcyc.eSub[c] = avg(subLayer, p => p.ebar);
       if (this.opts.progress) this.opts.progress(k / (nsteps - 1), 'Submodel step ' + k + '/' + (nsteps - 1) + ' at ' + T1.toFixed(0) + ' °C');
@@ -935,6 +984,65 @@ class BumpSubmodel {
       die: this.die.name, site: { x: this.site.x, y: this.site.y, ix: this.site.ix, iy: this.site.iy }, nxy: this.opts.nxy, nz: this.opts.nz, nElem: m.ne, ndof: this.ndof,
       dW, dWdie, dWsub, dE, dEdie, dEsub, critical: dWdie >= dWsub ? 'die side' : 'substrate side', stabChange, stabWarn: isFinite(stabChange) && stabChange > CONST.STABILIZATION_WARN,
       perCycle, loop, life, dJoint, steps, cutbacks, newtonPerStep: totalNewton / Math.max(steps, 1), ms: nowMs() - t0,
+      section: snapOn ? {
+        xs: Float64Array.from(m.xs), ys: Float64Array.from(m.ys), zs: Float64Array.from(m.zs), grp: Int8Array.from(m.eGroup), cx: this.site.x, cy: this.site.y, zt: g.zt, zaf: g.zaf, dieCx: this.die.cx, dieCy: this.die.cy, radii: { top: this.die.profile.rt, bottom: this.die.profile.rb, max: this.die.profile.rm },
+        groups: [{ name: 'Substrate slice', material: 'top ' + Math.round(CONST.SUB_MARGIN * 1000) + ' µm, homogenized' }, { name: 'Solder', material: this.solderMat.name }, { name: 'Underfill', material: this.ufMat.name }, { name: 'Silicon', material: '' }],
+        snaps,
+      } : null,
     };
   }
+}
+
+/**
+ * Vertical cut through a bump submodel result sm along the x or y grid lines at
+ * grid-line index jc across the cut, for snapshot si. Returns the record the
+ * cross-section plot draws (see sectionStress), in local coordinates: s in um from
+ * the bump axis, z in um above the substrate top. A cut along a voxel face between
+ * two materials shows the element nearer the bump axis; corner values are averaged
+ * only within one material.
+ */
+function submodelSection(sm, si, axis, jc) {
+  const S = sm.section, snap = S.snaps[si];
+  const alongY = axis === 'y';
+  const along = alongY ? S.ys : S.xs, across = alongY ? S.xs : S.ys;
+  const nx = S.xs.length - 1, ny = S.ys.length - 1, nz = S.zs.length - 1;
+  const na = along.length - 1, nc = across.length - 1;
+  jc = Math.max(0, Math.min(nc, Math.round(jc)));
+  const c0 = alongY ? S.cx : S.cy;
+  const cell = (ia, ic, k) => (alongY ? (ic * ny + ia) : (ia * ny + ic)) * nz + k;
+  // corner order of the cut face (s-, z-), (s+, z-), (s+, z+), (s-, z+) on the element below (A, its + face) and above (B, its - face) the cut
+  const faceA = alongY ? [1, 2, 6, 5] : [3, 2, 6, 7], faceB = alongY ? [0, 3, 7, 4] : [0, 1, 5, 4];
+  const toUm = 1000;
+  const sl = Float64Array.from(along, v => (v - (alongY ? S.cy : S.cx)) * toUm), zl = Float64Array.from(S.zs, v => (v - S.zt) * toUm);
+  const ns = na + 1, nzl = nz + 1, ng = S.groups.length, nn = ns * nzl;
+  const acc = new Float64Array(ng * nn * 7), quads = [], face = new Float64Array(24);
+  for (let k = 0; k < nz; k++) for (let ia = 0; ia < na; ia++) {
+    const eA = jc > 0 ? cell(ia, jc - 1, k) : -1, eB = jc < nc ? cell(ia, jc, k) : -1;
+    let use;
+    if (eA >= 0 && eB >= 0 && S.grp[eA] !== S.grp[eB]) {
+      const dA = Math.abs(0.5 * (across[jc - 1] + across[jc]) - c0), dB = Math.abs(0.5 * (across[jc] + across[jc + 1]) - c0);
+      use = dA < dB ? [[eA, faceA]] : [[eB, faceB]];
+    } else use = [[eA, faceA], [eB, faceB]].filter(([e]) => e >= 0);
+    face.fill(0);
+    for (const [e, fc] of use) for (let v = 0; v < 4; v++) for (let cc = 0; cc < 6; cc++) face[6 * v + cc] += snap.sig[48 * e + 6 * fc[v] + cc] / use.length;
+    const grp = S.grp[use[0][0]];
+    [[ia, k], [ia + 1, k], [ia + 1, k + 1], [ia, k + 1]].forEach(([ca, cb], v) => {
+      const o = (grp * nn + ca * nzl + cb) * 7;
+      for (let cc = 0; cc < 6; cc++) acc[o + cc] += face[6 * v + cc];
+      acc[o + 6]++;
+    });
+    quads.push({ a: ia, b: k, grp });
+  }
+  const n = quads.length, sig = new Float32Array(24 * n);
+  const out = { T: snap.T, axis: alongY ? 'y' : 'x', c: +((across[jc] - c0) * toUm).toFixed(6), a0: sl[0], a1: sl[na], zMin: zl[0], zTop: zl[nz], sl, zl, n,
+    qa: new Int32Array(n), qb: new Int32Array(n), part: new Int8Array(n), grp: new Int16Array(n), pair: new Int8Array(n), cutBelow: new Int8Array(n), sig,
+    topA: new Float32Array(n).fill(NaN), topB: new Float32Array(n).fill(NaN), groups: S.groups, submodel: true };
+  quads.forEach((Q, t) => {
+    out.qa[t] = Q.a; out.qb[t] = Q.b; out.part[t] = Q.grp; out.grp[t] = Q.grp;
+    [[Q.a, Q.b], [Q.a + 1, Q.b], [Q.a + 1, Q.b + 1], [Q.a, Q.b + 1]].forEach(([ca, cb], v) => {
+      const o = (Q.grp * nn + ca * nzl + cb) * 7;
+      for (let cc = 0; cc < 6; cc++) sig[24 * t + 6 * v + cc] = acc[o + cc] / acc[o + 6];
+    });
+  });
+  return out;
 }

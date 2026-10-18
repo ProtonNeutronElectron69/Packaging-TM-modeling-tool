@@ -29,7 +29,7 @@ Configurations are saved and loaded as JSON files. `localStorage` holds only con
 
 ## Project status
 
-The specification in `CLAUDE.md` is implemented in full. Twenty-four pull requests are merged on `main`:
+The specification in `CLAUDE.md` is implemented in full. Twenty-five pull requests are merged on `main`:
 
 | PR | Merged | Content |
 |---|---|---|
@@ -57,6 +57,7 @@ The specification in `CLAUDE.md` is implemented in full. Twenty-four pull reques
 | [#22](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/22) | 2026-10-16 | At least 4 element layers through every region (bump underfill, fillet, dies, TIM, lid, adhesives, stiffener; substrate groups split into 4 bands each), DOF caps 75k / 330k / 600k to keep the in-plane element sizes; continuous fillet wedge (partly filled cells scaled by their volume fraction, up to 6 columns), drawn as a triangle in the cross-section view; runs about 5 to 6 times longer (Standard full analysis 867 s) |
 | [#23](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/23) | 2026-10-18 | Documentation: hand-off notes for the next session ("Where to pick up" in CLAUDE.md), verify and smoke-test run times after the mesh refinement, repository layout and modeling summary refreshed, in-app limitations text updated for the twelve substrate bands |
 | [#24](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/24) | 2026-10-18 | TIM back to one element layer (the other regions keep at least four): four TIM layers changed no result by more than 0.3 % on the default lidded package and raised the lid-stage PCG iterations (55 and 38 to 76 and 48); stage chain plus 25 °C about 17 % faster at a fixed in-plane grid |
+| [#25](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/25) | 2026-10-18 | Submodel cross-section stress view: each bump submodel stores its stress field at the end of each ramp and dwell of the last cycle, shown on a vertical cut along x or y through the pitch cell (underfill or solder coloured, the rest grey; any stress component, voxel mesh overlay, plan view to place the cut, CSV export; change from the as-assembled 25 °C state); element mesh toggle in the 3D view |
 
 Open items are listed under "Known issues and next steps" below. The largest is performance against the Section 13 targets.
 

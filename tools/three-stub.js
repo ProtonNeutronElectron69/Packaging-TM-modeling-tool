@@ -26,6 +26,7 @@
   class Material { constructor(o) { Object.assign(this, o); } }
   class Object3D { constructor() { this.children = []; this.position = new Vector3(); this.up = new Vector3(0, 1, 0); } add(o) { this.children.push(o); } }
   class Mesh extends Object3D { constructor(g, m) { super(); this.geometry = g; this.material = m; } }
+  class LineSegments extends Mesh { constructor(g, m) { super(g, m); this.visible = true; } }
   class Scene extends Object3D {}
   class Light extends Object3D { constructor() { super(); } }
   class PerspectiveCamera extends Object3D {
@@ -40,5 +41,5 @@
     render(scene, camera) { this.renders++; if (!scene || !camera) throw new Error('render without scene / camera'); window.__stubRenders = (window.__stubRenders || 0) + 1; }
     dispose() {}
   }
-  window.THREE = { Vector3, Spherical, Color, BufferAttribute, BufferGeometry, MeshLambertMaterial: Material, Mesh, Scene, AmbientLight: Light, DirectionalLight: Light, PerspectiveCamera, WebGLRenderer, DoubleSide: 2, __stub: true };
+  window.THREE = { Vector3, Spherical, Color, BufferAttribute, BufferGeometry, MeshLambertMaterial: Material, LineBasicMaterial: Material, Mesh, LineSegments, Scene, AmbientLight: Light, DirectionalLight: Light, PerspectiveCamera, WebGLRenderer, DoubleSide: 2, __stub: true };
 })();

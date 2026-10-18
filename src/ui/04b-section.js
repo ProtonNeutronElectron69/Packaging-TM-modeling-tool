@@ -37,12 +37,14 @@ function sectionValue(qty, alongY, s, o, eig, tmp) {
 /** Display name of the material of section quad q. */
 function sectionPartName(sec, q) {
   const g = sec.groups[sec.grp[q]];
+  if (sec.submodel) return g.name + (g.material ? ' (' + g.material + ')' : '');
   const part = sec.part[q] === C.PART.SUB ? 'Top solder resist' : C.PART_NAMES[sec.part[q]];
   return part + (g.material ? ' (' + g.material + ')' : '');
 }
 
 /** Quads shown for the bump-layer phase choice: the underfill phase hides solder; the solder phase hides underfill where both share a cell. */
 function sectionVisible(sec, q, phase) {
+  if (phase === 'all') return true;  // submodel sections: every voxel holds one material
   const p = sec.part[q];
   return phase === 'solder' ? !(p === C.PART.UF_BUMP && sec.pair[q]) : p !== C.PART.SOLDER;
 }
@@ -160,7 +162,7 @@ function sectionFields(sec, qty, phase) {
 
 /** Contour of the cut plane: bilinear shading per quad, material boundaries, optional element edges. */
 function drawSectionPlot(cv, sec, F, scale, opts) {
-  if (app.sectionResize && cv.isConnected) {
+  if (!sec.submodel && app.sectionResize && cv.isConnected) {
     // one-shot: size the plot so the chosen vertical exaggeration fits, and remember the height like a manual resize
     app.sectionResize = false;
     const key = canvasKey(cv), w0 = cv.getBoundingClientRect().width;
@@ -192,7 +194,7 @@ function drawSectionPlot(cv, sec, F, scale, opts) {
   for (let p = 0; p < iw; p++) { const s = x0 + (p + 0.5) / iw * (x1 - x0); if (s < sec.a0 || s > sec.a1) { colA[p] = -1; continue; } const a = bisect(sec.sl, s); colA[p] = a; colT[p] = (s - sec.sl[a]) / (sec.sl[a + 1] - sec.sl[a]); }
   const zRow = new Float64Array(ih);
   for (let r = 0; r < ih; r++) { const z = zRow[r] = y1 - (r + 0.5) / ih * (y1 - y0); if (z < sec.zMin || z > sec.zTop) { rowB[r] = -1; continue; } const b = bisect(sec.zl, z); rowB[r] = b; rowT[r] = (z - sec.zl[b]) / (sec.zl[b + 1] - sec.zl[b]); }
-  const { vals, idx, nzs } = F, span = scale.max - scale.min || 1;
+  const { vals, idx, nzs } = F, span = scale.max - scale.min || 1, grey = opts.grey || null;  // grey[q]: grey level of a context material, 0 = coloured
   for (let r = 0; r < ih; r++) {
     const b = rowB[r]; if (b < 0) continue;
     const tz = rowT[r];
@@ -201,8 +203,10 @@ function drawSectionPlot(cv, sec, F, scale, opts) {
       const q = idx[a * nzs + b]; if (q < 0) continue;
       const tx = colT[p], o = 4 * q;
       if (sec.topA[q] === sec.topA[q] && zRow[r] > sec.topA[q] + tx * (sec.topB[q] - sec.topA[q])) continue;  // above the fillet surface
+      const di = 4 * (r * iw + p);
+      if (grey && grey[q]) { D[di] = D[di + 1] = D[di + 2] = grey[q]; D[di + 3] = 255; continue; }
       const v = (1 - tx) * (1 - tz) * vals[o] + tx * (1 - tz) * vals[o + 1] + tx * tz * vals[o + 2] + (1 - tx) * tz * vals[o + 3];
-      const li = 3 * Math.round(clampTo((v - scale.min) / span, 0, 1) * 255), di = 4 * (r * iw + p);
+      const li = 3 * Math.round(clampTo((v - scale.min) / span, 0, 1) * 255);
       D[di] = lut[li]; D[di + 1] = lut[li + 1]; D[di + 2] = lut[li + 2]; D[di + 3] = 255;
     }
   }
@@ -261,10 +265,11 @@ function drawSectionPlot(cv, sec, F, scale, opts) {
   if (x1 >= sec.a1 - 1e-9) ctx.fillText('B′', L + pw - 3, T + 3);
   const ex = (ph / (y1 - y0)) / (pw / (x1 - x0));
   ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-  ctx.fillText(sectionQtyLabel(opts.qty) + ', MPa, at ' + sec.T + ' °C; vertical scale ×' + fmt(ex, ex < 10 ? 1 : 0), L + pw / 2, 4);
+  const lb = sec.labels || {};
+  ctx.fillText(lb.title || (sectionQtyLabel(opts.qty) + ', MPa, at ' + sec.T + ' °C; vertical scale ×' + fmt(ex, ex < 10 ? 1 : 0)), L + pw / 2, 4);
   ctx.font = '11px ' + cssVar('--font'); ctx.textBaseline = 'bottom';
-  ctx.fillText(sec.axis === 'x' ? 'x, mm (line at y = ' + sec.c + ' mm, seen from the −y side)' : 'y, mm (line at x = ' + sec.c + ' mm, seen from the +x side)', L + pw / 2, H - 2);
-  ctx.save(); ctx.translate(12, T + ph / 2); ctx.rotate(-Math.PI / 2); ctx.textBaseline = 'top'; ctx.fillText('z, mm above the substrate bottom', 0, -6); ctx.restore();
+  ctx.fillText(lb.s || (sec.axis === 'x' ? 'x, mm (line at y = ' + sec.c + ' mm, seen from the −y side)' : 'y, mm (line at x = ' + sec.c + ' mm, seen from the +x side)'), L + pw / 2, H - 2);
+  ctx.save(); ctx.translate(12, T + ph / 2); ctx.rotate(-Math.PI / 2); ctx.textBaseline = 'top'; ctx.fillText(lb.z || 'z, mm above the substrate bottom', 0, -6); ctx.restore();
 }
 
 /** Value under the pointer on the section plot. */
@@ -273,7 +278,8 @@ function sectionReadout(cv, sec, F, qty, e) {
   const r = cv.getBoundingClientRect(), px = e.clientX - r.left, py = e.clientY - r.top;
   if (px < m.L || px > m.L + m.pw || py < m.T || py > m.T + m.ph) return '';
   const s = m.x0 + (px - m.L) / m.pw * (m.x1 - m.x0), z = m.y1 - (py - m.T) / m.ph * (m.y1 - m.y0);
-  const pos = (sec.axis === 'x' ? 'x ' : 'y ') + fmt(s, 3) + ' mm, z ' + fmt(z, 4) + ' mm';
+  const lb = sec.labels || {}, unit = lb.unit || 'mm', dg = unit === 'µm' ? 1 : 3;
+  const pos = (lb.sName || (sec.axis === 'x' ? 'x' : 'y')) + ' ' + fmt(s, dg) + ' ' + unit + ', ' + (lb.zName || 'z') + ' ' + fmt(z, dg + 1) + ' ' + unit;
   if (s < sec.a0 || s > sec.a1 || z < sec.zMin || z > sec.zTop) return pos;
   const a = bisect(sec.sl, s), b = bisect(sec.zl, z), q = F.idx[a * F.nzs + b];
   const tx = q < 0 ? 0 : (s - sec.sl[a]) / (sec.sl[a + 1] - sec.sl[a]);
@@ -284,7 +290,8 @@ function sectionReadout(cv, sec, F, qty, e) {
 }
 
 function exportSectionCSV(sec) {
-  const lines = ['# cross-section B-B\' at ' + sec.T + ' degC: line along ' + sec.axis + ' at ' + (sec.axis === 'x' ? 'y' : 'x') + ' = ' + sec.c + ' mm; nodal values averaged within each material; MPa',
+  const cs = sec.csv;  // submodel sections bring their own header, columns, point mapping and file name
+  const lines = cs ? [cs.header, cs.columns] : ['# cross-section B-B\' at ' + sec.T + ' degC: line along ' + sec.axis + ' at ' + (sec.axis === 'x' ? 'y' : 'x') + ' = ' + sec.c + ' mm; nodal values averaged within each material; MPa',
     'x_mm,y_mm,z_mm,material,sxx,syy,szz,txy,tyz,txz'];
   const seen = new Set();
   for (let q = 0; q < sec.n; q++) [[0, 0], [1, 0], [1, 1], [0, 1]].forEach(([da, db], v) => {
@@ -292,10 +299,10 @@ function exportSectionCSV(sec) {
     if (seen.has(key)) return;
     seen.add(key);
     const s = sec.sl[a], o = 24 * q + 6 * v;
-    lines.push([sec.axis === 'x' ? s : sec.c, sec.axis === 'x' ? sec.c : s, sec.zl[b], '"' + sectionPartName(sec, q) + '"'].concat(Array.from(sec.sig.subarray(o, o + 6), x => x.toPrecision(6))).join(','));
+    lines.push((cs ? cs.point(s, sec.zl[b]) : [sec.axis === 'x' ? s : sec.c, sec.axis === 'x' ? sec.c : s, sec.zl[b]]).concat('"' + sectionPartName(sec, q) + '"').concat(Array.from(sec.sig.subarray(o, o + 6), x => x.toPrecision(6))).join(','));
   });
   const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
-  const a = h('a', { href: URL.createObjectURL(blob), download: (app.cfg.name || 'fcbga').replace(/[^\w.-]+/g, '_') + '_section_' + sec.T + 'C.csv' });
+  const a = h('a', { href: URL.createObjectURL(blob), download: (app.cfg.name || 'fcbga').replace(/[^\w.-]+/g, '_') + (cs ? cs.file : '_section_' + sec.T + 'C') + '.csv' });
   document.body.appendChild(a); a.click(); a.remove();
 }
 

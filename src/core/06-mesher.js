@@ -201,9 +201,10 @@ function zPlanes(g) {
   const base = merged.lines;
   // element layers per band: die bands (except slivers) and the lid plate start at two layers; then every
   // physical region gets at least MIN_LAYERS_PER_REGION layers through its thickness (bump layer, fillet
-  // height, each die, TIM, lid plate and foot, adhesives, stiffener), each extra layer going to the band of
-  // the region with the largest element thickness. Substrate bands stay one layer each (substrateBands
-  // already splits the build-up and core groups).
+  // height, each die, lid plate and foot, adhesives, stiffener), each extra layer going to the band of
+  // the region with the largest element thickness. The TIM keeps one layer: the gel carries almost no load,
+  // and four layers changed no result by more than 0.3 % while adding PCG iterations on the lid stages.
+  // Substrate bands stay one layer each (substrateBands already splits the build-up and core groups).
   const nsub = [];
   for (let b = 0; b + 1 < base.length; b++) {
     const za = base[b], zb = base[b + 1], zc = 0.5 * (za + zb);
@@ -220,7 +221,6 @@ function zPlanes(g) {
   for (const d of g.dies) {
     regions.push([g.zaf, d.ztop]);
     if (g.uf.Hf > 0) regions.push([g.zaf, g.zaf + Math.min(1, g.uf.Hf) * d.t]);
-    if (g.lid) regions.push([d.ztop, g.lid.zLidBot]);
   }
   if (g.lid) regions.push([g.zt, g.lid.zAdhTop], [g.lid.zAdhTop, g.lid.zLidBot], [g.lid.zLidBot, g.lid.zLidTop]);
   if (g.stiff) regions.push([g.zt, g.stiff.zAdhTop], [g.stiff.zAdhTop, g.stiff.zTop]);

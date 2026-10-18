@@ -29,7 +29,7 @@ Configurations are saved and loaded as JSON files. `localStorage` holds only con
 
 ## Project status
 
-The specification in `CLAUDE.md` is implemented in full. Twenty-two pull requests are merged on `main`:
+The specification in `CLAUDE.md` is implemented in full. Twenty-three pull requests are merged on `main`:
 
 | PR | Merged | Content |
 |---|---|---|
@@ -55,6 +55,7 @@ The specification in `CLAUDE.md` is implemented in full. Twenty-two pull request
 | [#20](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/20) | 2026-10-14 | Documentation: PRs 18 and 19 added to the status tables; from now on each PR adds its own row before it merges, with no separate status PR |
 | [#21](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/21) | 2026-10-15 | Material dropdowns in steps 1 to 3 sorted from fewest to most Estimated values and coloured green (none), orange (1 to 4) or red (5 or more), with the count in brackets and a legend; the glass-transition smoothing widths are not counted (doubling them moves RT and peak warpage and die stress by under 0.5 %) |
 | [#22](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/22) | 2026-10-16 | At least 4 element layers through every region (bump underfill, fillet, dies, TIM, lid, adhesives, stiffener; substrate groups split into 4 bands each), DOF caps 75k / 330k / 600k to keep the in-plane element sizes; continuous fillet wedge (partly filled cells scaled by their volume fraction, up to 6 columns), drawn as a triangle in the cross-section view; runs about 5 to 6 times longer (Standard full analysis 867 s) |
+| [#23](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/23) | 2026-10-18 | Documentation: hand-off notes for the next session ("Where to pick up" in CLAUDE.md), verify and smoke-test run times after the mesh refinement, repository layout and modeling summary refreshed, in-app limitations text updated for the twelve substrate bands |
 
 Open items are listed under "Known issues and next steps" below. The largest is performance against the Section 13 targets.
 
@@ -221,12 +222,12 @@ Sources were read directly where the publisher allows it: manufacturer data shee
 | `src/materials-db.json` | Cited materials database (Section 11) with per-property source, confidence and range |
 | `src/core/00-constants.js` | `CONST`: every modelling, mesh, solver and fatigue constant |
 | `src/core/01-util.js`, `02-config.js` | Helpers; default configuration, presets, stack generator, hashing, JSON round trip, JEITA and cycling tables |
-| `src/core/03-materials.js`, `04-homogenize.js` | E(T) and CTE(T) forms on the 1 °C grid, cubic silicon rotated 45°, Voigt / Reuss / Turner layer mixing, layered band sections, bump profile and d_eff |
-| `src/core/05-geometry.js`, `06-mesher.js` | Package geometry; structured extruded hex mesher with void cells, feature lines, size function, DOF cap, 3-2-1 constraints |
+| `src/core/03-materials.js`, `04-homogenize.js` | E(T) and CTE(T) forms on the 1 °C grid, cubic silicon rotated 45°, Voigt / Reuss / Turner layer mixing, substrate bands (`substrateBands()`, 3 groups x 4 bands) and their layered sections, bump profile and d_eff |
+| `src/core/05-geometry.js`, `06-mesher.js` | Package geometry; structured extruded hex mesher with void cells, feature lines, size function, DOF cap, at least 4 element layers per region (`zPlanes()`), partly filled fillet cells (`fillFraction()`), 3-2-1 constraints |
 | `src/core/07-element.js`, `08-sparse.js`, `09-assembly.js` | Incompatible-mode hex (closed-form box integration, layered integration), block CSR, `FEModel` (assembly, birth states, stress recovery) |
 | `src/core/10-solver.js` | Jacobi-scaled PCG, `MultigridPC` (column block Gauss-Seidel, shell aggregates, feature-preserving coarsening, banded coarsest Cholesky), `ICPC`, warm start, rebuild policy |
 | `src/core/11-analysis.js` | Process stages, evaluation temperatures, sweep ordering, the `Analysis` driver |
-| `src/core/12-post.js` | JEITA warpage with shape class and sign confidence, die stress, bump loads, underfill tractions, 3D face fields |
+| `src/core/12-post.js` | JEITA warpage with shape class and sign confidence, die stress, bump loads, underfill tractions, cross-section stresses (`sectionStress()`, `layeredPointStress()`), 3D face fields |
 | `src/core/13-fatigue.js` | Anand point integrator, cycle history, screening, `BumpSubmodel`, Syed and Darveaux life models |
 | `src/core/14-sensitivity.js`, `15-verify.js` | Tornado inputs, bounds and cases; verification tests V1 to V15 |
 | `src/worker.js` | Worker driver and nested helper workers (parallel sweep and submodels) |
@@ -241,11 +242,11 @@ Sources were read directly where the publisher allows it: manufacturer data shee
 
 ```
 node tools/build.mjs                       # writes dist/fcbga_thermomech_tool.html (always rebuild after editing src/)
-node tools/verify.mjs                      # full verification suite headless in Node, V1 to V15 (about 4 min, V10 dominates)
+node tools/verify.mjs                      # full verification suite headless in Node, V1 to V15 (about 28 min: V1 to V14 about 8, V15 about 20)
 node tools/verify.mjs V1,V2,V13            # selected tests
 node tools/verify.mjs --presets draft      # V15 timing presets (default draft,standard)
 node tools/smoke.mjs                       # Chromium: page load and Draft preview, zero console errors
-node tools/smoke.mjs --full [--standard] [--workers 3] [--submodels]   # full analysis, every results view, 3D view, submodels
+node tools/smoke.mjs --full [--standard] [--workers 3] [--submodels]   # full analysis, every results view, 3D view, submodels (Draft about 3 min, Standard about 15 min)
 ```
 
 Rules that keep the three execution contexts consistent:
@@ -259,9 +260,9 @@ Rules that keep the three execution contexts consistent:
 
 ## Modeling summary
 
-- Structured, extruded hexahedral mesh with void cells; 8-node hexahedra with Wilson-Taylor incompatible modes (statically condensed); layered integration through the substrate sub-layers; superposed solder / underfill phases in the bump layer.
+- Structured, extruded hexahedral mesh with void cells; 8-node hexahedra with Wilson-Taylor incompatible modes (statically condensed); layered integration through the substrate sub-layers (12 bands); at least 4 element layers through every other region; superposed solder / underfill phases in the bump layer; fillet cells under the wedge surface partly filled (stiffness and load scaled by the filled volume fraction).
 - Total thermoelastic formulation with element birth (substrate, chip join, underfill cure, lid or stiffener attach), one linear solve per evaluation temperature.
-- Jacobi-scaled PCG with a multigrid preconditioner (column block Gauss-Seidel smoother on the 3D level, shell-type coarse levels built from per-column rigid-body-plus-thickness aggregates with Hermite deflection interpolation, feature lines kept at every coarse level, banded Cholesky on the coarsest level) and an IC(0) fallback; warm starts by Galerkin projection on previous solutions.
+- Jacobi-scaled PCG with a multigrid preconditioner (column block Gauss-Seidel smoother on the 3D level, shell-type coarse levels built from per-column rigid-body-plus-thickness aggregates with Hermite deflection interpolation, feature lines kept at every coarse level, banded Cholesky on the coarsest level) and an IC(0) fallback (it no longer converges on the refined meshes); warm starts by Galerkin projection on previous solutions.
 - The temperature sweep and the bump submodels run in parallel on nested helper workers (birth states, respectively cycling fields, are transferred); the worker count is a run setting (Parallel workers in step 6, offered up to the CPU core count divided by 1.5, rounded down) and also sizes the sensitivity worker pool.
 - Post-processing per JEITA ED-7306 / JESD22-B112 (warpage, with a shape class and a sign-confidence metric from the diagonals), fixed-patch corner metrics, per-bump forces from the solder phase, interface tractions.
 - Anand viscoplastic SAC305 with backward-Euler radial return and consistent tangent; bump screening across all sites; one-pitch bump submodel with B-bar hexahedra, cut-boundary displacements and Newton-Raphson; Syed and Darveaux life models.

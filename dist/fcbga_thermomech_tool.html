@@ -195,7 +195,7 @@ option.mat-good, option.mat-some, option.mat-many { font-weight: 600; }
 <body>
 <div id="app">
   <header id="topbar">
-    <div class="brand"><span class="logo">FCBGA</span> Thermomechanical Screening Tool <span class="build">build 2026-10-17</span></div>
+    <div class="brand"><span class="logo">FCBGA</span> Thermomechanical Screening Tool <span class="build">build 2026-10-18</span></div>
     <div class="banner" role="note">Screening tool. Results are approximate and intended for design comparison and trend studies, not sign-off.</div>
     <div class="topbtns">
       <button id="btn-theme" class="icon" aria-label="Toggle theme">◐</button>
@@ -9066,7 +9066,7 @@ function limitationsList(res) {
   const L = [
     'Total (secant) thermoelastic formulation with element birth for all non-solder materials in the global model: path independent, no viscoelastic relaxation. Each polymer\'s effective stress-free temperature is exposed as a knob (default: cure temperature).',
     'Polymer properties above Tg are partly estimated (rubbery moduli of ABF and solder resist, all Poisson ratios of polymers, TIM gel; for most underfills and adhesives added from data sheets, the rubbery modulus is a fixed fraction of the glassy modulus). Values flagged Estimated should be replaced by measured or DMA data.',
-    'Substrate layers are homogenized with mixture rules (Voigt / Reuss / Turner) per physical layer and integrated layer by layer within four element bands; a Cu pattern is treated as a uniform fraction, not as routed geometry.',
+    'Substrate layers are homogenized with mixture rules (Voigt / Reuss / Turner) per physical layer and integrated layer by layer within twelve element bands (the bottom build-up, the core and the top build-up are each split into four); every other region has at least four element layers through its thickness; a Cu pattern is treated as a uniform fraction, not as routed geometry.',
     'Bumps are homogenized in the global model as a superposed solder phase and underfill phase sharing nodes (iso-strain / Voigt), exact for the through-thickness and transverse shear load paths of short columns, an upper bound for in-plane membrane stiffness.',
     'The underfill fillet is a linear wedge: box elements under its sloped surface carry their stiffness and thermal load scaled by the fraction of the box below the surface, so the fillet acts as a continuous wedge without sloped elements; peel and shear at the fillet surface are approximate.',
     'Solder above its solidus (217 °C for SAC305) is represented by a modulus floor of 1 % of E(217 °C); states above the solidus are flagged "solder molten".',

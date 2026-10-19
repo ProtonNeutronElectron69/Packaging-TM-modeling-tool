@@ -2,7 +2,7 @@
 
 ## Project status (read this first)
 
-The build specification that follows (from "Build Prompt" onward) has been **implemented in full** and merged to `main` through twenty-five pull requests (three of code and two of documentation for the build, then UI updates, two materials database passes, a parallel-worker setting, a legend fix, a glossary, UX refinements, a cancel fix, a cross-section stress view, material data-quality colours, a finer through-thickness mesh (later trimmed for the TIM), a submodel cross-section view with a 3D mesh overlay, hand-off notes and status updates requested by the user). A new session should treat it as the reference design of an existing, working application, not as a task to start.
+The build specification that follows (from "Build Prompt" onward) has been **implemented in full** and merged to `main` through twenty-six pull requests (three of code and two of documentation for the build, then UI updates, two materials database passes, a parallel-worker setting, a legend fix, a glossary, UX refinements, a cancel fix, a cross-section stress view, material data-quality colours, a finer through-thickness mesh (later trimmed for the TIM), a submodel cross-section view with a 3D mesh overlay, a Windows desktop app, hand-off notes and status updates requested by the user). A new session should treat it as the reference design of an existing, working application, not as a task to start.
 
 | PR | Merged | Content |
 |---|---|---|
@@ -31,12 +31,13 @@ The build specification that follows (from "Build Prompt" onward) has been **imp
 | #23 | 2026-10-18 | Documentation: hand-off notes for the next session ("Where to pick up" in CLAUDE.md), verify and smoke-test run times after the mesh refinement, repository layout and modeling summary refreshed, in-app limitations text updated for the twelve substrate bands |
 | #24 | 2026-10-18 | TIM back to one element layer (the other regions keep at least four): four TIM layers changed no result by more than 0.3 % on the default lidded package and raised the lid-stage PCG iterations (55 and 38 to 76 and 48); stage chain plus 25 °C about 17 % faster at a fixed in-plane grid |
 | #25 | 2026-10-18 | Submodel cross-section stress view: each bump submodel stores its stress field at the end of each ramp and dwell of the last cycle, shown on a vertical cut along x or y through the pitch cell (underfill or solder coloured, the rest grey; any stress component, voxel mesh overlay, plan view to place the cut, CSV export; change from the as-assembled 25 °C state); element mesh toggle in the 3D view |
+| #26 | 2026-10-19 | Windows desktop app (Electron): the page runs in its own window and every worker is a separate compute process on the computer (running the page's own core and driver, helpers as worker threads), so runs are no longer bounded by the browser's per-tab memory allowance (Edge and Brave stopped at about 10 GB); installer and portable exe built by a GitHub Actions workflow on Windows; a stopped compute process is reported with Restore analysis; bundled three.js; 3D view shows a message when WebGL is missing; desktop smoke test and compute-process check |
 
 Current state on `main`:
 
 - Verification suite: **15/15 pass** headless in Node (README "Verification status" records the measured values; `dist/verification.json` is written by each run but is gitignored, so a fresh clone has none).
 - Performance (Chromium, 4-core container, 3 workers), since the through-thickness refinement of PR 22: full Standard analysis 867 s at 302k DOF (target 90 s; 147 s before; measured before PR 24 put the TIM back to one layer, which saves about 17 % on the stage solves at a fixed in-plane grid), full Draft 163 s, screening 9 s (target 10 s), four submodels 286 s (target 120 s, not re-measured). Solver speed on the refined mesh is the main open item; see README "Known issues and next steps". The drag preview and auto-solve of Section 4.3 were removed at the user's request (README deviations).
-- Deliverable: `dist/fcbga_thermomech_tool.html` (about 736 kB, committed; rebuilt from `src/` by `node tools/build.mjs`).
+- Deliverable: `dist/fcbga_thermomech_tool.html` (about 741 kB, committed; rebuilt from `src/` by `node tools/build.mjs`). The Windows desktop app (installer and portable exe, about 223 MB together) is built from it by the "Desktop app (Windows)" workflow; its compute processes gave the same results as the browser in every check (full Draft analysis 143.6 s on 2 workers on the Windows runner).
 
 `README.md` carries the detailed status: verification table, measured timings, every deviation from the specification, known issues, repository layout and development workflow.
 

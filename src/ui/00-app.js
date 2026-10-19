@@ -41,12 +41,12 @@ const maxWorkers = () => Math.max(1, Math.floor((navigator.hardwareConcurrency |
 const app = {
   cfg: null, results: null, baseline: null, fieldsCache: new Map(), screening: null, submodels: [], sensitivity: null, verification: null,
   step: 1, centerTab: 'floorplan', selectedDie: 0, resultsView: 'warpage', selectedT: 25, exaggeration: 5, cutLine: { axis: 'x', pos: 0 },
-  job: null, analysisLost: false, mesh: null, validation: { errors: [], warnings: [] }, geom: null, dirty: true,
+  job: null, analysisLost: false, desktop: null, mesh: null, validation: { errors: [], warnings: [] }, geom: null, dirty: true,
   workers: Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1, maxWorkers())), nestedWorkers: true,
   decisions: [], showOverlay: 'warpage', cutDirty: true,
-  // cross-section stress view: line {axis, c, a0, a1}, first click while drawing, display options, worker results by temperature and line
   // submodel cross-section view: submodel key (die:ix:iy), stored moment, cut direction and grid-line index, display options
   subSection: { key: null, snap: null, axis: 'x', pos: null, qty: 'vm', focus: 'uf', mesh: false },
+  // cross-section stress view: line {axis, c, a0, a1}, first click while drawing, display options, worker results by temperature and line
   section: null, sectionDraft: null, sectionQty: 'vm', sectionPhase: 'uf', sectionMesh: false, sectionExag: 'fit', sectionRange: 'all', sectionResize: false, sectionCache: new Map(), sectionPending: null,
   colorMap: prefs.get('colorMap', 'rainbow') === 'colorblind' ? 'colorblind' : 'rainbow',  // contour colours: rainbow or colorblind-safe
 };
@@ -155,19 +155,48 @@ function checkField(label, get, set, opts) {
 }
 
 // ---- worker pool ----
+/** Desktop app (window.fcbgaDesktop from desktop/preload.js): set when the page runs inside the app. */
+const DESKTOP = window.fcbgaDesktop || null;
+const DESKTOP_MEM_WARN = 0.8;  // the run panel warns when the estimate passes this fraction of the computer's memory
+
+/**
+ * Desktop app: a compute process of its own (desktop/compute-worker.js) with the Web Worker interface
+ * WorkerClient uses. It runs the same core and driver outside the browser engine, so its memory is
+ * limited by the computer, not by a browser tab. An unexpected stop (most often memory running out)
+ * arrives as onerror with exited set.
+ */
+class DesktopWorker {
+  constructor() {
+    this.onmessage = null; this.onerror = null;
+    this.handle = DESKTOP.spawn(msg => { if (this.onmessage) this.onmessage({ data: msg }); },
+      info => { if (this.onerror) this.onerror({ exited: true, message: 'The compute process stopped unexpectedly (' + (info.signal ? 'signal ' + info.signal : 'exit code ' + info.code) + '); the computer most likely ran out of memory. Results already shown are kept; fewer parallel workers or a coarser mesh need less memory.' }); });
+  }
+  postMessage(msg) { this.handle.post(msg); }
+  terminate() { this.handle.terminate(); }
+}
+
 class WorkerClient {
   constructor() {
-    this.worker = null; this.pending = new Map(); this.nextId = 1; this.busy = false;
+    this.worker = null; this.pending = new Map(); this.nextId = 1; this.busy = false; this.dead = false;
     this.start();
   }
   start() {
     if (this.worker) this.worker.terminate();
-    const blob = new Blob([CORE_SRC, '\n', WORKER_SRC], { type: 'text/javascript' });
-    this.worker = new Worker(URL.createObjectURL(blob));
+    this.dead = false;
+    this.worker = DESKTOP ? new DesktopWorker() : new Worker(URL.createObjectURL(new Blob([CORE_SRC, '\n', WORKER_SRC], { type: 'text/javascript' })));
     this.worker.onmessage = ev => this._onMessage(ev.data);
-    this.worker.onerror = ev => { for (const p of this.pending.values()) p.reject(new Error(ev.message || 'worker error')); this.pending.clear(); this.busy = false; };
+    this.worker.onerror = ev => {
+      for (const p of this.pending.values()) p.reject(new Error(ev.message || 'worker error'));
+      this.pending.clear(); this.busy = false;
+      if (ev.exited) {
+        // the desktop compute process is gone, and with it any analysis it held: restart on the next request
+        this.dead = true;
+        if (this === worker && app.results) { app.analysisLost = 'stopped'; renderAll(); }
+      }
+    };
     this.pending.clear();
-    this.send({ type: 'init', db: MATERIALS_DB, src: CORE_SRC + '\n' + WORKER_SRC }).then(r => { if (r && r.nested === false) app.nestedWorkers = false; }).catch(() => {});
+    // the browser's helpers are built from the source text; the desktop compute process brings its own
+    this.send({ type: 'init', db: MATERIALS_DB, src: DESKTOP ? null : CORE_SRC + '\n' + WORKER_SRC }).then(r => { if (r && r.nested === false) app.nestedWorkers = false; }).catch(() => {});
   }
   _onMessage(m) {
     const p = this.pending.get(m.id);
@@ -179,6 +208,7 @@ class WorkerClient {
     else p.resolve(m.payload);
   }
   send(msg, onProgress, onPartial) {
+    if (this.dead) this.start();
     const id = this.nextId++;
     msg.id = id;
     return new Promise((resolve, reject) => { this.pending.set(id, { resolve, reject, onProgress, onPartial }); this.worker.postMessage(msg); });

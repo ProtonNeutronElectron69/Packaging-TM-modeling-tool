@@ -1,6 +1,6 @@
 # FCBGA Thermomechanical Screening Tool
 
-A self-contained, single-file browser application that performs approximate 3D finite-element thermomechanical stress and warpage analysis of flip chip ball grid array (FCBGA) packages: SAC solder flip chip bonded silicon dies on a multilayer organic build-up substrate with a glass-fiber core, capillary underfill, and an optional hat lid or stiffener ring.
+A self-contained, single-file browser application (also packaged as a Windows desktop app for large runs) that performs approximate 3D finite-element thermomechanical stress and warpage analysis of flip chip ball grid array (FCBGA) packages: SAC solder flip chip bonded silicon dies on a multilayer organic build-up substrate with a glass-fiber core, capillary underfill, and an optional hat lid or stiffener ring.
 
 **Screening tool. Results are approximate and intended for design comparison and trend studies, not sign-off.**
 
@@ -27,9 +27,19 @@ A glossary ("A–Z" in the top bar, or "Glossary" under the step list) spells ou
 
 Configurations are saved and loaded as JSON files. `localStorage` holds only conveniences: the theme, the last step and tab, the pane sizes and the colour scale.
 
+### Desktop app (Windows)
+
+The same tool also comes as a Windows desktop app, for runs that need more memory than a browser tab allows. In a browser every parallel worker lives inside one tab, each holds its own copy of the model (about 1 GB at Standard), and the browser stops a tab that grows past its memory allowance (around 10 GB has been seen in Edge and Brave), which ends the run. The desktop app shows the same page in its own window but runs each worker as a separate compute process on the computer, so the analysis can use all of its memory and cores.
+
+- **Getting it.** The "Desktop app (Windows)" GitHub Actions workflow builds two files on a Windows machine: `FCBGA-Screening-Tool-Setup-<version>.exe` (installer; choose the folder, adds a Start menu shortcut and an uninstaller) and `FCBGA-Screening-Tool-Portable-<version>.exe` (one file that runs without installing; it unpacks itself on each start, so it opens a few seconds slower). Run the workflow from the Actions tab (Run workflow) and download the `fcbga-desktop-windows` artifact of the run, or push a tag named `desktop-v<version>` to attach the files to a release. To build on a Windows computer instead: install Node.js 22 or later, then `cd desktop`, `npm install`, `npm run dist`; the files land in `desktop/release/`.
+- **First start.** The app is not code-signed, so Windows SmartScreen shows "Windows protected your PC"; choose More info, then Run anyway. A signing certificate would remove the warning.
+- **What is the same.** Every screen, input and result: the app loads the built page (`dist/fcbga_thermomech_tool.html`) and its compute processes run the page's own physics code, so results match the browser version (the checks compare them).
+- **What is different.** The run panel shows "Compute engine: desktop app" with the computer's memory and core count, and warns when the memory estimate approaches the computer's memory. The 3D view uses a bundled three.js, so it works offline. Saving a configuration or a CSV asks where to save it. File > Print and File > Save as PDF print the focused window (the main window or the report). Web links (material sources) open in the default browser. If a compute process stops unexpectedly (most often when the computer runs out of memory), the results already shown stay, a notice offers Restore analysis, and the next job starts a fresh process.
+- **Limits.** The computer's memory is still the ceiling: plan for about 1 GB per worker at Standard, more at Fine. WebGL (graphics acceleration) is needed for the 3D view, as in a browser.
+
 ## Project status
 
-The specification in `CLAUDE.md` is implemented in full. Twenty-five pull requests are merged on `main`:
+The specification in `CLAUDE.md` is implemented in full. Twenty-six pull requests are merged on `main`:
 
 | PR | Merged | Content |
 |---|---|---|
@@ -58,6 +68,7 @@ The specification in `CLAUDE.md` is implemented in full. Twenty-five pull reques
 | [#23](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/23) | 2026-10-18 | Documentation: hand-off notes for the next session ("Where to pick up" in CLAUDE.md), verify and smoke-test run times after the mesh refinement, repository layout and modeling summary refreshed, in-app limitations text updated for the twelve substrate bands |
 | [#24](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/24) | 2026-10-18 | TIM back to one element layer (the other regions keep at least four): four TIM layers changed no result by more than 0.3 % on the default lidded package and raised the lid-stage PCG iterations (55 and 38 to 76 and 48); stage chain plus 25 °C about 17 % faster at a fixed in-plane grid |
 | [#25](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/25) | 2026-10-18 | Submodel cross-section stress view: each bump submodel stores its stress field at the end of each ramp and dwell of the last cycle, shown on a vertical cut along x or y through the pitch cell (underfill or solder coloured, the rest grey; any stress component, voxel mesh overlay, plan view to place the cut, CSV export; change from the as-assembled 25 °C state); element mesh toggle in the 3D view |
+| [#26](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/26) | 2026-10-19 | Windows desktop app (Electron): the page runs in its own window and every worker is a separate compute process on the computer (running the page's own core and driver, helpers as worker threads), so runs are no longer bounded by the browser's per-tab memory allowance (Edge and Brave stopped at about 10 GB); installer and portable exe built by a GitHub Actions workflow on Windows; a stopped compute process is reported with Restore analysis; bundled three.js; 3D view shows a message when WebGL is missing; desktop smoke test and compute-process check |
 
 Open items are listed under "Known issues and next steps" below. The largest is performance against the Section 13 targets.
 
@@ -239,6 +250,12 @@ Sources were read directly where the publisher allows it: manufacturer data shee
 | `tools/verify.mjs` | Extracts the core block from the built file and runs the suite in Node |
 | `tools/smoke.mjs`, `tools/three-stub.js` | Playwright / Chromium end-to-end test, with a local three.js API stub for sandboxes that block CDNs |
 | `tools/dev-core.mjs` | Loads `src/core` directly for ad-hoc experiments in Node |
+| `desktop/main.js` | Desktop app (Electron) main process: the window, the compute processes (one per page worker, started, stopped and relayed on the page's request), menu with Print and Save as PDF, save dialogs, external links |
+| `desktop/compute-worker.js`, `desktop/core-source.js` | Compute process: runs the page's own core and worker driver (read from the built page) in Node, with the driver's nested helpers as worker threads |
+| `desktop/preload.js` | The page's end of the compute channel (`window.fcbgaDesktop`), isolated from the page |
+| `desktop/package.json`, `desktop/stage.mjs`, `desktop/build/icon.png` | Versions (Electron 44.5.1, electron-builder 26.15.3, three.js 0.128.0), installer and portable targets; staging of the page and three.js into `desktop/app/`; app icon |
+| `tools/desktop-smoke.mjs`, `tools/desktop-check.mjs` | Desktop end-to-end test (Electron through Playwright: full analysis, submodels, every view, 3D with the bundled three.js, report window, a killed compute process) and a check of the compute process in plain Node against a direct run |
+| `.github/workflows/desktop-windows.yml` | Builds the Windows installer and portable app on a Windows runner (manual run, `desktop-v*` tags, pull requests that touch `desktop/`) |
 
 ## Development workflow
 
@@ -249,6 +266,11 @@ node tools/verify.mjs V1,V2,V13            # selected tests
 node tools/verify.mjs --presets draft      # V15 timing presets (default draft,standard)
 node tools/smoke.mjs                       # Chromium: page load and Draft preview, zero console errors
 node tools/smoke.mjs --full [--standard] [--workers 3] [--submodels]   # full analysis, every results view, 3D view, submodels (Draft about 3 min, Standard about 15 min)
+cd desktop && npm install                  # desktop app: Electron, electron-builder, three.js (Electron itself downloads on first use)
+npm start                                  # (in desktop/) run the desktop app from the sources (stages dist/ into desktop/app/ first)
+npm run dist                               # (in desktop/, on Windows) build the installer and the portable app into desktop/release/
+node tools/desktop-check.mjs               # compute process in plain Node: full Draft analysis on 2 helper threads versus a direct run (about 4 min)
+xvfb-run -a node tools/desktop-smoke.mjs [--workers 3] [--submodels] [--exe path]   # desktop app end to end under a virtual display (about 5 min, 12 with submodels)
 ```
 
 Rules that keep the three execution contexts consistent:
@@ -258,7 +280,8 @@ Rules that keep the three execution contexts consistent:
 - Every constant goes in `CONST`; large data lives in `Float64Array` / `Int32Array`.
 - Every UI control gets a tooltip through `tip()`, `helpTip()` or `kl()` (dictionary `TIPS` in `src/ui/00b-tips.js`); numeric inputs go through `numField()` so bounds and plausibility ranges apply.
 - Playwright is resolved from the repository or from `/opt/node-tools/node_modules`; Chromium is pre-installed in the cloud sandbox.
-- There are no CI workflows; the headless suite and the smoke test are the gate before a pull request.
+- The only CI workflow builds the Windows desktop app (and runs `tools/desktop-check.mjs` there); the headless suite and the smoke tests are the gate before a pull request.
+- The desktop app must keep working from the built page alone: its compute processes read the `core` and `worker-driver` blocks from `dist/` (through `desktop/app/index.html`), and the page switches to them only when `window.fcbgaDesktop` is present, so the single HTML file behaves exactly as before in a browser.
 
 ## Modeling summary
 
@@ -336,7 +359,8 @@ Each is also listed in the in-app "Assumptions and limitations" panel.
 - **Performance targets are missed** by about 10× at Standard since the through-thickness refinement (867 s against 90 s) and by 2.4× for the submodels; Fine has not been run end to end. The multigrid needs 2 to 3 times more iterations with 4 element layers in the compliant layers (bump underfill, adhesives; the TIM is back to one layer); grouping their interior nodes differently in the shell aggregates did not help. Candidates: a coarse space that treats each compliant layer as a shear layer between its two stiff stacks, WebAssembly or SIMD kernels for the matrix-vector product and the column smoother, a sparse direct solver for the 13k-DOF submodel, and fewer sweep temperatures when no Tg lies in the range.
 - **Fine preset** full analysis has not been timed; V10 covers its accuracy against Standard. Its in-plane elements are about 30 % larger than before the refinement because the 600k cap keeps it within browser memory.
 - **JEITA sign on ring and saddle surfaces** is inherently fragile (the lidded default at 25 °C is a ring profile); the shape class, the sign-confidence metric and the magnitude curve are shown so the user can judge. A customer-specific sign rule could be added as an option.
-- **Peak memory grows with the worker count** (each helper holds its own model copy); the run panel shows the estimate.
+- **Peak memory grows with the worker count** (each helper holds its own model copy); the run panel shows the estimate, which counts each extra worker at 70 % of the first and may be low. In a browser the whole tab is bounded by the browser's per-tab allowance; the desktop app removes that bound, leaving the computer's memory.
+- **The desktop app has been run here on Linux** (development folder and the packaged layout, under a virtual display) and its Windows build is produced by the workflow on a Windows runner; a first start on a Windows PC by a user is still to come. It is not code-signed.
 - **3D view** is exercised against the local three.js stub by the smoke test; the mesh overlay was also checked once with three.js r128 served locally (software WebGL). A check in a browser with CDN access is still worthwhile.
 - **Submodel cross-section** shows the stress change over the temperature cycle, not the total stress: the submodel is a perturbation from the as-assembled 25 °C state (Section 9.3), so the residual assembly stress of the underfill is not included. Adding it would need the process stages (element birth) in the submodel.
 - **Possible future work**: mesh-independent corner metrics across presets (currently fixed physical patches), a warpage-only fast mode for sensitivity, calibrating effective stress-free temperatures against measured warpage, and an optional viscoelastic underfill model.

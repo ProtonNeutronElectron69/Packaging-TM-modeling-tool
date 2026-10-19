@@ -9,9 +9,12 @@
   function toF32(a) { return a instanceof Float32Array ? a : Float32Array.from(a); }
 
   // ---- helper workers (nested) for the temperature sweep and the submodels ----
-  const canNest = () => typeof Worker !== 'undefined' && typeof URL !== 'undefined' && !!state.src;
+  // In the desktop app this driver runs in a Node compute process, which provides self.__spawnHelper
+  // (a worker thread with the Web Worker interface used below; desktop/compute-worker.js).
+  const nodeHelpers = () => typeof self.__spawnHelper === 'function';
+  const canNest = () => nodeHelpers() || (typeof Worker !== 'undefined' && typeof URL !== 'undefined' && !!state.src);
   function spawnHelper() {
-    const w = new Worker(URL.createObjectURL(new Blob([state.src], { type: 'text/javascript' })));
+    const w = nodeHelpers() ? self.__spawnHelper() : new Worker(URL.createObjectURL(new Blob([state.src], { type: 'text/javascript' })));
     w.postMessage({ type: 'init', db: state.db, id: 0 });
     return w;
   }

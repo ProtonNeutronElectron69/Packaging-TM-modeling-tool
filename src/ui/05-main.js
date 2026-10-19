@@ -89,5 +89,6 @@ function init() {
   window.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
   renderAll();
   setStatus('Ready. Load a preset or edit the package, then run the analysis in step 6.', null);
+  if (DESKTOP) DESKTOP.system().then(s => { app.desktop = s; if (app.step === 6) renderContext(); }).catch(() => {});
 }
 init();

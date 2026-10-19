@@ -195,7 +195,7 @@ option.mat-good, option.mat-some, option.mat-many { font-weight: 600; }
 <body>
 <div id="app">
   <header id="topbar">
-    <div class="brand"><span class="logo">FCBGA</span> Thermomechanical Screening Tool <span class="build">build 2026-10-18</span></div>
+    <div class="brand"><span class="logo">FCBGA</span> Thermomechanical Screening Tool <span class="build">build 2026-10-19</span></div>
     <div class="banner" role="note">Screening tool. Results are approximate and intended for design comparison and trend studies, not sign-off.</div>
     <div class="topbtns">
       <button id="btn-theme" class="icon" aria-label="Toggle theme">◐</button>
@@ -6420,9 +6420,12 @@ function runVerification(ids, ctx) {
   function toF32(a) { return a instanceof Float32Array ? a : Float32Array.from(a); }
 
   // ---- helper workers (nested) for the temperature sweep and the submodels ----
-  const canNest = () => typeof Worker !== 'undefined' && typeof URL !== 'undefined' && !!state.src;
+  // In the desktop app this driver runs in a Node compute process, which provides self.__spawnHelper
+  // (a worker thread with the Web Worker interface used below; desktop/compute-worker.js).
+  const nodeHelpers = () => typeof self.__spawnHelper === 'function';
+  const canNest = () => nodeHelpers() || (typeof Worker !== 'undefined' && typeof URL !== 'undefined' && !!state.src);
   function spawnHelper() {
-    const w = new Worker(URL.createObjectURL(new Blob([state.src], { type: 'text/javascript' })));
+    const w = nodeHelpers() ? self.__spawnHelper() : new Worker(URL.createObjectURL(new Blob([state.src], { type: 'text/javascript' })));
     w.postMessage({ type: 'init', db: state.db, id: 0 });
     return w;
   }
@@ -6661,13 +6664,15 @@ function runVerification(ids, ctx) {
 <script>
 // three.js is used for the 3D view only; try the allowed CDNs in turn and keep every other feature working without it
 (function () {
-  var urls = ['https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js', 'https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js', 'https://unpkg.com/three@0.128.0/build/three.min.js'];
+  // the desktop app bundles three.js next to the page (window.fcbgaDesktop.threeUrl), so it comes first there
+  var local = window.fcbgaDesktop && window.fcbgaDesktop.threeUrl ? [window.fcbgaDesktop.threeUrl] : [];
+  var urls = local.concat(['https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js', 'https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js', 'https://unpkg.com/three@0.128.0/build/three.min.js']);
   window.__threeReady = new Promise(function (resolve) {
     var i = 0;
     function next() {
       if (typeof THREE !== 'undefined') { window.__threeFailed = false; resolve(true); return; }
       if (i >= urls.length) { window.__threeFailed = true; resolve(false); return; }
-      var s = document.createElement('script'); s.src = urls[i++]; s.crossOrigin = 'anonymous';
+      var s = document.createElement('script'); s.src = urls[i++]; if (/^https:/.test(s.src)) s.crossOrigin = 'anonymous';
       s.onload = function () { window.__threeFailed = typeof THREE === 'undefined'; if (window.__threeFailed) next(); else resolve(true); };
       s.onerror = function () { next(); };
       document.head.appendChild(s);
@@ -6720,12 +6725,12 @@ const maxWorkers = () => Math.max(1, Math.floor((navigator.hardwareConcurrency |
 const app = {
   cfg: null, results: null, baseline: null, fieldsCache: new Map(), screening: null, submodels: [], sensitivity: null, verification: null,
   step: 1, centerTab: 'floorplan', selectedDie: 0, resultsView: 'warpage', selectedT: 25, exaggeration: 5, cutLine: { axis: 'x', pos: 0 },
-  job: null, analysisLost: false, mesh: null, validation: { errors: [], warnings: [] }, geom: null, dirty: true,
+  job: null, analysisLost: false, desktop: null, mesh: null, validation: { errors: [], warnings: [] }, geom: null, dirty: true,
   workers: Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1, maxWorkers())), nestedWorkers: true,
   decisions: [], showOverlay: 'warpage', cutDirty: true,
-  // cross-section stress view: line {axis, c, a0, a1}, first click while drawing, display options, worker results by temperature and line
   // submodel cross-section view: submodel key (die:ix:iy), stored moment, cut direction and grid-line index, display options
   subSection: { key: null, snap: null, axis: 'x', pos: null, qty: 'vm', focus: 'uf', mesh: false },
+  // cross-section stress view: line {axis, c, a0, a1}, first click while drawing, display options, worker results by temperature and line
   section: null, sectionDraft: null, sectionQty: 'vm', sectionPhase: 'uf', sectionMesh: false, sectionExag: 'fit', sectionRange: 'all', sectionResize: false, sectionCache: new Map(), sectionPending: null,
   colorMap: prefs.get('colorMap', 'rainbow') === 'colorblind' ? 'colorblind' : 'rainbow',  // contour colours: rainbow or colorblind-safe
 };
@@ -6834,19 +6839,48 @@ function checkField(label, get, set, opts) {
 }
 
 // ---- worker pool ----
+/** Desktop app (window.fcbgaDesktop from desktop/preload.js): set when the page runs inside the app. */
+const DESKTOP = window.fcbgaDesktop || null;
+const DESKTOP_MEM_WARN = 0.8;  // the run panel warns when the estimate passes this fraction of the computer's memory
+
+/**
+ * Desktop app: a compute process of its own (desktop/compute-worker.js) with the Web Worker interface
+ * WorkerClient uses. It runs the same core and driver outside the browser engine, so its memory is
+ * limited by the computer, not by a browser tab. An unexpected stop (most often memory running out)
+ * arrives as onerror with exited set.
+ */
+class DesktopWorker {
+  constructor() {
+    this.onmessage = null; this.onerror = null;
+    this.handle = DESKTOP.spawn(msg => { if (this.onmessage) this.onmessage({ data: msg }); },
+      info => { if (this.onerror) this.onerror({ exited: true, message: 'The compute process stopped unexpectedly (' + (info.signal ? 'signal ' + info.signal : 'exit code ' + info.code) + '); the computer most likely ran out of memory. Results already shown are kept; fewer parallel workers or a coarser mesh need less memory.' }); });
+  }
+  postMessage(msg) { this.handle.post(msg); }
+  terminate() { this.handle.terminate(); }
+}
+
 class WorkerClient {
   constructor() {
-    this.worker = null; this.pending = new Map(); this.nextId = 1; this.busy = false;
+    this.worker = null; this.pending = new Map(); this.nextId = 1; this.busy = false; this.dead = false;
     this.start();
   }
   start() {
     if (this.worker) this.worker.terminate();
-    const blob = new Blob([CORE_SRC, '\n', WORKER_SRC], { type: 'text/javascript' });
-    this.worker = new Worker(URL.createObjectURL(blob));
+    this.dead = false;
+    this.worker = DESKTOP ? new DesktopWorker() : new Worker(URL.createObjectURL(new Blob([CORE_SRC, '\n', WORKER_SRC], { type: 'text/javascript' })));
     this.worker.onmessage = ev => this._onMessage(ev.data);
-    this.worker.onerror = ev => { for (const p of this.pending.values()) p.reject(new Error(ev.message || 'worker error')); this.pending.clear(); this.busy = false; };
+    this.worker.onerror = ev => {
+      for (const p of this.pending.values()) p.reject(new Error(ev.message || 'worker error'));
+      this.pending.clear(); this.busy = false;
+      if (ev.exited) {
+        // the desktop compute process is gone, and with it any analysis it held: restart on the next request
+        this.dead = true;
+        if (this === worker && app.results) { app.analysisLost = 'stopped'; renderAll(); }
+      }
+    };
     this.pending.clear();
-    this.send({ type: 'init', db: MATERIALS_DB, src: CORE_SRC + '\n' + WORKER_SRC }).then(r => { if (r && r.nested === false) app.nestedWorkers = false; }).catch(() => {});
+    // the browser's helpers are built from the source text; the desktop compute process brings its own
+    this.send({ type: 'init', db: MATERIALS_DB, src: DESKTOP ? null : CORE_SRC + '\n' + WORKER_SRC }).then(r => { if (r && r.nested === false) app.nestedWorkers = false; }).catch(() => {});
   }
   _onMessage(m) {
     const p = this.pending.get(m.id);
@@ -6858,6 +6892,7 @@ class WorkerClient {
     else p.resolve(m.payload);
   }
   send(msg, onProgress, onPartial) {
+    if (this.dead) this.start();
     const id = this.nextId++;
     msg.id = id;
     return new Promise((resolve, reject) => { this.pending.set(id, { resolve, reject, onProgress, onPartial }); this.worker.postMessage(msg); });
@@ -7025,7 +7060,8 @@ const TIPS = {
   K3: 'Darveaux crack growth: da/dN = K3 ΔW^K4. No default: K3 depends on element size and averaging scheme.',
   K4: 'Darveaux crack growth exponent.',
   // ---- step 6 ----
-  workers: 'The temperature sweep, the bump submodels and the sensitivity cases are split over this many Web Workers. Each holds its own copy of the model, so memory scales with the count; 1 keeps everything in one worker. The most offered is your CPU core count divided by 1.5, rounded down.',
+  workers: 'The temperature sweep, the bump submodels and the sensitivity cases are split over this many workers. Each holds its own copy of the model, so memory scales with the count; 1 keeps everything in one worker. The most offered is your CPU core count divided by 1.5, rounded down. In a browser all workers share one tab, whose memory the browser limits; the desktop app runs them as separate processes limited only by the computer\'s memory.',
+  computeEngine: 'Where the analysis runs. In a browser every worker lives inside this tab, and the browser stops a tab that uses more than its memory allowance (around 10 GB has been seen in Edge and Brave), which ends the run. The desktop app runs each worker as a separate process on this computer, so large meshes and many workers can use all of its memory and cores.',
   runFull: 'Process stages, as-assembled state at 25 °C, chip-join state, reflow sweep, cycling samples, bump screening and 3D fields, at the selected fidelity.',
   quickPreview: 'Draft mesh, stages and the 25 °C state only; fast look at the warpage overlay. Edits never start an analysis on their own.',
   pinBaseline: 'Keep the current results as the baseline; later runs show deltas and ratios against it.',
@@ -8551,12 +8587,16 @@ function renderRunPanel(root) {
   root.append(h('h2', null, '6. Run and results'));
   root.append(selectField('Mesh fidelity', () => cfg.mesh.preset, v => { cfg.mesh.preset = v; renderContext(); }, Object.entries(C.CONST.MESH_PRESETS).map(([k, p]) => ({ value: k, label: p.label + ' (h ' + p.hmin + ' to ' + p.hmax + ' mm, cap ' + p.cap.toLocaleString() + ' DOF)' })), { help: 'preset', section: 'mesh' }));
   const hc = navigator.hardwareConcurrency || 2;
-  root.append(h('div', { class: 'field' }, h('label', null, 'Parallel workers', helpTip('workers')), h('select', { 'data-tip': TIPS.workers, onchange: e => { app.workers = +e.target.value; renderContext(); } }, ...Array.from({ length: maxWorkers() }, (_, i) => i + 1).map(n => h('option', { value: n, selected: app.workers === n ? '' : null }, n + (n === 1 ? ' (single worker)' : ' workers')))), h('span', { class: 'unit' }, hc + ' cores' + (app.nestedWorkers === false ? '; nested workers unavailable in this browser' : ''))));
+  root.append(h('div', { class: 'field' }, h('label', null, 'Parallel workers', helpTip('workers')), h('select', { 'data-tip': TIPS.workers, onchange: e => { app.workers = +e.target.value; renderContext(); } }, ...Array.from({ length: maxWorkers() }, (_, i) => i + 1).map(n => h('option', { value: n, selected: app.workers === n ? '' : null }, n + (n === 1 ? ' (single worker)' : ' workers')))), h('span', { class: 'unit' }, hc + ' cores' + (app.desktop ? ', ' + fmt(app.desktop.totalMemGB, 0) + ' GB memory' : '') + (app.nestedWorkers === false ? '; nested workers unavailable in this browser' : ''))));
   const est = estimateRun(cfg, cfg.mesh.preset);
   if (est.error) root.append(h('div', { class: 'msg error' }, est.error));
   else {
     app.meshWarnings = est.warnings;
-    root.append(h('div', { class: 'kv' }, h('span', { class: 'k' }, 'Estimated mesh'), h('span', null, est.info.nx + ' × ' + est.info.ny + ' × ' + est.info.nz + ' grid, ' + est.info.nElem.toLocaleString() + ' elements, ' + est.info.nDof.toLocaleString() + ' DOF' + (est.info.scaled ? ' (sizes enlarged to meet the cap)' : '')), h('span', { class: 'k' }, 'Element sizes'), h('span', null, 'h_min ' + fmt(est.info.hmin, 3) + ', h_max ' + fmt(est.info.hmax, 3) + ' mm; max aspect ' + fmt(est.info.aspectMax, 0)), h('span', { class: 'k' }, 'Estimated memory'), h('span', { class: est.memMB > 600 ? 'warnc' : '' }, fmt(est.memMB, 0) + ' MB total (' + fmt(est.perWorkerMB, 0) + ' MB per worker' + (est.memMB > 600 ? '; above the 600 MB target, reduce the worker count if memory is tight' : '') + ')'), h('span', { class: 'k' }, 'Estimated runtime'), h('span', null, 'preview ' + fmt(est.previewS, 0) + ' s, full analysis ' + fmt(est.fullS, 0) + ' s with ' + app.workers + ' worker' + (app.workers > 1 ? 's' : '') + ' (scales with your CPU)')));
+    // the browser holds every worker in one tab, whose memory it limits; the desktop app's compute processes are bounded by the computer only
+    const sysMB = app.desktop ? app.desktop.totalMemGB * 1024 : null;
+    const memNote = sysMB ? (est.memMB > DESKTOP_MEM_WARN * sysMB ? '; close to or above this computer\'s ' + fmt(app.desktop.totalMemGB, 0) + ' GB of memory' : '') : (est.memMB > 600 ? '; above the 600 MB target, reduce the worker count if memory is tight' : '');
+    root.append(h('div', { class: 'kv' }, h('span', { class: 'k' }, 'Compute engine', helpTip('computeEngine')), h('span', null, DESKTOP ? 'desktop app: a separate compute process per worker, limited by this computer\'s memory' + (app.desktop ? ' (' + fmt(app.desktop.totalMemGB, 0) + ' GB) and ' + app.desktop.cpus + ' logical cores' : '') : 'browser Web Workers, all within this tab (the browser limits one tab\'s memory)'),
+      h('span', { class: 'k' }, 'Estimated mesh'), h('span', null, est.info.nx + ' × ' + est.info.ny + ' × ' + est.info.nz + ' grid, ' + est.info.nElem.toLocaleString() + ' elements, ' + est.info.nDof.toLocaleString() + ' DOF' + (est.info.scaled ? ' (sizes enlarged to meet the cap)' : '')), h('span', { class: 'k' }, 'Element sizes'), h('span', null, 'h_min ' + fmt(est.info.hmin, 3) + ', h_max ' + fmt(est.info.hmax, 3) + ' mm; max aspect ' + fmt(est.info.aspectMax, 0)), h('span', { class: 'k' }, 'Estimated memory'), h('span', { class: memNote ? 'warnc' : '' }, fmt(est.memMB, 0) + ' MB total (' + fmt(est.perWorkerMB, 0) + ' MB per worker' + memNote + ')'), h('span', { class: 'k' }, 'Estimated runtime'), h('span', null, 'preview ' + fmt(est.previewS, 0) + ' s, full analysis ' + fmt(est.fullS, 0) + ' s with ' + app.workers + ' worker' + (app.workers > 1 ? 's' : '') + ' (scales with your CPU)')));
   }
   const canRun = !app.validation.errors.length;
   root.append(h('div', { class: 'row' }, h('button', tip('runFull', { class: 'primary', disabled: canRun ? null : '', onclick: () => runFull() }), '▶ Run full global analysis'), h('button', tip('quickPreview', { disabled: canRun ? null : '', onclick: () => runPreview() }), 'Quick preview (Draft, 25 °C)')));
@@ -8710,7 +8750,8 @@ function restoreAnalysis() {
 function analysisLostNotice() {
   if (!app.analysisLost || !app.results) return null;
   const est = app.results.totalMs ? ' (about ' + fmt(app.results.totalMs / 1000, 0) + ' s, like the original run)' : '';
-  return h('div', { class: 'msg warning' }, 'A cancelled job restarted the worker, so the analysis behind these results is no longer in memory. The states already loaded stay visible; other temperatures and the bump submodels need it again. ',
+  const why = app.analysisLost === 'stopped' ? 'The compute process stopped unexpectedly (most likely the computer ran out of memory)' : 'A cancelled job restarted the worker';
+  return h('div', { class: 'msg warning' }, why + ', so the analysis behind these results is no longer in memory. The states already loaded stay visible; other temperatures and the bump submodels need it again. ',
     h('button', tip('restoreAnalysis', { class: 'small', onclick: restoreAnalysis }), 'Restore analysis' + est));
 }
 function pinBaseline() { app.baseline = app.results; toast('Baseline pinned: ' + (app.cfg.name || 'current configuration') + ' at ' + app.results.preset + '.', 'ok'); renderContext(); }
@@ -8767,7 +8808,7 @@ function renderResults(root) {
 function selectTemperature(T) {
   app.selectedT = T;
   if (app.fieldsCache.has(T)) { app.currentFields = app.fieldsCache.get(T); renderCenter(); floorplan.draw(); return; }
-  if (app.analysisLost) { app.selectedT = app.currentFields ? app.currentFields.T : 25; toast('The ' + T + ' °C state needs the analysis, which a cancelled job discarded; use Restore analysis above the results first.', 'warn', 7000); renderCenter(); return; }
+  if (app.analysisLost) { app.selectedT = app.currentFields ? app.currentFields.T : 25; toast('The ' + T + ' °C state needs the analysis, which is no longer in memory; use Restore analysis above the results first.', 'warn', 7000); renderCenter(); return; }
   setStatus('Evaluating fields at ' + T + ' °C', 0.5);
   worker.send({ type: 'fieldsAt', T }).then(f => { app.fieldsCache.set(T, f); app.currentFields = f; setStatus('Ready', null); renderCenter(); floorplan.draw(); }).catch(e => { setStatus('Ready', null); toast(e.message, 'error'); });
 }
@@ -8929,7 +8970,7 @@ function defaultSubmodelSelection(res) {
 function runSubmodels(res) {
   const keys = Array.from(app.submodelSelection);
   if (!keys.length) { toast('Select at least one site.', 'warn'); return; }
-  if (app.analysisLost) { toast('The submodels need the analysis, which a cancelled job discarded; use Restore analysis above the results first.', 'warn', 7000); return; }
+  if (app.analysisLost) { toast('The submodels need the analysis, which is no longer in memory; use Restore analysis above the results first.', 'warn', 7000); return; }
   const cfg = app.cfg;
   const jobs = keys.map(k => { const [die, q] = k.split(':').map(Number); const s = res.screening[die]; return { die, site: { x: s.x[q], y: s.y[q], ix: s.ix[q], iy: s.iy[q] } }; });
   const onPartial = r => { app.submodels = app.submodels.filter(x => !(x.dieIdx === r.dieIdx && x.site.ix === r.site.ix && x.site.iy === r.site.iy)); app.submodels.push(r); renderCenter(); };
@@ -9209,7 +9250,7 @@ function openReport() {
   const win = window.open('', '_blank');
   if (!win) { toast('Pop-up blocked; allow pop-ups to open the report.', 'warn'); return; }
   const body = reportBody(res);
-  win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>FCBGA screening report</title><style>' + document.querySelector('style').textContent + ' body{overflow:auto;padding:24px;background:#fff;color:#111} .kv{margin:6px 0}</style></head><body><div style="max-width:900px;margin:auto">' + body.outerHTML + '<p class="small muted">Print this page to PDF with the browser print dialog.</p></div></body></html>');
+  win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>FCBGA screening report</title><style>' + document.querySelector('style').textContent + ' body{overflow:auto;padding:24px;background:#fff;color:#111} .kv{margin:6px 0}</style></head><body><div style="max-width:900px;margin:auto">' + body.outerHTML + '<p class="small muted">' + (DESKTOP ? 'Print this report or save it as PDF with File &gt; Print or File &gt; Save as PDF.' : 'Print this page to PDF with the browser print dialog.') + '</p></div></body></html>');
   win.document.close();
 }
 function exportCSV() {
@@ -9246,7 +9287,7 @@ function limitationsList(res) {
     'Layered substrate bands use the continuum-shell form of each sub-layer stiffness (plane-stress in-plane block, uncoupled thickness modulus), because one thickness strain shared by all sub-layers of a band over-constrains the Poisson expansion (0.7 % warpage bias against lamination theory).',
     'No automatic analysis after editing: dragging or releasing a die (or any other edit) starts no solve, and the floorplan overlay is hidden while the geometry differs from the last analysis. The analysis runs only from step 6 (Run full global analysis, or Quick preview on the Draft mesh).',
     'Contour colours default to a rainbow scale (purple low to red high). It is not colorblind safe or perceptually uniform: bright yellow and cyan bands can suggest features that are not there. Switch to the colorblind-safe scales with the "colors" dropdown in the Results bar.',
-    'Parallel workers: the temperature sweep and the bump submodels can be split over several Web Workers; each holds its own copy of the model, so peak memory grows with the worker count (shown in the run panel).',
+    'Parallel workers: the temperature sweep and the bump submodels can be split over several workers; each holds its own copy of the model, so peak memory grows with the worker count (shown in the run panel). In a browser they share one tab, whose memory the browser limits; the desktop app runs them as separate processes limited only by the computer\'s memory.',
     'Build decisions: the multigrid coarse space uses per-column shell aggregates (rigid-body plus thickness modes of each stiff stack) because plain nodal interpolation stalls on thin layered structures; the full symmetric block matrix is stored (instead of the upper triangle) for faster smoothing; single-material elements use a closed-form 12-point rule that reproduces 2×2×2 Gauss exactly.',
   ];
   if (res && res.notes) L.push(...res.notes);
@@ -9610,7 +9651,7 @@ function renderSectionView(root, res, f, Tsel) {
       h('div', { class: 'small muted' }, sectionQtyLabel(qty) + ' at the element corners (nodal values averaged within each material; never across interfaces).'),
       h('details', null, h('summary', null, 'What this means'), h('p', { class: 'small' }, 'The plot shows the stress on the vertical plane under the line, from the bottom of the top solder resist to the package top, at the selected temperature in the as-assembled state. In each element the plane cuts, stresses are evaluated at the 2 × 2 Gauss positions of the cut face, extrapolated to its corners and averaged with neighbouring elements of the same material only, so jumps at material interfaces are real and kept. The bump layer is homogenized: the underfill phase shows the underfill stress between the bumps, the solder phase shows the stress in the bumps themselves (iso-strain mixture), not the stress field around an individual joint. The solder resist lies inside one element together with the top build-up layers: as in laminate theory, its in-plane stresses come from that element\'s in-plane strain with the solder resist\'s own stiffness, and its through-thickness stresses (σzz, τxz, τyz) are the element\'s averages over the band. Polymers that pass their glass transition on cooling (solder resist, underfill, adhesives) carry the full mismatch from their stress-free temperature at their glassy modulus, because the model has no viscoelastic relaxation, so their stresses are upper bounds. Values at die corners, fillet edges and material interfaces are singular and mesh dependent: compare them between designs, do not read them as strengths.'))));
   } else if (sec && sec.error) right.append(h('div', { class: 'msg err' }, sec.error));
-  else if (app.analysisLost) right.append(h('div', { class: 'msg warn' }, 'This section needs the analysis, which a cancelled job discarded; use Restore analysis above the results first.'));
+  else if (app.analysisLost) right.append(h('div', { class: 'msg warn' }, 'This section needs the analysis, which is no longer in memory; use Restore analysis above the results first.'));
   else { right.append(h('div', { class: 'msg info' }, 'Evaluating the section…')); requestSection(); }
   root.append(h('div', { class: 'grid2' }, left, right));
   if (!ready) return;
@@ -9886,6 +9927,7 @@ function init() {
   window.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
   renderAll();
   setStatus('Ready. Load a preset or edit the package, then run the analysis in step 6.', null);
+  if (DESKTOP) DESKTOP.system().then(s => { app.desktop = s; if (app.step === 6) renderContext(); }).catch(() => {});
 }
 init();
 

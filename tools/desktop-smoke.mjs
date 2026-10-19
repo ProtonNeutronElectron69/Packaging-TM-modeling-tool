@@ -2,8 +2,10 @@
 // that the page runs its workers as compute processes, runs a Draft preview and a full analysis,
 // renders every results view (the 3D view with the bundled three.js), opens the report window, and
 // checks that a compute process that dies is reported and replaced.
-//   node tools/desktop-smoke.mjs [--workers N] [--standard] [--submodels]
+//   node tools/desktop-smoke.mjs [--workers N] [--standard] [--submodels] [--exe path]
 // Needs `npm install` in desktop/ and a display (in a headless container: xvfb-run -a node ...).
+// --exe runs a packaged build (for example desktop/release/linux-unpacked/fcbga-thermomech-tool
+// from npm run pack:dir) instead of the development app in desktop/.
 import path from 'node:path';
 import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -17,9 +19,12 @@ const desk = path.join(root, 'desktop');
 const args = process.argv.slice(2);
 const workers = args.includes('--workers') ? +args[args.indexOf('--workers') + 1] : 3;
 const preset = args.includes('--standard') ? 'standard' : 'draft';
-execFileSync(process.execPath, [path.join(desk, 'stage.mjs')], { stdio: 'inherit' });
-const electronBin = createRequire(path.join(desk, 'package.json'))('electron');  // path of the Electron executable (downloads it on first use)
-const app = await pw._electron.launch({ executablePath: electronBin, args: [desk].concat(process.platform === 'linux' ? ['--no-sandbox'] : []), env: Object.assign({}, process.env, { ELECTRON_ENABLE_LOGGING: '0' }) });
+const exe = args.includes('--exe') ? path.resolve(args[args.indexOf('--exe') + 1]) : null;
+if (!exe) execFileSync(process.execPath, [path.join(desk, 'stage.mjs')], { stdio: 'inherit' });
+const electronBin = exe || createRequire(path.join(desk, 'package.json'))('electron');  // path of the Electron executable (downloads it on first use)
+// in a headless Linux container: no setuid sandbox, and software WebGL for the 3D view
+const linuxArgs = process.platform === 'linux' ? ['--no-sandbox', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : [];
+const app = await pw._electron.launch({ executablePath: electronBin, args: (exe ? [] : [desk]).concat(linuxArgs), env: Object.assign({}, process.env, { ELECTRON_ENABLE_LOGGING: '0' }) });
 const errors = [];
 const page = await app.firstWindow();
 page.on('console', m => { if (m.type() === 'error' || m.type() === 'warning') errors.push(m.type() + ': ' + m.text()); });

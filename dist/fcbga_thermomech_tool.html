@@ -9013,7 +9013,13 @@ let three = null;
 function setup3D(el, res, f) {
   if (three) { three.renderer.dispose(); three = null; }
   const w = el.clientWidth, hh = el.clientHeight;
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  let renderer;
+  try { renderer = new THREE.WebGLRenderer({ antialias: true }); }
+  catch (e) {
+    // no WebGL (graphics acceleration off, remote desktop without a GPU): explain instead of failing
+    el.replaceWith(h('div', { class: 'msg warning' }, 'The 3D view needs WebGL, which is not available here (' + e.message + '). It usually comes back with graphics acceleration enabled or on a computer with a working graphics driver; every other view works without it.'));
+    return;
+  }
   renderer.setSize(w, hh); renderer.setPixelRatio(window.devicePixelRatio || 1);
   el.innerHTML = ''; el.appendChild(renderer.domElement);
   const scene = new THREE.Scene();

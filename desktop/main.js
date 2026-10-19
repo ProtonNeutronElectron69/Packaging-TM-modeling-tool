@@ -13,6 +13,10 @@ const os = require('os');
 const path = require('path');
 const { computeSource } = require('./core-source.js');
 
+// The page loads only local files and needs eval for its physics core (the renderer is sandboxed and
+// context-isolated, with no Node access), so Electron's development-time CSP warning does not apply.
+process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true';
+
 const PAGE = path.join(__dirname, 'app', 'index.html');
 const COMPUTE = path.join(__dirname, 'compute-worker.js');
 const APP_ID = 'com.fcbga.thermomech-tool';

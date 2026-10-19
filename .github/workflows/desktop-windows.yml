@@ -1,10 +1,21 @@
 # Builds the Windows desktop app (installer and portable .exe) from the committed page in dist/.
-# Run it from the Actions tab (Run workflow), or push a tag named desktop-v* to also attach the
-# files to a GitHub release. The built files are kept as the run's "fcbga-desktop-windows" artifact.
+# Run it from the Actions tab (Run workflow); give a release tag (for example desktop-v1.0.0) to also
+# publish a GitHub release with the two files, the tag being created on the commit the run builds
+# (or on release_target when given). Pushing a desktop-v* tag does the same. The built files are
+# always kept as the run's "fcbga-desktop-windows" artifact.
 name: Desktop app (Windows)
 
 on:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Publish a release with this tag (for example desktop-v1.0.0); leave empty for a build only'
+        required: false
+        default: ''
+      release_target:
+        description: 'Commit the new tag points at (default: the commit this run builds)'
+        required: false
+        default: ''
   push:
     tags: ['desktop-v*']
   pull_request:
@@ -39,8 +50,20 @@ jobs:
           path: |
             desktop/release/*.exe
           if-no-files-found: error
-      - name: Attach to the release
-        if: startsWith(github.ref, 'refs/tags/desktop-v')
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/desktop-v') || inputs.release_tag != ''
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.release_tag || github.ref_name }}
+          target_commitish: ${{ inputs.release_target || github.sha }}
+          name: FCBGA Screening Tool desktop app ${{ inputs.release_tag || github.ref_name }} (Windows)
+          body: |
+            Windows desktop app of the FCBGA Thermomechanical Screening Tool. The analysis runs in separate compute processes on the computer, so large meshes and many workers are bounded by its memory, not by a browser tab.
+
+            - FCBGA-Screening-Tool-Setup-*.exe: installer (choose the folder; Start menu shortcut and uninstaller).
+            - FCBGA-Screening-Tool-Portable-*.exe: runs without installing (unpacks itself on each start).
+
+            The app is not code-signed: on first start Windows SmartScreen shows "Windows protected your PC"; choose More info, then Run anyway.
+
+            Screening tool. Results are approximate and intended for design comparison and trend studies, not sign-off.
           files: desktop/release/*.exe

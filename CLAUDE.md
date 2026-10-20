@@ -2,7 +2,7 @@
 
 ## Project status (read this first)
 
-The build specification that follows (from "Build Prompt" onward) has been **implemented in full** and merged to `main` through twenty-seven pull requests (three of code and two of documentation for the build, then UI updates, two materials database passes, a parallel-worker setting, a legend fix, a glossary, UX refinements, a cancel fix, a cross-section stress view, material data-quality colours, a finer through-thickness mesh (later trimmed for the TIM), a submodel cross-section view with a 3D mesh overlay, a Windows desktop app and its release workflow, hand-off notes and status updates requested by the user). A new session should treat it as the reference design of an existing, working application, not as a task to start.
+The build specification that follows (from "Build Prompt" onward) has been **implemented in full** and merged to `main` through twenty-eight pull requests (three of code and two of documentation for the build, then UI updates, two materials database passes, a parallel-worker setting, a legend fix, a glossary, UX refinements, a cancel fix, a cross-section stress view, material data-quality colours, a finer through-thickness mesh (later trimmed for the TIM), a submodel cross-section view with a 3D mesh overlay, a Windows desktop app with automatic releases, hand-off notes and status updates requested by the user). A new session should treat it as the reference design of an existing, working application, not as a task to start.
 
 | PR | Merged | Content |
 |---|---|---|
@@ -33,6 +33,7 @@ The build specification that follows (from "Build Prompt" onward) has been **imp
 | #25 | 2026-10-18 | Submodel cross-section stress view: each bump submodel stores its stress field at the end of each ramp and dwell of the last cycle, shown on a vertical cut along x or y through the pitch cell (underfill or solder coloured, the rest grey; any stress component, voxel mesh overlay, plan view to place the cut, CSV export; change from the as-assembled 25 °C state); element mesh toggle in the 3D view |
 | #26 | 2026-10-19 | Windows desktop app (Electron): the page runs in its own window and every worker is a separate compute process on the computer (running the page's own core and driver, helpers as worker threads), so runs are no longer bounded by the browser's per-tab memory allowance (Edge and Brave stopped at about 10 GB); installer and portable exe built by a GitHub Actions workflow on Windows; a stopped compute process is reported with Restore analysis; bundled three.js; 3D view shows a message when WebGL is missing; desktop smoke test and compute-process check |
 | #27 | 2026-10-19 | Desktop workflow publishes a GitHub release from a manual run (release_tag and release_target inputs; the workflow's token creates the tag), used for desktop-v1.0.0 on the PR 26 merge |
+| #28 | 2026-10-20 | Desktop app published automatically: every merge to main that changes the built page, desktop/ or the desktop workflow builds the installer and portable exe and publishes a GitHub release (next patch version after the latest desktop-v* tag, or the raised desktop/package.json version; tools/desktop-version.mjs), with the merged pull requests in its notes |
 
 Current state on `main`:
 

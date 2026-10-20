@@ -1,8 +1,11 @@
 # Builds the Windows desktop app (installer and portable .exe) from the committed page in dist/.
-# Run it from the Actions tab (Run workflow); give a release tag (for example desktop-v1.0.0) to also
-# publish a GitHub release with the two files, the tag being created on the commit the run builds
-# (or on release_target when given). Pushing a desktop-v* tag does the same. The built files are
-# always kept as the run's "fcbga-desktop-windows" artifact.
+# Every merge to main that changes the app (the built page, desktop/ or this file) also publishes
+# a GitHub release automatically: the next patch version after the latest desktop-v* tag, or the
+# version in desktop/package.json when that was raised on purpose (tools/desktop-version.mjs).
+# A manual run (Actions tab, Run workflow) builds only, or publishes the release tag it is given
+# (for example desktop-v1.2.0), created on the commit the run builds or on release_target.
+# Pull requests that touch desktop/ get a build as a check. The built files are always kept as
+# the run's "fcbga-desktop-windows" artifact.
 name: Desktop app (Windows)
 
 on:
@@ -17,12 +20,18 @@ on:
         required: false
         default: ''
   push:
-    tags: ['desktop-v*']
+    branches: [main]
+    paths: ['dist/fcbga_thermomech_tool.html', 'desktop/**', 'tools/desktop-*.mjs', '.github/workflows/desktop-windows.yml']
   pull_request:
-    paths: ['desktop/**', '.github/workflows/desktop-windows.yml']
+    paths: ['desktop/**', 'tools/desktop-*.mjs', '.github/workflows/desktop-windows.yml']
 
 permissions:
   contents: write
+
+# one release at a time, so two quick merges cannot pick the same version
+concurrency:
+  group: desktop-windows-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -32,12 +41,20 @@ jobs:
         working-directory: desktop
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # all tags, to find the latest released version
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: desktop/package-lock.json
       - run: npm ci
+      - name: Choose the release version
+        id: version
+        if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || inputs.release_tag != ''
+        run: node ../tools/desktop-version.mjs
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
       - name: Build the installer and the portable app
         run: npm run dist
         env:
@@ -51,12 +68,13 @@ jobs:
             desktop/release/*.exe
           if-no-files-found: error
       - name: Publish the release
-        if: startsWith(github.ref, 'refs/tags/desktop-v') || inputs.release_tag != ''
+        if: steps.version.outputs.tag != ''
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.release_tag || github.ref_name }}
+          tag_name: ${{ steps.version.outputs.tag }}
           target_commitish: ${{ inputs.release_target || github.sha }}
-          name: FCBGA Screening Tool desktop app ${{ inputs.release_tag || github.ref_name }} (Windows)
+          name: FCBGA Screening Tool desktop app ${{ steps.version.outputs.version }} (Windows)
+          generate_release_notes: true  # appends the pull requests merged since the previous release
           body: |
             Windows desktop app of the FCBGA Thermomechanical Screening Tool. The analysis runs in separate compute processes on the computer, so large meshes and many workers are bounded by its memory, not by a browser tab.
 

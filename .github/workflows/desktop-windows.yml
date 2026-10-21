@@ -1,4 +1,4 @@
-# Builds the Windows desktop app (installer and portable .exe) from the committed page in dist/.
+# Builds the Windows desktop app (portable .exe, no installer) from the committed page in dist/.
 # Every merge to main that changes the app (the built page, desktop/ or this file) also publishes
 # a GitHub release automatically: the next patch version after the latest desktop-v* tag, or the
 # version in desktop/package.json when that was raised on purpose (tools/desktop-version.mjs).
@@ -55,7 +55,7 @@ jobs:
         run: node ../tools/desktop-version.mjs
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
-      - name: Build the installer and the portable app
+      - name: Build the portable app
         run: npm run dist
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'  # no code-signing certificate: the app is unsigned
@@ -78,8 +78,7 @@ jobs:
           body: |
             Windows desktop app of the FCBGA Thermomechanical Screening Tool. The analysis runs in separate compute processes on the computer, so large meshes and many workers are bounded by its memory, not by a browser tab.
 
-            - FCBGA-Screening-Tool-Setup-*.exe: installer (choose the folder; Start menu shortcut and uninstaller).
-            - FCBGA-Screening-Tool-Portable-*.exe: runs without installing (unpacks itself on each start).
+            - FCBGA-Screening-Tool-Portable-*.exe: download and run; nothing to install (it unpacks itself on each start, so it opens a few seconds slower).
 
             The app is not code-signed: on first start Windows SmartScreen shows "Windows protected your PC"; choose More info, then Run anyway.
 

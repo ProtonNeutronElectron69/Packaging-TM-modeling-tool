@@ -34,7 +34,34 @@ body { background: var(--bg); color: var(--text); font: 13px/1.4 var(--font); ov
 #center-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 8px; }
 #context { width: var(--context-w, 440px); flex: 0 0 auto; background: var(--panel); border-left: 1px solid var(--border); overflow-y: auto; overflow-x: auto; padding: 10px 12px; }
 #statusbar { display: flex; align-items: center; gap: 12px; padding: 4px 12px; border-top: 1px solid var(--border); background: var(--panel); font-size: 12px; color: var(--muted); flex: 0 0 auto; }
-#statusbar progress { width: 220px; }
+#statusbar { gap: 10px; }
+#status-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* run state: dot, bar, time and the details panel (src/ui/00e-progress.js) */
+.sdot { --c: #16a34a; width: 11px; height: 11px; border-radius: 50%; flex: 0 0 auto; background: var(--c); box-shadow: 0 0 0 3px color-mix(in srgb, var(--c) 22%, transparent); cursor: pointer; }
+.sdot.orange { --c: #ea8a0c; } .sdot.red { --c: #dc2626; }
+.sbar { width: 220px; height: 8px; flex: 0 0 auto; border-radius: 4px; background: var(--panel2); overflow: hidden; border: 1px solid var(--border); }
+.sbar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+.sbar.orange > i { background: #ea8a0c; } .sbar.red > i { background: #dc2626; }
+.stime { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sbtn { font: inherit; font-size: 12px; padding: 2px 8px; flex: 0 0 auto; }
+#prog { position: absolute; left: 12px; right: 12px; bottom: 34px; max-height: 60vh; overflow: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,.18); padding: 12px 14px; font-size: 12px; color: var(--text); z-index: 50; }
+#prog h4 { margin: 0 0 8px; font-size: 13px; display: flex; gap: 10px; align-items: center; }
+#prog h4 .sub { color: var(--muted); font-weight: 400; }
+#prog .pgrid { display: grid; grid-template-columns: minmax(240px, 300px) minmax(0, 1fr); gap: 16px; }
+#prog .stages div { display: flex; gap: 8px; padding: 2px 0; align-items: center; }
+#prog .stages .ic { width: 16px; text-align: center; flex: 0 0 auto; } #prog .stages .t { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+#prog .stages .done .ic { color: #16a34a; } #prog .stages .run { font-weight: 600; } #prog .stages .wait { color: var(--muted); }
+#prog .wk { display: grid; grid-template-columns: 70px minmax(90px, 1.2fr) minmax(60px, 1fr) minmax(150px, 1.4fr) 80px; gap: 8px; align-items: center; padding: 3px 6px; border-radius: 4px; font-variant-numeric: tabular-nums; cursor: pointer; }
+#prog .wk > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#prog .wk.hdr { color: var(--muted); font-size: 11px; cursor: default; }
+#prog .wk.sel { outline: 1px solid var(--border); } #prog .wk.idle { color: var(--muted); }
+#prog .wk.orange { background: color-mix(in srgb, #ea8a0c 14%, transparent); } #prog .wk.red { background: color-mix(in srgb, #dc2626 14%, transparent); }
+#prog .mini { height: 6px; border-radius: 3px; background: var(--panel2); overflow: hidden; } #prog .mini > i { display: block; height: 100%; background: var(--accent); }
+#prog .spark { display: flex; gap: 12px; align-items: center; margin-top: 8px; color: var(--muted); }
+#prog .msgline { margin-top: 8px; padding: 6px 8px; border-radius: 4px; }
+#prog .msgline.orange { background: color-mix(in srgb, #ea8a0c 14%, transparent); border-left: 3px solid #ea8a0c; }
+#prog .msgline.red { background: color-mix(in srgb, #dc2626 14%, transparent); border-left: 3px solid #dc2626; }
+#prog .logt { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: 8px; border-top: 1px solid var(--border); padding-top: 6px; line-height: 1.5; }
 .step { display: flex; align-items: center; gap: 8px; padding: 8px 6px; border-radius: 6px; cursor: pointer; margin-bottom: 2px; }
 .step:hover { background: var(--panel2); }
 .step.active { background: var(--accent); color: #fff; }

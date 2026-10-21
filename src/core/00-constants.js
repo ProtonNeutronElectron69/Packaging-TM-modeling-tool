@@ -52,6 +52,18 @@ const CONST = Object.freeze({
   WARM_START_MAX: 20,
   REBUILD_FACTOR: 2,
   REBUILD_MIN_ITERS: 30,     // never rebuild before this many iterations of a stale preconditioner
+  // ---- live progress (run details panel and status dot) -------------------
+  LIVE_INTERVAL_MS: 1000,    // solvers and submodels report their state at most this often
+  LIVE_HIST_POINTS: 100,     // residual history points sent with each report
+  LIVE_STALL_ITERS: 500,     // red: the residual has not halved over this many PCG iterations
+  LIVE_STALL_RATIO: 0.5,
+  LIVE_MAXIT_FRAC: 0.9,      // red: a solve attempt has used this fraction of PCG_MAXIT
+  LIVE_SLOW_FACTOR: 3,       // orange: a solve needs this many times the run's average iterations
+  LIVE_SLOW_ITERS: 600,      // orange, while fewer than LIVE_SLOW_MIN_SOLVES solves have finished
+  LIVE_SLOW_MIN_SOLVES: 3,
+  LIVE_QUIET_MS: 30000,      // orange: nothing at all heard from the run for this long
+  LIVE_STUCK_MS: 60000,      // red: a worker inside a solve or submodel silent for this long
+  LIVE_CUTBACK_MS: 5000,     // orange for this long after a submodel step cutback
   MG_COARSEST_COLS: 9,       // stop semi-coarsening at <= 3 x 3 columns
   MG_COARSEST_DOF: 900,
   MG_MIN_COARSENING: 0.7,    // stop coarsening when a level would keep more than this fraction of the columns

@@ -42,7 +42,34 @@ body { background: var(--bg); color: var(--text); font: 13px/1.4 var(--font); ov
 #center-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 8px; }
 #context { width: var(--context-w, 440px); flex: 0 0 auto; background: var(--panel); border-left: 1px solid var(--border); overflow-y: auto; overflow-x: auto; padding: 10px 12px; }
 #statusbar { display: flex; align-items: center; gap: 12px; padding: 4px 12px; border-top: 1px solid var(--border); background: var(--panel); font-size: 12px; color: var(--muted); flex: 0 0 auto; }
-#statusbar progress { width: 220px; }
+#statusbar { gap: 10px; }
+#status-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* run state: dot, bar, time and the details panel (src/ui/00e-progress.js) */
+.sdot { --c: #16a34a; width: 11px; height: 11px; border-radius: 50%; flex: 0 0 auto; background: var(--c); box-shadow: 0 0 0 3px color-mix(in srgb, var(--c) 22%, transparent); cursor: pointer; }
+.sdot.orange { --c: #ea8a0c; } .sdot.red { --c: #dc2626; }
+.sbar { width: 220px; height: 8px; flex: 0 0 auto; border-radius: 4px; background: var(--panel2); overflow: hidden; border: 1px solid var(--border); }
+.sbar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+.sbar.orange > i { background: #ea8a0c; } .sbar.red > i { background: #dc2626; }
+.stime { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sbtn { font: inherit; font-size: 12px; padding: 2px 8px; flex: 0 0 auto; }
+#prog { position: absolute; left: 12px; right: 12px; bottom: 34px; max-height: 60vh; overflow: auto; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,.18); padding: 12px 14px; font-size: 12px; color: var(--text); z-index: 50; }
+#prog h4 { margin: 0 0 8px; font-size: 13px; display: flex; gap: 10px; align-items: center; }
+#prog h4 .sub { color: var(--muted); font-weight: 400; }
+#prog .pgrid { display: grid; grid-template-columns: minmax(240px, 300px) minmax(0, 1fr); gap: 16px; }
+#prog .stages div { display: flex; gap: 8px; padding: 2px 0; align-items: center; }
+#prog .stages .ic { width: 16px; text-align: center; flex: 0 0 auto; } #prog .stages .t { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+#prog .stages .done .ic { color: #16a34a; } #prog .stages .run { font-weight: 600; } #prog .stages .wait { color: var(--muted); }
+#prog .wk { display: grid; grid-template-columns: 70px minmax(90px, 1.2fr) minmax(60px, 1fr) minmax(150px, 1.4fr) 80px; gap: 8px; align-items: center; padding: 3px 6px; border-radius: 4px; font-variant-numeric: tabular-nums; cursor: pointer; }
+#prog .wk > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#prog .wk.hdr { color: var(--muted); font-size: 11px; cursor: default; }
+#prog .wk.sel { outline: 1px solid var(--border); } #prog .wk.idle { color: var(--muted); }
+#prog .wk.orange { background: color-mix(in srgb, #ea8a0c 14%, transparent); } #prog .wk.red { background: color-mix(in srgb, #dc2626 14%, transparent); }
+#prog .mini { height: 6px; border-radius: 3px; background: var(--panel2); overflow: hidden; } #prog .mini > i { display: block; height: 100%; background: var(--accent); }
+#prog .spark { display: flex; gap: 12px; align-items: center; margin-top: 8px; color: var(--muted); }
+#prog .msgline { margin-top: 8px; padding: 6px 8px; border-radius: 4px; }
+#prog .msgline.orange { background: color-mix(in srgb, #ea8a0c 14%, transparent); border-left: 3px solid #ea8a0c; }
+#prog .msgline.red { background: color-mix(in srgb, #dc2626 14%, transparent); border-left: 3px solid #dc2626; }
+#prog .logt { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: 8px; border-top: 1px solid var(--border); padding-top: 6px; line-height: 1.5; }
 .step { display: flex; align-items: center; gap: 8px; padding: 8px 6px; border-radius: 6px; cursor: pointer; margin-bottom: 2px; }
 .step:hover { background: var(--panel2); }
 .step.active { background: var(--accent); color: #fff; }
@@ -195,7 +222,7 @@ option.mat-good, option.mat-some, option.mat-many { font-weight: 600; }
 <body>
 <div id="app">
   <header id="topbar">
-    <div class="brand"><span class="logo">FCBGA</span> Thermomechanical Screening Tool <span class="build">build 2026-10-19</span></div>
+    <div class="brand"><span class="logo">FCBGA</span> Thermomechanical Screening Tool <span class="build">build 2026-10-21</span></div>
     <div class="banner" role="note">Screening tool. Results are approximate and intended for design comparison and trend studies, not sign-off.</div>
     <div class="topbtns">
       <button id="btn-theme" class="icon" aria-label="Toggle theme">◐</button>
@@ -211,7 +238,8 @@ option.mat-good, option.mat-some, option.mat-many { font-weight: 600; }
     </main>
     <aside id="context"></aside>
   </div>
-  <div id="statusbar"><span id="status-text">Ready</span><progress id="status-progress" value="0" max="1" hidden></progress><button id="btn-cancel" hidden>Cancel</button></div>
+  <div id="prog" class="no-gloss" hidden></div>
+  <div id="statusbar"><span id="status-dot" class="sdot" hidden></span><span id="status-text">Ready</span><div id="status-progress" class="sbar" hidden><i></i></div><span id="status-time" class="stime" hidden></span><button id="btn-details" class="sbtn" hidden>Details ▴</button><button id="btn-cancel" class="sbtn" hidden>Cancel</button></div>
   <div id="modal" hidden><div class="modal-box"><div class="modal-head"><span id="modal-title"></span><button id="modal-close" class="icon">✕</button></div><div id="modal-body"></div></div></div>
   <div id="toasts"></div>
 </div>
@@ -271,6 +299,18 @@ const CONST = Object.freeze({
   WARM_START_MAX: 20,
   REBUILD_FACTOR: 2,
   REBUILD_MIN_ITERS: 30,     // never rebuild before this many iterations of a stale preconditioner
+  // ---- live progress (run details panel and status dot) -------------------
+  LIVE_INTERVAL_MS: 1000,    // solvers and submodels report their state at most this often
+  LIVE_HIST_POINTS: 100,     // residual history points sent with each report
+  LIVE_STALL_ITERS: 500,     // red: the residual has not halved over this many PCG iterations
+  LIVE_STALL_RATIO: 0.5,
+  LIVE_MAXIT_FRAC: 0.9,      // red: a solve attempt has used this fraction of PCG_MAXIT
+  LIVE_SLOW_FACTOR: 3,       // orange: a solve needs this many times the run's average iterations
+  LIVE_SLOW_ITERS: 600,      // orange, while fewer than LIVE_SLOW_MIN_SOLVES solves have finished
+  LIVE_SLOW_MIN_SOLVES: 3,
+  LIVE_QUIET_MS: 30000,      // orange: nothing at all heard from the run for this long
+  LIVE_STUCK_MS: 60000,      // red: a worker inside a solve or submodel silent for this long
+  LIVE_CUTBACK_MS: 5000,     // orange for this long after a submodel step cutback
   MG_COARSEST_COLS: 9,       // stop semi-coarsening at <= 3 x 3 columns
   MG_COARSEST_DOF: 900,
   MG_MIN_COARSENING: 0.7,    // stop coarsening when a level would keep more than this fraction of the columns
@@ -3787,6 +3827,20 @@ class ICPC {
  * preconditioner across temperature evaluations, warm-starts from previous
  * solutions and logs every solve.
  */
+/**
+ * Live progress for the run details panel: the worker driver sets LIVE.post(info), and the solvers
+ * and submodels report through liveReport(). Iteration reports pass at most once per
+ * CONST.LIVE_INTERVAL_MS; events (start, rebuild, fallback, solved, cutback) always pass.
+ */
+const LIVE = { post: null, last: 0 };
+function liveReport(info, throttled) {
+  if (!LIVE.post) return;
+  const t = nowMs();
+  if (throttled && t - LIVE.last < CONST.LIVE_INTERVAL_MS) return;
+  LIVE.last = t;
+  LIVE.post(info);
+}
+
 class LinearSolver {
   constructor(model, opts) {
     this.model = model;
@@ -3801,6 +3855,15 @@ class LinearSolver {
     this.lastResult = null;
     this._r = new Float64Array(this.n); this._z = new Float64Array(this.n); this._p = new Float64Array(this.n); this._q = new Float64Array(this.n);
     this._bs = new Float64Array(this.n); this._x = new Float64Array(this.n);
+    this._hist = null; this._liveCtx = null;  // residual history (log10) of the running attempt, for live reports
+  }
+
+  /** Live report of the running PCG attempt: totals, the attempt's own count and a downsampled residual history. */
+  _liveIter(it, relres) {
+    const c = this._liveCtx, h = this._hist, np = Math.min(it + 1, CONST.LIVE_HIST_POINTS), hist = new Array(2 * np);
+    for (let q = 0; q < np; q++) { const i = np > 1 ? Math.round(q * it / (np - 1)) : 0; hist[2 * q] = i; hist[2 * q + 1] = h[i]; }
+    const back = it - CONST.LIVE_STALL_ITERS;
+    liveReport({ event: 'iter', label: c.label, iters: c.base + it, it, maxit: c.maxit, relres, r0: c.r0, tol: this.opts.tol, precond: this.pcKind, hist, relresBack: back >= 0 ? Math.pow(10, h[back]) : null }, true);
   }
 
   /** Jacobi scaling of the assembled values in place; returns S = diag^-1/2. */
@@ -3899,14 +3962,18 @@ class LinearSolver {
       this.log.push(rec); this.lastResult = rec;
       return Object.assign({ u }, rec);
     }
+    const live = !!LIVE.post;
+    if (live) liveReport({ event: 'start', label, n, precond: this.pcKind || this.opts.precond, building: !this.pc || this.needRebuild, warm: this.basis.length });
     if (!this.pc || this.needRebuild) { pcMs = this._buildPC(this.opts.precond); rebuilt = true; }
     this._warmStart(fs, x);
+    this._liveCtx = live ? { label, base: 0, maxit: this.opts.maxit, r0: null } : null;
     // iteration budget before a rebuild: twice the count right after the last build
     let budget = rebuilt ? this.opts.maxit : Math.max(2 * this.itersAtBuild, CONST.REBUILD_MIN_ITERS);
     let res = this._pcg(fs, x, tol, Math.min(budget, this.opts.maxit));
     let fallback = null, totalIters = res.iters, itersAfterBuild = rebuilt ? res.iters : 0;
     if (!res.converged && !rebuilt) {
       // stale preconditioner (e.g. a material event between evaluations): rebuild the preferred kind and continue
+      if (live) { liveReport({ event: 'rebuild', label, iters: totalIters, relres: res.relres, precond: this.opts.precond }); this._liveCtx.base = totalIters; }
       pcMs += this._buildPC(this.opts.precond); rebuilt = true;
       res = this._pcg(fs, x, tol, this.opts.maxit);
       totalIters += res.iters; itersAfterBuild = res.iters;
@@ -3915,6 +3982,7 @@ class LinearSolver {
       // rebuild with the other method once (keep the current iterate)
       const other = this.pcKind === 'mg' ? 'ic' : 'mg';
       fallback = { first: this.pcKind, iters: totalIters, relres: res.relres };
+      if (live) { liveReport({ event: 'fallback', label, iters: totalIters, relres: res.relres, from: this.pcKind, precond: other }); this._liveCtx.base = totalIters; }
       pcMs += this._buildPC(other); rebuilt = true;
       res = this._pcg(fs, x, tol, this.opts.maxit);
       totalIters += res.iters;
@@ -3928,6 +3996,8 @@ class LinearSolver {
     if (res.converged) this._storeSolution(u);
     const rec = { label, iters: res.iters, relres: res.relres, converged: res.converged, ms: nowMs() - t0, pcMs, precond: this.pcKind, rebuilt, warm: this.basis.length, iters0: res.iters0, fallback };
     this.log.push(rec); this.lastResult = rec;
+    this._liveCtx = null;
+    if (live) liveReport({ event: 'solved', label, iters: rec.iters, relres: rec.relres, converged: rec.converged, ms: rec.ms, precond: rec.precond, rebuilt, fallback: !!fallback });
     if (this.opts.log) this.opts.log(rec);
     return Object.assign({ u }, rec);
   }
@@ -3943,6 +4013,13 @@ class LinearSolver {
     let rnorm = norm2(r);
     const r0 = rnorm / bnorm;
     if (rnorm / bnorm < tol) return { iters: 0, relres: rnorm / bnorm, converged: true, iters0: r0 };
+    const lc = this._liveCtx;
+    let hist = null;
+    if (lc) {
+      if (!this._hist || this._hist.length < maxit + 1) this._hist = new Float32Array(Math.max(maxit, CONST.PCG_MAXIT) + 1);
+      hist = this._hist; hist[0] = Math.log10(r0);
+      if (lc.r0 === null) lc.r0 = r0;
+    }
     this.pc.apply(r, z);
     if (isC) for (let i = 0; i < n; i++) if (isC[i]) z[i] = 0;
     p.set(z);
@@ -3955,6 +4032,7 @@ class LinearSolver {
       axpy(alpha, p, x);
       axpy(-alpha, q, r);
       rnorm = norm2(r);
+      if (hist) { hist[it] = Math.log10(rnorm / bnorm + 1e-300); if ((it & 3) === 0) this._liveIter(it, rnorm / bnorm); }
       if (rnorm / bnorm < tol) return { iters: it, relres: rnorm / bnorm, converged: true, iters0: r0 };
       this.pc.apply(r, z);
       if (isC) for (let i = 0; i < n; i++) if (isC[i]) z[i] = 0;
@@ -4648,11 +4726,15 @@ function sectionStress(model, geom, cut, T, stage, u) {
   return out;
 }
 
-/** Boundary quads of the structured mesh for the 3D view: [n0 n1 n2 n3] per face plus part id. */
+/**
+ * Surface quads of every part for the 3D view: [n0 n1 n2 n3] per face plus part id.
+ * A face is drawn where the cell faces a void cell or a cell of another part, so each
+ * part is a closed surface and hiding one part shows the faces of the parts it covered.
+ */
 function boundaryFaces(mesh) {
   const nx = mesh.nx, ny = mesh.ny, nz = mesh.nz, ncy = ny - 1, ncz = nz - 1;
   const faces = [], parts = [], elems = [];
-  const has = (i, j, k) => (i < 0 || j < 0 || k < 0 || i >= nx - 1 || j >= ncy || k >= ncz) ? false : mesh.cellElems[2 * ((i * ncy + j) * ncz + k)] >= 0;
+  const partOf = (i, j, k) => { if (i < 0 || j < 0 || k < 0 || i >= nx - 1 || j >= ncy || k >= ncz) return -1; const e = mesh.cellElems[2 * ((i * ncy + j) * ncz + k)]; return e < 0 ? -1 : mesh.ePart[e]; };
   const nid = (i, j, k) => mesh.nodeId[(i * ny + j) * nz + k];
   const dirs = [[-1, 0, 0], [1, 0, 0], [0, -1, 0], [0, 1, 0], [0, 0, -1], [0, 0, 1]];
   for (let e = 0; e < mesh.ne; e++) {
@@ -4662,7 +4744,7 @@ function boundaryFaces(mesh) {
     if (mesh.cellElems[2 * c] !== e) continue;
     for (let dd = 0; dd < 6; dd++) {
       const [di, dj, dk] = dirs[dd];
-      if (has(i + di, j + dj, k + dk)) continue;
+      if (partOf(i + di, j + dj, k + dk) === mesh.ePart[e]) continue;
       let f;
       switch (dd) {
         case 0: f = [nid(i, j, k), nid(i, j, k + 1), nid(i, j + 1, k + 1), nid(i, j + 1, k)]; break;
@@ -5650,6 +5732,8 @@ class BumpSubmodel {
       loop.t.push(t); loop.T.push(T); loop.tau.push(wS ? tS / wS : NaN); loop.gamma.push(wS ? gS / wS : NaN); loop.tauSub.push(wB ? tB / wB : NaN); loop.gammaSub.push(wB ? gB / wB : NaN);
     };
     sampleLoop(25, 0);
+    const liveLabel = 'Submodel ' + this.die.name + ' bump (' + this.site.ix + ', ' + this.site.iy + ')';
+    liveReport({ event: 'start', kind: 'submodel', label: liveLabel, n: this.ndof, nsteps: nsteps - 1 });
     // stress snapshots for the cross-section view: the end of each ramp and dwell of the last cycle
     const snaps = [], snapOn = !this.opts.uniformMaterial;
     for (let k = 1; k < nsteps; k++) {
@@ -5668,7 +5752,7 @@ class BumpSubmodel {
           if (!res.converged || res.dMax > CONST.INELASTIC_STEP_MAX) { ok = false; break; }
         }
         if (ok) done = true;
-        else { this._restore(snap); nsub *= 2; cutbacks++; }
+        else { this._restore(snap); nsub *= 2; cutbacks++; liveReport({ event: 'cutback', kind: 'submodel', label: liveLabel, step: k, nsteps: nsteps - 1, T: T1, nsub, cutbacks }); }
       }
       // next step: keep the sub-division while increments stay above half the limit, relax otherwise
       nsubNext = dLast > 0.5 * CONST.INELASTIC_STEP_MAX ? Math.min(nsub * 2, 64) : (dLast < 0.2 * CONST.INELASTIC_STEP_MAX ? Math.max(1, nsub >> 1) : nsub);
@@ -5679,6 +5763,7 @@ class BumpSubmodel {
       Wcyc.die[c] = avg(dieLayer, p => p.W); Wcyc.sub[c] = avg(subLayer, p => p.W);
       Wcyc.eDie[c] = avg(dieLayer, p => p.ebar); Wcyc.eSub[c] = avg(subLayer, p => p.ebar);
       if (this.opts.progress) this.opts.progress(k / (nsteps - 1), 'Submodel step ' + k + '/' + (nsteps - 1) + ' at ' + T1.toFixed(0) + ' °C');
+      liveReport({ event: 'step', kind: 'submodel', label: liveLabel, step: k, nsteps: nsteps - 1, T: T1, cycle: c, cycles: hist.cycles, newtonPerStep: totalNewton / Math.max(steps, 1), cutbacks }, k < nsteps - 1);
     }
     const nc = hist.cycles;
     const dWdie = Wcyc.die[nc] - Wcyc.die[nc - 1], dWsub = Wcyc.sub[nc] - Wcyc.sub[nc - 1];
@@ -6411,11 +6496,18 @@ function runVerification(ids, ctx) {
 <script type="text/plain" id="worker-driver">
 // ===== Web Worker driver (appended to the core block in the worker Blob) =====
 // Messages in: {type, id, ...}; out: {type: 'progress'|'result'|'error', id, ...}
+// Live solver state (LIVE in the core) goes out as {type: 'live', w, info}: from this worker directly
+// (w = 0), from each helper on a message port of its own (w = helper slot + 1), so the page hears
+// from the helpers while this worker is busy with a solve of its own.
 
 (function () {
-  const state = { an: null, hashes: null, db: null, screening: null, src: null };
+  const state = { an: null, hashes: null, db: null, screening: null, src: null, w: 0, livePort: null, helper: false };
   const post = m => self.postMessage(m);
   const progress = (id, frac, msg) => post({ type: 'progress', id, frac, msg });
+  LIVE.post = info => {
+    if (state.livePort) state.livePort.postMessage({ type: 'live', w: state.w, info });
+    else if (!state.helper) post({ type: 'live', w: 0, info });
+  };
 
   function toF32(a) { return a instanceof Float32Array ? a : Float32Array.from(a); }
 
@@ -6424,10 +6516,19 @@ function runVerification(ids, ctx) {
   // (a worker thread with the Web Worker interface used below; desktop/compute-worker.js).
   const nodeHelpers = () => typeof self.__spawnHelper === 'function';
   const canNest = () => nodeHelpers() || (typeof Worker !== 'undefined' && typeof URL !== 'undefined' && !!state.src);
-  function spawnHelper() {
+  function spawnHelper(slot) {
     const w = nodeHelpers() ? self.__spawnHelper() : new Worker(URL.createObjectURL(new Blob([state.src], { type: 'text/javascript' })));
-    w.postMessage({ type: 'init', db: state.db, id: 0 });
+    const port = livePort();
+    w.postMessage({ type: 'init', db: state.db, id: 0, w: slot + 1, live: port }, port ? [port] : []);
     return w;
+  }
+  /** A message port whose other end is with the page (browser) or the compute process relay (desktop), for a helper's live reports. */
+  function livePort() {
+    if (nodeHelpers()) return typeof self.__livePort === 'function' ? self.__livePort() : null;
+    if (typeof MessageChannel === 'undefined') return null;
+    const ch = new MessageChannel();
+    self.postMessage({ type: 'liveport', port: ch.port1 }, [ch.port1]);
+    return ch.port2;
   }
   /** Run jobs on n helpers; onPartial(payload) per partial / result message; resolves with the result payloads. */
   function runOnHelpers(n, jobs, onPartial, onProgress) {
@@ -6452,7 +6553,7 @@ function runVerification(ids, ctx) {
         w.onerror = ev => { if (!failed) { failed = true; finish(); reject(new Error(ev.message || 'helper worker error')); } };
         w.postMessage(Object.assign({ id: j + 1 }, job.msg), job.transfer || []);
       };
-      for (let i = 0; i < Math.min(n, jobs.length); i++) helpers.push(spawnHelper());
+      for (let i = 0; i < Math.min(n, jobs.length); i++) helpers.push(spawnHelper(i));
       for (const w of helpers) launch(w);
     });
   }
@@ -6546,6 +6647,7 @@ function runVerification(ids, ctx) {
       preset: msg.preset, evaluations: msg.evaluations || 'full', precond: msg.precond || 'mg',
       progress: (f, m) => progress(id, f, m),
     });
+    progress(id, 0, 'Meshing and building the model');
     an.build();
     const meshInfo = an.mesh.info;
     progress(id, 0.01, 'Mesh: ' + meshInfo.nDof + ' DOF, ' + meshInfo.nElem + ' elements');
@@ -6612,7 +6714,10 @@ function runVerification(ids, ctx) {
     const id = msg.id;
     try {
       switch (msg.type) {
-        case 'init': state.db = msg.db; if (msg.src) state.src = msg.src; post({ type: 'result', id, payload: { ok: true, nested: canNest() } }); break;
+        case 'init':
+          state.db = msg.db; if (msg.src) state.src = msg.src;
+          if (msg.w) { state.helper = true; state.w = msg.w; state.livePort = msg.live || null; }
+          post({ type: 'result', id, payload: { ok: true, nested: canNest() } }); break;
         case 'run': post({ type: 'result', id, payload: await runAnalysis(msg) }); break;
         case 'evalSubset': post({ type: 'result', id, payload: evalSubset(msg) }); break;
         case 'submodelRemote': post({ type: 'result', id, payload: submodelRemote(msg) }); break;
@@ -6862,10 +6967,14 @@ class DesktopWorker {
 class WorkerClient {
   constructor() {
     this.worker = null; this.pending = new Map(); this.nextId = 1; this.busy = false; this.dead = false;
+    this.uid = WorkerClient.count = (WorkerClient.count || 0) + 1;  // keys this client's live reports in the progress panel
+    this.ports = [];  // helpers' live-report ports (browser), closed when the client goes idle
     this.start();
   }
+  _closePorts() { for (const p of this.ports) p.close(); this.ports = []; }
   start() {
     if (this.worker) this.worker.terminate();
+    this._closePorts();
     this.dead = false;
     this.worker = DESKTOP ? new DesktopWorker() : new Worker(URL.createObjectURL(new Blob([CORE_SRC, '\n', WORKER_SRC], { type: 'text/javascript' })));
     this.worker.onmessage = ev => this._onMessage(ev.data);
@@ -6883,11 +6992,14 @@ class WorkerClient {
     this.send({ type: 'init', db: MATERIALS_DB, src: DESKTOP ? null : CORE_SRC + '\n' + WORKER_SRC }).then(r => { if (r && r.nested === false) app.nestedWorkers = false; }).catch(() => {});
   }
   _onMessage(m) {
+    if (m.type === 'live') { progressLive(this.uid + ':' + m.w, m.info); return; }
+    if (m.type === 'liveport') { m.port.onmessage = ev => this._onMessage(ev.data); this.ports.push(m.port); return; }
     const p = this.pending.get(m.id);
     if (!p) return;
     if (m.type === 'progress') { if (p.onProgress) p.onProgress(m.frac, m.msg); return; }
     if (m.type === 'partial') { if (p.onPartial) p.onPartial(m.payload); return; }
     this.pending.delete(m.id);
+    if (!this.pending.size) this._closePorts();
     if (m.type === 'error') p.reject(Object.assign(new Error(m.message), { stack: m.stack }));
     else p.resolve(m.payload);
   }
@@ -6908,16 +7020,19 @@ class WorkerClient {
     for (const p of this.pending.values()) p.reject(new Error('cancelled'));
     this.pending.clear();
     if (this.worker) { this.worker.terminate(); this.worker = null; }
+    this._closePorts();
   }
 }
 const worker = new WorkerClient();
 const workerPool = []; // extra workers for sensitivity
 
+/** Status bar text and progress; a running job's record (src/ui/00e-progress.js) adds the dot, times and details. */
 function setStatus(text, frac) {
   $('#status-text').textContent = text;
   const pr = $('#status-progress');
   if (frac === null || frac === undefined) { pr.hidden = true; $('#btn-cancel').hidden = true; }
-  else { pr.hidden = false; pr.value = frac; $('#btn-cancel').hidden = false; }
+  else { pr.hidden = false; pr.firstChild.style.width = (100 * Math.max(0, Math.min(1, frac))).toFixed(1) + '%'; $('#btn-cancel').hidden = false; }
+  if (runProgress.job) progressStatusbar();
 }
 
 /** Estimated DOF, memory and runtime for the current configuration and preset. */
@@ -6964,6 +7079,15 @@ const TIPS = {
   theme: 'Cycle the colour theme: automatic (follows the system), light, dark.',
   helpBtn: 'Every modeling assumption and build decision in plain language.',
   cancel: 'Stop the running job. The worker is restarted; results already in memory are kept.',
+  progDetails: 'Show or hide the run details: each step with its time, every worker\'s current solve (PCG iterations and residual), the residual history and a log of finished solves. Updated once a second.',
+  progDot_green: 'Green: running normally; every solve is converging at the usual rate. Click for the run details.',
+  progDot_orange: 'Orange: a step is taking longer than usual (a solve needs more than 3 times the run\'s average PCG iterations, the solver switched preconditioner, a submodel is cutting back its time step, or nothing was heard for 30 s). The run is still making progress. Click for the run details.',
+  progDot_red: 'Red: the run is likely stuck (a residual has not halved over the last 500 PCG iterations, a solve is close to the 2000-iteration limit, or a worker inside a solve has sent nothing for 60 s). Click for the run details.',
+  progAdvice_orange: 'The solver is still making progress, so no action is needed; slow solves are common near a glass transition or the solder solidus, where stiffness changes fast.',
+  progAdvice_red: 'Cancel keeps the results already shown; a coarser mesh preset or fewer parallel workers may help, and the solver log of a finished run shows which solves were hard.',
+  progRows: 'One row per worker that reports live: the solve or submodel it is working on, how far its residual has fallen toward the 1e-8 target (log scale), the PCG iterations so far and the age of its last report.',
+  progRow: 'Click to show this worker\'s residual history below.',
+  progSpark: 'Relative residual of the selected solve over its PCG iterations, log scale; the dashed line is the 1e-8 convergence target. A steady fall is healthy; a flat line means the solve is not converging.',
   limitations: 'Every modeling assumption and build decision in plain language.',
   glossary: 'Glossary of the technical acronyms and variable symbols used in the tool. Dotted terms anywhere in the tool explain themselves on hover and open their entry on click.',
   glossaryFilter: 'Type to show only the entries that contain this text.',
@@ -7583,6 +7707,285 @@ function glossaryReportSection() {
     showGlossary(el.dataset.gl);
   }, true);
 })();
+
+'use strict';
+// ===== UI: run progress (status dot, bar, times, details panel) ===============
+// Every job started through startRun() or runSensitivity() opens a progress record. Two sources feed it:
+// the job's progress messages (step text and fraction) and the workers' live reports ({type: 'live'},
+// at most once a second per worker: the running PCG solve with its iterations and residual history, or
+// the bump submodel step). Once a second the record is judged and drawn:
+//   green   running normally
+//   orange  a solve needs far more iterations than the run's average, a preconditioner fallback, a
+//           submodel step cutback, or no message at all from the job for CONST.LIVE_QUIET_MS
+//   red     a solve whose residual has not halved over CONST.LIVE_STALL_ITERS iterations, a solve close to
+//           the iteration limit, or a worker inside a solve or submodel silent for CONST.LIVE_STUCK_MS
+
+const runProgress = { job: null, open: prefs.get('progOpen', false), timer: null, sel: null };
+
+/** Step list of a global analysis, matched against its progress messages in order. */
+function analysisSteps(msg) {
+  const full = msg.evaluations !== 'preview', bare = msg.cfg && msg.cfg.packageType === 'bare';
+  return [
+    { label: 'Mesh and stiffness model', re: /^Meshing|^Mesh:/ },
+    { label: 'Stage S0: substrate at T_join', re: /^Stage S0/ },
+    { label: 'Stage S1: chip join at T_UF', re: /^Stage S1/ },
+    bare ? null : { label: 'Stage S2: underfilled at T_attach', re: /^Stage S2/ },
+    { label: full ? 'Temperature sweep' : 'As-assembled state at 25 °C', re: /^As-assembled state/, count: true },
+    { label: 'Chip-join state at 25 °C (CPI)', re: /^Chip-join state/ },
+    { label: 'Post-processing', re: /^Post-processing/ },
+    full ? { label: '3D view fields', re: /^Boundary faces/ } : null,
+    full ? { label: 'Bump screening', re: /^Screening/ } : null,
+  ].filter(Boolean).map(s => Object.assign({ state: 'wait', t0: 0, t1: 0, note: '' }, s));
+}
+
+/** Open the progress record of a job. meta: {kind: 'analysis'|'submodels'|'sensitivity'|'other', msg, preset}. */
+function progressBegin(label, meta) {
+  meta = meta || {};
+  const now = performance.now();
+  const kind = meta.kind || 'other';
+  runProgress.job = {
+    label, kind, t0: now, lastAny: now, frac: 0, msg: '', preset: meta.preset || '', dof: 0,
+    steps: kind === 'analysis' ? analysisSteps(meta.msg || {}) : [],
+    rows: new Map(), names: new Map(), solves: [], log: [], reports: 0, colour: 'green', reason: '', reasonRow: null,
+  };
+  runProgress.sel = null;
+  clearInterval(runProgress.timer);
+  runProgress.timer = setInterval(progressTick, C.CONST.LIVE_INTERVAL_MS);
+  progressTick();
+}
+
+/** A progress message of the running job (status text and overall fraction). */
+function progressMsg(frac, msg) {
+  const j = runProgress.job; if (!j) return;
+  const now = performance.now();
+  j.lastAny = now; j.frac = isFinite(frac) ? Math.max(j.frac, Math.min(1, frac)) : j.frac; j.msg = msg || '';
+  const mDof = /^Mesh: (\d+) DOF/.exec(j.msg); if (mDof) j.dof = +mDof[1];
+  if (j.kind === 'analysis') {
+    const i = j.steps.findIndex(s => s.re.test(j.msg));
+    if (i >= 0) {
+      j.steps.forEach((s, k) => {
+        if (k < i && s.state !== 'done') { s.state = 'done'; s.t1 = now; if (!s.t0) s.t0 = now; }
+        if (k === i && s.state !== 'run') { s.state = 'run'; s.t0 = now; }
+      });
+      const c = /\((\d+)\/(\d+)/.exec(j.msg);
+      if (j.steps[i].count && c) j.steps[i].note = c[1] + ' of ' + c[2];
+    }
+  } else {
+    // other jobs: one step per distinct message head, e.g. "Running V3: ..." (verification), "Submodel 2/4 ..." (submodels)
+    const sm = /^Submodel (\d+)\/(\d+)/.exec(j.msg);
+    const key = sm ? 'Submodel ' + sm[1] : j.msg.replace(/\s*\(.*$/, '').replace(/\s*\d+\/\d+.*$/, '').replace(/:$/, '');
+    let s = j.steps.find(x => x.key === key);
+    if (!s) {
+      if (!sm) for (const x of j.steps) if (x.state === 'run') { x.state = 'done'; x.t1 = now; }
+      s = { key, label: sm ? 'Submodel ' + sm[1] + ' of ' + sm[2] : key, state: 'run', t0: now, t1: 0, note: '' };
+      j.steps.push(s);
+      if (j.steps.length > 12) j.steps.shift();
+    }
+    const st = /step (\d+)\/(\d+)/.exec(j.msg) || (!sm && /(\d+)\/(\d+)/.exec(j.msg));
+    if (st) s.note = (sm ? 'step ' : '') + st[1] + ' of ' + st[2];
+    if (sm && st && st[1] === st[2] && s.state === 'run') { s.state = 'done'; s.t1 = now; }
+  }
+  progressStatusbar();
+}
+
+/** A live report from one worker (key: client and worker slot). */
+function progressLive(key, info) {
+  const j = runProgress.job; if (!j || !info) return;
+  const now = performance.now();
+  j.lastAny = now; j.reports++;
+  if (!j.names.has(key)) j.names.set(key, 'Worker ' + (j.names.size + 1));
+  let r = j.rows.get(key);
+  if (!r) { r = { key, name: j.names.get(key), active: false, last: now }; j.rows.set(key, r); }
+  r.last = now;
+  const ev = info.event;
+  if (info.kind === 'submodel') {
+    r.kind = 'submodel'; r.label = info.label;
+    if (ev === 'start') Object.assign(r, { active: true, step: 0, nsteps: info.nsteps, T: 25, cutbacks: 0, cutbackAt: 0, n: info.n });
+    if (ev === 'step') { Object.assign(r, { step: info.step, nsteps: info.nsteps, T: info.T, cutbacks: info.cutbacks, newton: info.newtonPerStep, cycle: info.cycle, cycles: info.cycles }); if (info.step >= info.nsteps) { r.active = false; progressLog(r.name + ': ' + info.label + ' done (' + info.nsteps + ' steps, ' + info.cutbacks + ' cutbacks)'); } }
+    if (ev === 'cutback') { r.cutbacks = info.cutbacks; r.cutbackAt = now; progressLog(r.name + ': ' + info.label + ' step ' + info.step + ' at ' + fmt(info.T, 0) + ' °C cut back to ' + info.nsub + ' sub-steps'); }
+    return;
+  }
+  r.kind = 'solve';
+  if (ev === 'start') {
+    Object.assign(r, { active: true, label: info.label, iters: 0, it: 0, relres: null, r0: null, hist: null, relresBack: null, precond: info.precond, building: !!info.building, fallback: false, maxit: C.CONST.PCG_MAXIT, tol: C.CONST.PCG_TOL, t0: now });
+    if (info.n) j.dof = j.dof || Math.round(info.n);
+    if (runProgress.sel === null) runProgress.sel = key;
+  } else if (ev === 'iter') {
+    Object.assign(r, { active: true, label: info.label, iters: info.iters, it: info.it, maxit: info.maxit, relres: info.relres, r0: info.r0, tol: info.tol, hist: info.hist, relresBack: info.relresBack, precond: info.precond, building: false });
+  } else if (ev === 'rebuild') {
+    r.building = true; r.hist = null; r.relresBack = null;
+    progressLog(r.name + ': ' + info.label + ': preconditioner rebuilt after ' + info.iters + ' PCG iterations (residual ' + fmtE(info.relres, 1) + ')');
+  } else if (ev === 'fallback') {
+    r.building = true; r.fallback = true; r.hist = null; r.relresBack = null; r.precond = info.precond;
+    progressLog(r.name + ': ' + info.label + ': switched to ' + precondName(info.precond) + ' after ' + info.iters + ' PCG iterations (' + precondName(info.from) + ' did not converge)');
+  } else if (ev === 'solved') {
+    Object.assign(r, { active: false, iters: info.iters, relres: info.relres, building: false, ms: info.ms, precond: info.precond });
+    if (info.converged) j.solves.push(info.iters);
+    progressLog(r.name + ': ' + info.label + (info.converged ? ' solved: ' : ' NOT converged: ') + info.iters + ' PCG iterations, residual ' + fmtE(info.relres, 1) + ', ' + fmt(info.ms / 1000, 1) + ' s');
+  }
+}
+
+function precondName(k) { return k === 'ic' ? 'IC(0)' : 'multigrid'; }
+function progressLog(text) {
+  const j = runProgress.job; if (!j) return;
+  const d = new Date(), p = n => String(n).padStart(2, '0');
+  j.log.push(p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds()) + '  ' + text);
+  if (j.log.length > 40) j.log.shift();
+}
+
+function progressEnd() {
+  clearInterval(runProgress.timer); runProgress.timer = null;
+  runProgress.job = null;
+  const panel = $('#prog'); if (panel) { panel.hidden = true; panel.innerHTML = ''; }
+  progressStatusbar();
+}
+
+const fmtDur = ms => { const s = Math.max(0, Math.round(ms / 1000)); return s >= 3600 ? Math.floor(s / 3600) + ':' + String(Math.floor(s / 60) % 60).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0') : Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+const fmtAge = ms => ms < 60000 ? fmt(ms / 1000, ms < 10000 ? 1 : 0) + ' s ago' : Math.floor(ms / 60000) + ' min ' + Math.round(ms / 1000) % 60 + ' s ago';
+
+/** Judge one worker row: {colour, reason}. */
+function rowState(j, r, now) {
+  const K = C.CONST;
+  let colour = 'green', reason = '';
+  const set = (c, why) => { if (c === 'red' || colour === 'green') { if (!(c === 'orange' && colour === 'red')) { colour = c; reason = why; } } };
+  if (r.kind === 'submodel') {
+    if (r.cutbackAt && now - r.cutbackAt < K.LIVE_CUTBACK_MS) set('orange', r.label + ' is cutting back its time step at ' + fmt(r.T, 0) + ' °C (' + r.cutbacks + ' cutbacks so far); the solder is flowing fast there');
+  } else if (r.active) {
+    const done = j.solves.length, avg = done ? j.solves.reduce((a, b) => a + b, 0) / done : 0;
+    const slow = done >= K.LIVE_SLOW_MIN_SOLVES ? K.LIVE_SLOW_FACTOR * avg : K.LIVE_SLOW_ITERS;
+    if (r.fallback) set('orange', r.label + ': the preferred preconditioner did not converge, so the solver switched to ' + precondName(r.precond));
+    if (r.iters > slow) set('orange', r.label + ' is converging slowly (' + r.iters + ' PCG iterations' + (done >= K.LIVE_SLOW_MIN_SOLVES ? '; this run averages ' + Math.round(avg) : '') + ')');
+    if (r.relresBack !== null && r.relres > K.LIVE_STALL_RATIO * r.relresBack) set('red', r.label + ' has stopped converging (residual ' + fmtE(r.relres, 1) + ', not halved over the last ' + K.LIVE_STALL_ITERS + ' iterations)');
+    if (r.it > K.LIVE_MAXIT_FRAC * r.maxit) set('red', r.label + ' is close to the ' + r.maxit + '-iteration limit (' + r.it + ' iterations, residual ' + fmtE(r.relres, 1) + ')');
+  }
+  if (r.active && now - r.last > K.LIVE_STUCK_MS) set('red', r.name + ' has sent nothing for ' + fmtAge(now - r.last).replace(' ago', '') + ' while inside ' + (r.label || 'a solve'));
+  return { colour, reason };
+}
+
+/** Judge the whole job: the worst worker, or silence. */
+function jobState(j, now) {
+  let colour = 'green', reason = '', row = null;
+  for (const r of j.rows.values()) {
+    const s = rowState(j, r, now); r.colour = s.colour;
+    if (s.colour === 'red' && colour !== 'red' || s.colour === 'orange' && colour === 'green') { colour = s.colour; reason = s.reason; row = r.key; }
+  }
+  if (colour === 'green' && now - j.lastAny > C.CONST.LIVE_QUIET_MS) { colour = 'orange'; reason = 'no progress message for ' + fmtAge(now - j.lastAny).replace(' ago', ''); }
+  return { colour, reason, row };
+}
+
+function progressTick() {
+  const j = runProgress.job; if (!j) return;
+  const now = performance.now();
+  const s = jobState(j, now);
+  if (s.colour !== j.colour) progressLog(s.colour === 'green' ? 'back to normal' : (s.colour === 'red' ? 'Red: ' : 'Orange: ') + s.reason);
+  j.colour = s.colour; j.reason = s.reason; j.reasonRow = s.row;
+  progressStatusbar();
+  if (runProgress.open) renderProgressPanel();
+}
+
+/** Remaining time from the elapsed time and the overall fraction (none while red or too early to tell). */
+function progressTimes(j, now) {
+  const el = now - j.t0;
+  let left = '';
+  if (j.colour === 'red') left = 'remaining time unknown';
+  else if (j.frac > 0.03 && el > 3000) left = 'about ' + fmtDur(el * (1 - j.frac) / j.frac) + ' left';
+  return fmtDur(el) + ' elapsed' + (left ? ' · ' + left : '');
+}
+
+/** Status bar: dot, bar, times and the Details button follow the running job. */
+function progressStatusbar() {
+  const j = runProgress.job, dot = $('#status-dot'), bar = $('#status-progress'), time = $('#status-time'), det = $('#btn-details');
+  if (!dot) return;
+  if (!j) { dot.hidden = true; time.hidden = true; det.hidden = true; return; }
+  const now = performance.now();
+  dot.hidden = false; time.hidden = false; det.hidden = false;
+  dot.className = 'sdot ' + j.colour;
+  dot.setAttribute('data-tip', TIPS['progDot_' + j.colour] + (j.reason ? ' Now: ' + j.reason + '.' : ''));
+  bar.className = 'sbar ' + (j.colour === 'green' ? '' : j.colour);
+  time.textContent = progressTimes(j, now);
+  det.textContent = runProgress.open ? 'Details ▾' : 'Details ▴';
+  const text = j.colour !== 'green' && j.reason ? j.label + ': ' + j.reason : j.label + (j.msg ? ': ' + j.msg : ' starting…');
+  $('#status-text').textContent = text;
+}
+
+function toggleProgressPanel() {
+  runProgress.open = !runProgress.open;
+  prefs.set('progOpen', runProgress.open);
+  if (runProgress.open) renderProgressPanel(); else $('#prog').hidden = true;
+  progressStatusbar();
+}
+
+/** Residual history of one solve as a small SVG: log10 residual over iterations, the target dashed. */
+function residualSpark(r, colour) {
+  const W = 260, H = 46, pts = r.hist || [];
+  const n = pts.length / 2;
+  const lo = Math.log10(r.tol) - 0.5;
+  let hi = 0; for (let q = 0; q < n; q++) hi = Math.max(hi, pts[2 * q + 1]);
+  const xmax = Math.max(1, n ? pts[2 * (n - 1)] : 1);
+  const X = it => 4 + it / xmax * (W - 8), Y = v => 4 + (hi - Math.max(lo, Math.min(hi, v))) / (hi - lo) * (H - 8);
+  let d = '';
+  for (let q = 0; q < n; q++) d += (q ? 'L' : 'M') + X(pts[2 * q]).toFixed(1) + ' ' + Y(pts[2 * q + 1]).toFixed(1);
+  const yt = Y(Math.log10(r.tol));
+  const stroke = colour === 'red' ? '#dc2626' : colour === 'orange' ? '#ea8a0c' : 'var(--accent)';
+  return '<svg width="' + W + '" height="' + H + '" style="display:block;flex:0 0 auto"><rect x="0" y="0" width="' + W + '" height="' + H + '" rx="4" fill="var(--panel2)"/>' +
+    '<line x1="4" x2="' + (W - 4) + '" y1="' + yt + '" y2="' + yt + '" stroke="var(--muted)" stroke-dasharray="4 3"/>' +
+    '<text x="' + (W - 6) + '" y="' + (yt - 3) + '" text-anchor="end" font-size="9" fill="var(--muted)">target ' + fmtE(r.tol, 0) + '</text>' +
+    (d ? '<path d="' + d + '" fill="none" stroke="' + stroke + '" stroke-width="1.8"/>' : '') + '</svg>';
+}
+
+/** Fraction of the way from the starting residual to the target, on a log scale. */
+function solveFraction(r) {
+  if (!r.relres || !r.r0 || !(r.r0 > r.tol)) return r.active ? 0 : 1;
+  return Math.max(0, Math.min(1, Math.log(r.r0 / r.relres) / Math.log(r.r0 / r.tol)));
+}
+
+function renderProgressPanel() {
+  const j = runProgress.job, panel = $('#prog');
+  if (!panel) return;
+  if (!j) { panel.hidden = true; return; }
+  const now = performance.now();
+  panel.hidden = false;
+  const rows = Array.from(j.rows.values());
+  const precs = Array.from(new Set(rows.filter(r => r.kind === 'solve' && r.precond).map(r => precondName(r.precond) + ' PCG')));
+  const sub = [j.preset, j.dof ? j.dof.toLocaleString('en-US') + ' DOF' : '', rows.length ? rows.length + ' worker' + (rows.length > 1 ? 's' : '') + ' reporting' : '', precs.join(', ')].filter(Boolean).join(' · ');
+  const steps = h('div', { class: 'stages' }, ...j.steps.map(s => h('div', { class: s.state },
+    h('span', { class: 'ic' }, s.state === 'done' ? '✓' : s.state === 'run' ? '▶' : '○'),
+    s.label + (s.note ? ' (' + s.note + ')' : ''),
+    h('span', { class: 't' }, s.state === 'done' ? fmt((s.t1 - s.t0) / 1000, 1) + ' s' : s.state === 'run' ? 'running ' + fmtDur(now - s.t0) : ''))));
+  if (!j.steps.length) steps.append(h('div', { class: 'run' }, h('span', { class: 'ic' }, '▶'), j.msg || 'Starting…'));
+  const hdr = h('div', Object.assign({ class: 'wk hdr' }, tip('progRows')), h('span', null, 'Worker'), h('span', null, 'Task'), h('span', null, 'This task'), h('span', null, 'Iterations · residual'), h('span', null, 'Last message'));
+  const wk = rows.map(r => {
+    const frac = r.kind === 'submodel' ? (r.nsteps ? r.step / r.nsteps : 0) : solveFraction(r);
+    let detail;
+    if (r.kind === 'submodel') detail = 'step ' + r.step + ' of ' + r.nsteps + ' · ' + fmt(r.T, 0) + ' °C · ' + r.cutbacks + ' cutback' + (r.cutbacks === 1 ? '' : 's');
+    else if (!r.active) detail = 'done: ' + r.iters + ' iterations, ' + fmt((r.ms || 0) / 1000, 1) + ' s';
+    else if (r.building) detail = 'building the preconditioner';
+    else detail = 'PCG ' + r.iters + ' · residual ' + fmtE(r.relres, 1);
+    return h('div', Object.assign({ class: 'wk ' + (r.active ? r.colour || '' : 'idle') + (runProgress.sel === r.key ? ' sel' : ''), onclick: () => { runProgress.sel = r.key; renderProgressPanel(); } }, tip('progRow')),
+      h('span', null, r.name), h('span', null, r.label || ''), h('div', { class: 'mini' }, h('i', { style: 'width:' + (100 * frac).toFixed(0) + '%' })), h('span', null, detail), h('span', null, fmtAge(now - r.last)));
+  });
+  const right = h('div', null, hdr, ...wk);
+  if (!rows.length) right.append(h('div', { class: 'small muted' }, 'No solver reports yet (meshing, assembly or post-processing).'));
+  // residual history of the selected worker (default: the one behind the warning, else the first one reporting)
+  const selKey = j.reasonRow || (j.rows.has(runProgress.sel) ? runProgress.sel : rows.length ? rows[0].key : null);
+  const sr = selKey && j.rows.get(selKey);
+  if (sr && sr.kind === 'solve' && sr.hist) {
+    const done = j.solves.length, avg = done ? Math.round(j.solves.reduce((a, b) => a + b, 0) / done) : 0;
+    const trend = sr.colour === 'red' ? 'residual not falling' : sr.colour === 'orange' ? 'residual falling, but slowly' : 'residual falling steadily';
+    const sp = h('div', Object.assign({ class: 'spark' }, tip('progSpark')));
+    sp.innerHTML = residualSpark(sr, sr.colour) + '<span></span>';
+    sp.lastChild.textContent = sr.name + ', ' + sr.label + ': ' + trend + ' (' + sr.iters + ' iterations' + (done ? '; this run averages ' + avg + ' per solve' : '') + ')';
+    right.append(sp);
+  } else if (sr && sr.kind === 'submodel') {
+    right.append(h('div', { class: 'spark' }, sr.name + ', ' + sr.label + ': cycle ' + (sr.cycle || 1) + ' of ' + (sr.cycles || '–') + ', ' + fmt(sr.newton, 1) + ' Newton iterations per step on average'));
+  }
+  if (j.colour !== 'green') right.append(h('div', { class: 'msgline ' + j.colour }, (j.colour === 'red' ? 'Red: the run is likely stuck. ' : 'Orange: a step is taking longer than usual. ') + j.reason + '. ' + TIPS['progAdvice_' + j.colour]));
+  if (j.log.length) right.append(h('div', { class: 'logt' }, ...j.log.slice(-6).map(l => h('div', null, l))));
+  panel.innerHTML = '';
+  panel.append(
+    h('h4', null, h('span', { class: 'sdot ' + j.colour }), j.label, h('span', { class: 'sub' }, sub), h('span', { class: 'sub', style: 'margin-left:auto' }, progressTimes(j, now))),
+    h('div', { class: 'pgrid' }, steps, right));
+}
 
 // ===== UI: canvas plotting, colormaps, contour maps ===========================
 
@@ -8714,9 +9117,10 @@ function startRun(msg, label, opts) {
   const job = { label, cancel: side ? () => client.stop() : null };
   app.job = job;
   const t0 = performance.now();
+  progressBegin(label, { kind: msg.type === 'run' ? 'analysis' : msg.type, msg, preset: msg.preset ? (C.CONST.MESH_PRESETS[msg.preset] || { label: msg.preset }).label : (msg.type === 'submodels' ? (msg.nxy + ' x ' + msg.nxy + ' x ' + msg.nz + ' voxels') : '') });
   setStatus(label + ' starting…', 0);
-  const p = client.send(msg, (frac, m) => { if (app.job === job) setStatus(label + ': ' + m, frac); }, opts.onPartial);
-  const settle = () => { if (side) client.stop(); if (app.job !== job) return false; app.job = null; return true; };
+  const p = client.send(msg, (frac, m) => { if (app.job === job) { progressMsg(frac, m); setStatus(label + ': ' + m, frac); } }, opts.onPartial);
+  const settle = () => { if (side) client.stop(); if (app.job !== job) return false; app.job = null; progressEnd(); return true; };
   p.then(() => { if (settle()) setStatus(label + ' done in ' + fmt((performance.now() - t0) / 1000, 1) + ' s', null); }, () => { if (settle()) setStatus('Ready', null); });
   return p;
 }
@@ -8727,6 +9131,7 @@ function startRun(msg, label, opts) {
 function cancelRunning() {
   const job = app.job;
   app.job = null;
+  progressEnd();
   if (job && job.cancel) { job.cancel(); return false; }
   if (!job && !worker.pending.size) return false;  // the main worker is idle: nothing to cancel, keep its analysis
   worker.cancel();
@@ -9169,17 +9574,19 @@ function runSensitivity(inputs, nWorkers) {
   const results = {};
   let next = 0, done = 0;
   const t0 = performance.now();
-  setStatus('Sensitivity: 0/' + cases.length, 0);
   if (app.job) cancelRunning();
+  progressBegin('Sensitivity', { kind: 'sensitivity', preset: 'Draft, ' + nWorkers + ' parallel case' + (nWorkers > 1 ? 's' : '') });
+  setStatus('Sensitivity: 0/' + cases.length, 0);
+  progressMsg(0, 'Sensitivity: 0/' + cases.length);
   let stopped = false;  // cases rejected by a cancel are dropped, not reported as failures
   const job = { label: 'sensitivity', cancel: () => { stopped = true; for (const p of pool) p.stop(); } };
   app.job = job;
-  const cancelAll = () => { job.cancel(); if (app.job === job) app.job = null; };
+  const cancelAll = () => { job.cancel(); if (app.job === job) { app.job = null; progressEnd(); } };
   return new Promise((resolve) => {
     const launch = w => {
       if (next >= cases.length) return;
       const c = cases[next++];
-      w.send({ type: 'sensitivityCase', cfg: c.cfg }).then(r => { if (stopped) return; results[c.id + (c.side ? ':' + c.side : '')] = { r, c }; done++; setStatus('Sensitivity: ' + done + '/' + cases.length, done / cases.length); if (done === cases.length) finish(); else launch(w); }).catch(e => { if (stopped) return; toast('Sensitivity case failed: ' + e.message, 'error'); done++; if (done === cases.length) finish(); else launch(w); });
+      w.send({ type: 'sensitivityCase', cfg: c.cfg }).then(r => { if (stopped) return; results[c.id + (c.side ? ':' + c.side : '')] = { r, c }; done++; progressMsg(done / cases.length, 'Sensitivity: ' + done + '/' + cases.length); setStatus('Sensitivity: ' + done + '/' + cases.length, done / cases.length); if (done === cases.length) finish(); else launch(w); }).catch(e => { if (stopped) return; toast('Sensitivity case failed: ' + e.message, 'error'); done++; if (done === cases.length) finish(); else launch(w); });
     };
     const finish = () => {
       cancelAll();
@@ -9930,6 +10337,9 @@ function init() {
   $('#modal-close').addEventListener('click', closeModal);
   $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
   $('#btn-cancel').onclick = defaultCancel;
+  $('#btn-details').setAttribute('data-tip', TIPS.progDetails);
+  $('#btn-details').onclick = toggleProgressPanel;
+  $('#status-dot').onclick = toggleProgressPanel;
   window.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
   renderAll();
   setStatus('Ready. Load a preset or edit the package, then run the analysis in step 6.', null);

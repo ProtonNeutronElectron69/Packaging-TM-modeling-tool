@@ -1,10 +1,17 @@
 // ===== Web Worker driver (appended to the core block in the worker Blob) =====
 // Messages in: {type, id, ...}; out: {type: 'progress'|'result'|'error', id, ...}
+// Live solver state (LIVE in the core) goes out as {type: 'live', w, info}: from this worker directly
+// (w = 0), from each helper on a message port of its own (w = helper slot + 1), so the page hears
+// from the helpers while this worker is busy with a solve of its own.
 
 (function () {
-  const state = { an: null, hashes: null, db: null, screening: null, src: null };
+  const state = { an: null, hashes: null, db: null, screening: null, src: null, w: 0, livePort: null, helper: false };
   const post = m => self.postMessage(m);
   const progress = (id, frac, msg) => post({ type: 'progress', id, frac, msg });
+  LIVE.post = info => {
+    if (state.livePort) state.livePort.postMessage({ type: 'live', w: state.w, info });
+    else if (!state.helper) post({ type: 'live', w: 0, info });
+  };
 
   function toF32(a) { return a instanceof Float32Array ? a : Float32Array.from(a); }
 
@@ -13,10 +20,19 @@
   // (a worker thread with the Web Worker interface used below; desktop/compute-worker.js).
   const nodeHelpers = () => typeof self.__spawnHelper === 'function';
   const canNest = () => nodeHelpers() || (typeof Worker !== 'undefined' && typeof URL !== 'undefined' && !!state.src);
-  function spawnHelper() {
+  function spawnHelper(slot) {
     const w = nodeHelpers() ? self.__spawnHelper() : new Worker(URL.createObjectURL(new Blob([state.src], { type: 'text/javascript' })));
-    w.postMessage({ type: 'init', db: state.db, id: 0 });
+    const port = livePort();
+    w.postMessage({ type: 'init', db: state.db, id: 0, w: slot + 1, live: port }, port ? [port] : []);
     return w;
+  }
+  /** A message port whose other end is with the page (browser) or the compute process relay (desktop), for a helper's live reports. */
+  function livePort() {
+    if (nodeHelpers()) return typeof self.__livePort === 'function' ? self.__livePort() : null;
+    if (typeof MessageChannel === 'undefined') return null;
+    const ch = new MessageChannel();
+    self.postMessage({ type: 'liveport', port: ch.port1 }, [ch.port1]);
+    return ch.port2;
   }
   /** Run jobs on n helpers; onPartial(payload) per partial / result message; resolves with the result payloads. */
   function runOnHelpers(n, jobs, onPartial, onProgress) {
@@ -41,7 +57,7 @@
         w.onerror = ev => { if (!failed) { failed = true; finish(); reject(new Error(ev.message || 'helper worker error')); } };
         w.postMessage(Object.assign({ id: j + 1 }, job.msg), job.transfer || []);
       };
-      for (let i = 0; i < Math.min(n, jobs.length); i++) helpers.push(spawnHelper());
+      for (let i = 0; i < Math.min(n, jobs.length); i++) helpers.push(spawnHelper(i));
       for (const w of helpers) launch(w);
     });
   }
@@ -135,6 +151,7 @@
       preset: msg.preset, evaluations: msg.evaluations || 'full', precond: msg.precond || 'mg',
       progress: (f, m) => progress(id, f, m),
     });
+    progress(id, 0, 'Meshing and building the model');
     an.build();
     const meshInfo = an.mesh.info;
     progress(id, 0.01, 'Mesh: ' + meshInfo.nDof + ' DOF, ' + meshInfo.nElem + ' elements');
@@ -201,7 +218,10 @@
     const id = msg.id;
     try {
       switch (msg.type) {
-        case 'init': state.db = msg.db; if (msg.src) state.src = msg.src; post({ type: 'result', id, payload: { ok: true, nested: canNest() } }); break;
+        case 'init':
+          state.db = msg.db; if (msg.src) state.src = msg.src;
+          if (msg.w) { state.helper = true; state.w = msg.w; state.livePort = msg.live || null; }
+          post({ type: 'result', id, payload: { ok: true, nested: canNest() } }); break;
         case 'run': post({ type: 'result', id, payload: await runAnalysis(msg) }); break;
         case 'evalSubset': post({ type: 'result', id, payload: evalSubset(msg) }); break;
         case 'submodelRemote': post({ type: 'result', id, payload: submodelRemote(msg) }); break;

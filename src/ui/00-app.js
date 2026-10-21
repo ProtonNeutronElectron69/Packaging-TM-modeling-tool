@@ -178,10 +178,14 @@ class DesktopWorker {
 class WorkerClient {
   constructor() {
     this.worker = null; this.pending = new Map(); this.nextId = 1; this.busy = false; this.dead = false;
+    this.uid = WorkerClient.count = (WorkerClient.count || 0) + 1;  // keys this client's live reports in the progress panel
+    this.ports = [];  // helpers' live-report ports (browser), closed when the client goes idle
     this.start();
   }
+  _closePorts() { for (const p of this.ports) p.close(); this.ports = []; }
   start() {
     if (this.worker) this.worker.terminate();
+    this._closePorts();
     this.dead = false;
     this.worker = DESKTOP ? new DesktopWorker() : new Worker(URL.createObjectURL(new Blob([CORE_SRC, '\n', WORKER_SRC], { type: 'text/javascript' })));
     this.worker.onmessage = ev => this._onMessage(ev.data);
@@ -199,11 +203,14 @@ class WorkerClient {
     this.send({ type: 'init', db: MATERIALS_DB, src: DESKTOP ? null : CORE_SRC + '\n' + WORKER_SRC }).then(r => { if (r && r.nested === false) app.nestedWorkers = false; }).catch(() => {});
   }
   _onMessage(m) {
+    if (m.type === 'live') { progressLive(this.uid + ':' + m.w, m.info); return; }
+    if (m.type === 'liveport') { m.port.onmessage = ev => this._onMessage(ev.data); this.ports.push(m.port); return; }
     const p = this.pending.get(m.id);
     if (!p) return;
     if (m.type === 'progress') { if (p.onProgress) p.onProgress(m.frac, m.msg); return; }
     if (m.type === 'partial') { if (p.onPartial) p.onPartial(m.payload); return; }
     this.pending.delete(m.id);
+    if (!this.pending.size) this._closePorts();
     if (m.type === 'error') p.reject(Object.assign(new Error(m.message), { stack: m.stack }));
     else p.resolve(m.payload);
   }
@@ -224,16 +231,19 @@ class WorkerClient {
     for (const p of this.pending.values()) p.reject(new Error('cancelled'));
     this.pending.clear();
     if (this.worker) { this.worker.terminate(); this.worker = null; }
+    this._closePorts();
   }
 }
 const worker = new WorkerClient();
 const workerPool = []; // extra workers for sensitivity
 
+/** Status bar text and progress; a running job's record (src/ui/00e-progress.js) adds the dot, times and details. */
 function setStatus(text, frac) {
   $('#status-text').textContent = text;
   const pr = $('#status-progress');
   if (frac === null || frac === undefined) { pr.hidden = true; $('#btn-cancel').hidden = true; }
-  else { pr.hidden = false; pr.value = frac; $('#btn-cancel').hidden = false; }
+  else { pr.hidden = false; pr.firstChild.style.width = (100 * Math.max(0, Math.min(1, frac))).toFixed(1) + '%'; $('#btn-cancel').hidden = false; }
+  if (runProgress.job) progressStatusbar();
 }
 
 /** Estimated DOF, memory and runtime for the current configuration and preset. */

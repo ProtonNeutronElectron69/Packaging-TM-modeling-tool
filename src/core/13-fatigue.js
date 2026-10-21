@@ -940,6 +940,8 @@ class BumpSubmodel {
       loop.t.push(t); loop.T.push(T); loop.tau.push(wS ? tS / wS : NaN); loop.gamma.push(wS ? gS / wS : NaN); loop.tauSub.push(wB ? tB / wB : NaN); loop.gammaSub.push(wB ? gB / wB : NaN);
     };
     sampleLoop(25, 0);
+    const liveLabel = 'Submodel ' + this.die.name + ' bump (' + this.site.ix + ', ' + this.site.iy + ')';
+    liveReport({ event: 'start', kind: 'submodel', label: liveLabel, n: this.ndof, nsteps: nsteps - 1 });
     // stress snapshots for the cross-section view: the end of each ramp and dwell of the last cycle
     const snaps = [], snapOn = !this.opts.uniformMaterial;
     for (let k = 1; k < nsteps; k++) {
@@ -958,7 +960,7 @@ class BumpSubmodel {
           if (!res.converged || res.dMax > CONST.INELASTIC_STEP_MAX) { ok = false; break; }
         }
         if (ok) done = true;
-        else { this._restore(snap); nsub *= 2; cutbacks++; }
+        else { this._restore(snap); nsub *= 2; cutbacks++; liveReport({ event: 'cutback', kind: 'submodel', label: liveLabel, step: k, nsteps: nsteps - 1, T: T1, nsub, cutbacks }); }
       }
       // next step: keep the sub-division while increments stay above half the limit, relax otherwise
       nsubNext = dLast > 0.5 * CONST.INELASTIC_STEP_MAX ? Math.min(nsub * 2, 64) : (dLast < 0.2 * CONST.INELASTIC_STEP_MAX ? Math.max(1, nsub >> 1) : nsub);
@@ -969,6 +971,7 @@ class BumpSubmodel {
       Wcyc.die[c] = avg(dieLayer, p => p.W); Wcyc.sub[c] = avg(subLayer, p => p.W);
       Wcyc.eDie[c] = avg(dieLayer, p => p.ebar); Wcyc.eSub[c] = avg(subLayer, p => p.ebar);
       if (this.opts.progress) this.opts.progress(k / (nsteps - 1), 'Submodel step ' + k + '/' + (nsteps - 1) + ' at ' + T1.toFixed(0) + ' °C');
+      liveReport({ event: 'step', kind: 'submodel', label: liveLabel, step: k, nsteps: nsteps - 1, T: T1, cycle: c, cycles: hist.cycles, newtonPerStep: totalNewton / Math.max(steps, 1), cutbacks }, k < nsteps - 1);
     }
     const nc = hist.cycles;
     const dWdie = Wcyc.die[nc] - Wcyc.die[nc - 1], dWsub = Wcyc.sub[nc] - Wcyc.sub[nc - 1];

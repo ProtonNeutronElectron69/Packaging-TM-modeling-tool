@@ -792,6 +792,20 @@ class ICPC {
  * preconditioner across temperature evaluations, warm-starts from previous
  * solutions and logs every solve.
  */
+/**
+ * Live progress for the run details panel: the worker driver sets LIVE.post(info), and the solvers
+ * and submodels report through liveReport(). Iteration reports pass at most once per
+ * CONST.LIVE_INTERVAL_MS; events (start, rebuild, fallback, solved, cutback) always pass.
+ */
+const LIVE = { post: null, last: 0 };
+function liveReport(info, throttled) {
+  if (!LIVE.post) return;
+  const t = nowMs();
+  if (throttled && t - LIVE.last < CONST.LIVE_INTERVAL_MS) return;
+  LIVE.last = t;
+  LIVE.post(info);
+}
+
 class LinearSolver {
   constructor(model, opts) {
     this.model = model;
@@ -806,6 +820,15 @@ class LinearSolver {
     this.lastResult = null;
     this._r = new Float64Array(this.n); this._z = new Float64Array(this.n); this._p = new Float64Array(this.n); this._q = new Float64Array(this.n);
     this._bs = new Float64Array(this.n); this._x = new Float64Array(this.n);
+    this._hist = null; this._liveCtx = null;  // residual history (log10) of the running attempt, for live reports
+  }
+
+  /** Live report of the running PCG attempt: totals, the attempt's own count and a downsampled residual history. */
+  _liveIter(it, relres) {
+    const c = this._liveCtx, h = this._hist, np = Math.min(it + 1, CONST.LIVE_HIST_POINTS), hist = new Array(2 * np);
+    for (let q = 0; q < np; q++) { const i = np > 1 ? Math.round(q * it / (np - 1)) : 0; hist[2 * q] = i; hist[2 * q + 1] = h[i]; }
+    const back = it - CONST.LIVE_STALL_ITERS;
+    liveReport({ event: 'iter', label: c.label, iters: c.base + it, it, maxit: c.maxit, relres, r0: c.r0, tol: this.opts.tol, precond: this.pcKind, hist, relresBack: back >= 0 ? Math.pow(10, h[back]) : null }, true);
   }
 
   /** Jacobi scaling of the assembled values in place; returns S = diag^-1/2. */
@@ -904,14 +927,18 @@ class LinearSolver {
       this.log.push(rec); this.lastResult = rec;
       return Object.assign({ u }, rec);
     }
+    const live = !!LIVE.post;
+    if (live) liveReport({ event: 'start', label, n, precond: this.pcKind || this.opts.precond, building: !this.pc || this.needRebuild, warm: this.basis.length });
     if (!this.pc || this.needRebuild) { pcMs = this._buildPC(this.opts.precond); rebuilt = true; }
     this._warmStart(fs, x);
+    this._liveCtx = live ? { label, base: 0, maxit: this.opts.maxit, r0: null } : null;
     // iteration budget before a rebuild: twice the count right after the last build
     let budget = rebuilt ? this.opts.maxit : Math.max(2 * this.itersAtBuild, CONST.REBUILD_MIN_ITERS);
     let res = this._pcg(fs, x, tol, Math.min(budget, this.opts.maxit));
     let fallback = null, totalIters = res.iters, itersAfterBuild = rebuilt ? res.iters : 0;
     if (!res.converged && !rebuilt) {
       // stale preconditioner (e.g. a material event between evaluations): rebuild the preferred kind and continue
+      if (live) { liveReport({ event: 'rebuild', label, iters: totalIters, relres: res.relres, precond: this.opts.precond }); this._liveCtx.base = totalIters; }
       pcMs += this._buildPC(this.opts.precond); rebuilt = true;
       res = this._pcg(fs, x, tol, this.opts.maxit);
       totalIters += res.iters; itersAfterBuild = res.iters;
@@ -920,6 +947,7 @@ class LinearSolver {
       // rebuild with the other method once (keep the current iterate)
       const other = this.pcKind === 'mg' ? 'ic' : 'mg';
       fallback = { first: this.pcKind, iters: totalIters, relres: res.relres };
+      if (live) { liveReport({ event: 'fallback', label, iters: totalIters, relres: res.relres, from: this.pcKind, precond: other }); this._liveCtx.base = totalIters; }
       pcMs += this._buildPC(other); rebuilt = true;
       res = this._pcg(fs, x, tol, this.opts.maxit);
       totalIters += res.iters;
@@ -933,6 +961,8 @@ class LinearSolver {
     if (res.converged) this._storeSolution(u);
     const rec = { label, iters: res.iters, relres: res.relres, converged: res.converged, ms: nowMs() - t0, pcMs, precond: this.pcKind, rebuilt, warm: this.basis.length, iters0: res.iters0, fallback };
     this.log.push(rec); this.lastResult = rec;
+    this._liveCtx = null;
+    if (live) liveReport({ event: 'solved', label, iters: rec.iters, relres: rec.relres, converged: rec.converged, ms: rec.ms, precond: rec.precond, rebuilt, fallback: !!fallback });
     if (this.opts.log) this.opts.log(rec);
     return Object.assign({ u }, rec);
   }
@@ -948,6 +978,13 @@ class LinearSolver {
     let rnorm = norm2(r);
     const r0 = rnorm / bnorm;
     if (rnorm / bnorm < tol) return { iters: 0, relres: rnorm / bnorm, converged: true, iters0: r0 };
+    const lc = this._liveCtx;
+    let hist = null;
+    if (lc) {
+      if (!this._hist || this._hist.length < maxit + 1) this._hist = new Float32Array(Math.max(maxit, CONST.PCG_MAXIT) + 1);
+      hist = this._hist; hist[0] = Math.log10(r0);
+      if (lc.r0 === null) lc.r0 = r0;
+    }
     this.pc.apply(r, z);
     if (isC) for (let i = 0; i < n; i++) if (isC[i]) z[i] = 0;
     p.set(z);
@@ -960,6 +997,7 @@ class LinearSolver {
       axpy(alpha, p, x);
       axpy(-alpha, q, r);
       rnorm = norm2(r);
+      if (hist) { hist[it] = Math.log10(rnorm / bnorm + 1e-300); if ((it & 3) === 0) this._liveIter(it, rnorm / bnorm); }
       if (rnorm / bnorm < tol) return { iters: it, relres: rnorm / bnorm, converged: true, iters0: r0 };
       this.pc.apply(r, z);
       if (isC) for (let i = 0; i < n; i++) if (isC[i]) z[i] = 0;

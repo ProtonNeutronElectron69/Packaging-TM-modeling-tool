@@ -41,7 +41,7 @@ The same tool also comes as a Windows desktop app, for runs that need more memor
 
 ## Project status
 
-The specification in `CLAUDE.md` is implemented in full. Twenty-nine pull requests are merged on `main`:
+The specification in `CLAUDE.md` is implemented in full. Thirty pull requests are merged on `main`:
 
 | PR | Merged | Content |
 |---|---|---|
@@ -74,6 +74,7 @@ The specification in `CLAUDE.md` is implemented in full. Twenty-nine pull reques
 | [#27](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/27) | 2026-10-19 | Desktop workflow publishes a GitHub release from a manual run (release_tag and release_target inputs; the workflow's token creates the tag), used for desktop-v1.0.0 on the PR 26 merge |
 | [#28](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/28) | 2026-10-20 | Desktop app published automatically: every merge to main that changes the built page, desktop/ or the desktop workflow builds the installer and portable exe and publishes a GitHub release (next patch version after the latest desktop-v* tag, or the raised desktop/package.json version; tools/desktop-version.mjs), with the merged pull requests in its notes |
 | [#29](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/29) | 2026-10-21 | Live run progress: status-bar dot (green running, orange slow, red likely stuck), progress bar, elapsed and remaining time, and a Details panel updated once a second (steps with times, one row per worker with its PCG iterations and residual or submodel step, residual history, log); core live reports throttled to 1 s, helpers report on their own message ports; desktop compute process split into a relay thread and a driver thread; 3D view draws faces between parts so the full die, TIM and underfill volumes show |
+| [#30](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/30) | 2026-10-21 | Desktop app built and released as the portable exe only (the installer is no longer built; desktop-v1.0.0 to v1.0.2 keep theirs) |
 
 Open items are listed under "Known issues and next steps" below. The largest is performance against the Section 13 targets.
 

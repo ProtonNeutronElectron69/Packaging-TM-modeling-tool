@@ -2,7 +2,7 @@
 
 ## Project status (read this first)
 
-The build specification that follows (from "Build Prompt" onward) has been **implemented in full** and merged to `main` through twenty-nine pull requests (three of code and two of documentation for the build, then UI updates, two materials database passes, a parallel-worker setting, a legend fix, a glossary, UX refinements, a cancel fix, a cross-section stress view, material data-quality colours, a finer through-thickness mesh (later trimmed for the TIM), a submodel cross-section view with a 3D mesh overlay, a Windows desktop app with automatic releases, a live progress panel with a 3D view fix, hand-off notes and status updates requested by the user). A new session should treat it as the reference design of an existing, working application, not as a task to start.
+The build specification that follows (from "Build Prompt" onward) has been **implemented in full** and merged to `main` through thirty pull requests (three of code and two of documentation for the build, then UI updates, two materials database passes, a parallel-worker setting, a legend fix, a glossary, UX refinements, a cancel fix, a cross-section stress view, material data-quality colours, a finer through-thickness mesh (later trimmed for the TIM), a submodel cross-section view with a 3D mesh overlay, a Windows desktop app with automatic releases (now portable only), a live progress panel with a 3D view fix, hand-off notes and status updates requested by the user). A new session should treat it as the reference design of an existing, working application, not as a task to start.
 
 | PR | Merged | Content |
 |---|---|---|
@@ -35,6 +35,7 @@ The build specification that follows (from "Build Prompt" onward) has been **imp
 | #27 | 2026-10-19 | Desktop workflow publishes a GitHub release from a manual run (release_tag and release_target inputs; the workflow's token creates the tag), used for desktop-v1.0.0 on the PR 26 merge |
 | #28 | 2026-10-20 | Desktop app published automatically: every merge to main that changes the built page, desktop/ or the desktop workflow builds the installer and portable exe and publishes a GitHub release (next patch version after the latest desktop-v* tag, or the raised desktop/package.json version; tools/desktop-version.mjs), with the merged pull requests in its notes |
 | #29 | 2026-10-21 | Live run progress: status-bar dot (green running, orange slow, red likely stuck), progress bar, elapsed and remaining time, and a Details panel updated once a second (steps with times, one row per worker with its PCG iterations and residual or submodel step, residual history, log); core live reports throttled to 1 s, helpers report on their own message ports; desktop compute process split into a relay thread and a driver thread; 3D view draws faces between parts so the full die, TIM and underfill volumes show |
+| #30 | 2026-10-21 | Desktop app built and released as the portable exe only (the installer is no longer built; desktop-v1.0.0 to v1.0.2 keep theirs) |
 
 Current state on `main`:
 

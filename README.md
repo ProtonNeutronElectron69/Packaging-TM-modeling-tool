@@ -41,7 +41,7 @@ The same tool also comes as a Windows desktop app, for runs that need more memor
 
 ## Project status
 
-The specification in `CLAUDE.md` is implemented in full. Twenty-eight pull requests are merged on `main`:
+The specification in `CLAUDE.md` is implemented in full. Twenty-nine pull requests are merged on `main`:
 
 | PR | Merged | Content |
 |---|---|---|
@@ -73,6 +73,7 @@ The specification in `CLAUDE.md` is implemented in full. Twenty-eight pull reque
 | [#26](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/26) | 2026-10-19 | Windows desktop app (Electron): the page runs in its own window and every worker is a separate compute process on the computer (running the page's own core and driver, helpers as worker threads), so runs are no longer bounded by the browser's per-tab memory allowance (Edge and Brave stopped at about 10 GB); installer and portable exe built by a GitHub Actions workflow on Windows; a stopped compute process is reported with Restore analysis; bundled three.js; 3D view shows a message when WebGL is missing; desktop smoke test and compute-process check |
 | [#27](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/27) | 2026-10-19 | Desktop workflow publishes a GitHub release from a manual run (release_tag and release_target inputs; the workflow's token creates the tag), used for desktop-v1.0.0 on the PR 26 merge |
 | [#28](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/28) | 2026-10-20 | Desktop app published automatically: every merge to main that changes the built page, desktop/ or the desktop workflow builds the installer and portable exe and publishes a GitHub release (next patch version after the latest desktop-v* tag, or the raised desktop/package.json version; tools/desktop-version.mjs), with the merged pull requests in its notes |
+| [#29](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/29) | 2026-10-21 | Live run progress: status-bar dot (green running, orange slow, red likely stuck), progress bar, elapsed and remaining time, and a Details panel updated once a second (steps with times, one row per worker with its PCG iterations and residual or submodel step, residual history, log); core live reports throttled to 1 s, helpers report on their own message ports; desktop compute process split into a relay thread and a driver thread; 3D view draws faces between parts so the full die, TIM and underfill volumes show |
 
 Open items are listed under "Known issues and next steps" below. The largest is performance against the Section 13 targets.
 

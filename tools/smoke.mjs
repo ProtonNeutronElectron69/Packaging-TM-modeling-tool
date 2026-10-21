@@ -33,11 +33,16 @@ const preview = await page.evaluate(() => new Promise((resolve, reject) => {
 }));
 console.log('Draft preview:', JSON.stringify(preview));
 if (args.includes('--full')) {
+  // through startRun, as the Run button does, sampling the progress record (status dot, live worker rows) once a second
   const full = await page.evaluate(([preset, workers]) => new Promise((resolve, reject) => {
-    const t = performance.now();
-    worker.send({ type: 'run', cfg: app.cfg, preset, evaluations: 'full', workers }, (f, m) => {}).then(r => { app.results = r; app.currentFields = r.at25; app.screening = r.screening; resolve({ ms: performance.now() - t, dof: r.meshInfo.nDof, workers: r.workers, nested: r.nested, w25: r.at25.warpage.signed * 1000, solves: r.solverLog.length, iters: r.solverLog.map(x => x.iters), screeningMs: r.screening ? r.screening[0].ms : null, timings: r.timings }); }).catch(e => reject(e.message));
+    const t = performance.now(), live = { maxRows: 0, reports: 0, colours: {}, steps: '' };
+    const sample = setInterval(() => { const j = runProgress.job; if (!j) return; live.maxRows = Math.max(live.maxRows, j.rows.size); live.reports = j.reports; live.colours[j.colour] = (live.colours[j.colour] || 0) + 1; live.steps = j.steps.map(s => s.state[0]).join(''); if (j.colour !== 'green') live.reason = j.reason; }, 1000);
+    startRun({ type: 'run', cfg: app.cfg, preset, evaluations: 'full', workers }, 'Full global analysis').then(r => { clearInterval(sample); app.results = r; app.currentFields = r.at25; app.screening = r.screening; resolve({ ms: performance.now() - t, dof: r.meshInfo.nDof, workers: r.workers, nested: r.nested, w25: r.at25.warpage.signed * 1000, solves: r.solverLog.length, iters: r.solverLog.map(x => x.iters), screeningMs: r.screening ? r.screening[0].ms : null, timings: r.timings, live, dotHidden: document.getElementById('status-dot').hidden }); }).catch(e => { clearInterval(sample); reject(e.message); });
   }), [args.includes('--standard') ? 'standard' : 'draft', workers]);
   console.log('full analysis:', JSON.stringify(full));
+  const lv = full.live;
+  console.log('progress: ' + lv.reports + ' live reports from up to ' + lv.maxRows + ' workers, dot ' + JSON.stringify(lv.colours) + (lv.reason ? ' (last warning: ' + lv.reason + ')' : '') + ', steps ' + lv.steps);
+  if (!(lv.reports > 0) || (full.nested && full.workers > 1 && lv.maxRows < 2) || !full.dotHidden) errors.push('error: progress record: ' + JSON.stringify(lv) + ', dot hidden after the run: ' + full.dotHidden);
   if (args.includes('--submodels')) {
     const sub = await page.evaluate((workers) => new Promise((resolve, reject) => {
       const t = performance.now();

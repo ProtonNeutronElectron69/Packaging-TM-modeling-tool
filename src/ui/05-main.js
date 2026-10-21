@@ -86,6 +86,9 @@ function init() {
   $('#modal-close').addEventListener('click', closeModal);
   $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
   $('#btn-cancel').onclick = defaultCancel;
+  $('#btn-details').setAttribute('data-tip', TIPS.progDetails);
+  $('#btn-details').onclick = toggleProgressPanel;
+  $('#status-dot').onclick = toggleProgressPanel;
   window.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
   renderAll();
   setStatus('Ready. Load a preset or edit the package, then run the analysis in step 6.', null);

@@ -501,11 +501,15 @@ function sectionStress(model, geom, cut, T, stage, u) {
   return out;
 }
 
-/** Boundary quads of the structured mesh for the 3D view: [n0 n1 n2 n3] per face plus part id. */
+/**
+ * Surface quads of every part for the 3D view: [n0 n1 n2 n3] per face plus part id.
+ * A face is drawn where the cell faces a void cell or a cell of another part, so each
+ * part is a closed surface and hiding one part shows the faces of the parts it covered.
+ */
 function boundaryFaces(mesh) {
   const nx = mesh.nx, ny = mesh.ny, nz = mesh.nz, ncy = ny - 1, ncz = nz - 1;
   const faces = [], parts = [], elems = [];
-  const has = (i, j, k) => (i < 0 || j < 0 || k < 0 || i >= nx - 1 || j >= ncy || k >= ncz) ? false : mesh.cellElems[2 * ((i * ncy + j) * ncz + k)] >= 0;
+  const partOf = (i, j, k) => { if (i < 0 || j < 0 || k < 0 || i >= nx - 1 || j >= ncy || k >= ncz) return -1; const e = mesh.cellElems[2 * ((i * ncy + j) * ncz + k)]; return e < 0 ? -1 : mesh.ePart[e]; };
   const nid = (i, j, k) => mesh.nodeId[(i * ny + j) * nz + k];
   const dirs = [[-1, 0, 0], [1, 0, 0], [0, -1, 0], [0, 1, 0], [0, 0, -1], [0, 0, 1]];
   for (let e = 0; e < mesh.ne; e++) {
@@ -515,7 +519,7 @@ function boundaryFaces(mesh) {
     if (mesh.cellElems[2 * c] !== e) continue;
     for (let dd = 0; dd < 6; dd++) {
       const [di, dj, dk] = dirs[dd];
-      if (has(i + di, j + dj, k + dk)) continue;
+      if (partOf(i + di, j + dj, k + dk) === mesh.ePart[e]) continue;
       let f;
       switch (dd) {
         case 0: f = [nid(i, j, k), nid(i, j, k + 1), nid(i, j + 1, k + 1), nid(i, j + 1, k)]; break;

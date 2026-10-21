@@ -142,9 +142,10 @@ function startRun(msg, label, opts) {
   const job = { label, cancel: side ? () => client.stop() : null };
   app.job = job;
   const t0 = performance.now();
+  progressBegin(label, { kind: msg.type === 'run' ? 'analysis' : msg.type, msg, preset: msg.preset ? (C.CONST.MESH_PRESETS[msg.preset] || { label: msg.preset }).label : (msg.type === 'submodels' ? (msg.nxy + ' x ' + msg.nxy + ' x ' + msg.nz + ' voxels') : '') });
   setStatus(label + ' starting…', 0);
-  const p = client.send(msg, (frac, m) => { if (app.job === job) setStatus(label + ': ' + m, frac); }, opts.onPartial);
-  const settle = () => { if (side) client.stop(); if (app.job !== job) return false; app.job = null; return true; };
+  const p = client.send(msg, (frac, m) => { if (app.job === job) { progressMsg(frac, m); setStatus(label + ': ' + m, frac); } }, opts.onPartial);
+  const settle = () => { if (side) client.stop(); if (app.job !== job) return false; app.job = null; progressEnd(); return true; };
   p.then(() => { if (settle()) setStatus(label + ' done in ' + fmt((performance.now() - t0) / 1000, 1) + ' s', null); }, () => { if (settle()) setStatus('Ready', null); });
   return p;
 }
@@ -155,6 +156,7 @@ function startRun(msg, label, opts) {
 function cancelRunning() {
   const job = app.job;
   app.job = null;
+  progressEnd();
   if (job && job.cancel) { job.cancel(); return false; }
   if (!job && !worker.pending.size) return false;  // the main worker is idle: nothing to cancel, keep its analysis
   worker.cancel();
@@ -597,17 +599,19 @@ function runSensitivity(inputs, nWorkers) {
   const results = {};
   let next = 0, done = 0;
   const t0 = performance.now();
-  setStatus('Sensitivity: 0/' + cases.length, 0);
   if (app.job) cancelRunning();
+  progressBegin('Sensitivity', { kind: 'sensitivity', preset: 'Draft, ' + nWorkers + ' parallel case' + (nWorkers > 1 ? 's' : '') });
+  setStatus('Sensitivity: 0/' + cases.length, 0);
+  progressMsg(0, 'Sensitivity: 0/' + cases.length);
   let stopped = false;  // cases rejected by a cancel are dropped, not reported as failures
   const job = { label: 'sensitivity', cancel: () => { stopped = true; for (const p of pool) p.stop(); } };
   app.job = job;
-  const cancelAll = () => { job.cancel(); if (app.job === job) app.job = null; };
+  const cancelAll = () => { job.cancel(); if (app.job === job) { app.job = null; progressEnd(); } };
   return new Promise((resolve) => {
     const launch = w => {
       if (next >= cases.length) return;
       const c = cases[next++];
-      w.send({ type: 'sensitivityCase', cfg: c.cfg }).then(r => { if (stopped) return; results[c.id + (c.side ? ':' + c.side : '')] = { r, c }; done++; setStatus('Sensitivity: ' + done + '/' + cases.length, done / cases.length); if (done === cases.length) finish(); else launch(w); }).catch(e => { if (stopped) return; toast('Sensitivity case failed: ' + e.message, 'error'); done++; if (done === cases.length) finish(); else launch(w); });
+      w.send({ type: 'sensitivityCase', cfg: c.cfg }).then(r => { if (stopped) return; results[c.id + (c.side ? ':' + c.side : '')] = { r, c }; done++; progressMsg(done / cases.length, 'Sensitivity: ' + done + '/' + cases.length); setStatus('Sensitivity: ' + done + '/' + cases.length, done / cases.length); if (done === cases.length) finish(); else launch(w); }).catch(e => { if (stopped) return; toast('Sensitivity case failed: ' + e.message, 'error'); done++; if (done === cases.length) finish(); else launch(w); });
     };
     const finish = () => {
       cancelAll();

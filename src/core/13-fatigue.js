@@ -142,6 +142,29 @@ class AnandPoint {
     return d;
   }
 
+  /**
+   * Step of a free-standing solder column (screening, Section 9.1 as amended):
+   * the axial and transverse shear strains (zz, yz, zx of eps) are prescribed and
+   * the in-plane strains (xx, yy, xy) are found by Newton on the consistent
+   * tangent so that the in-plane stresses vanish, since a separate joint carries
+   * no in-plane membrane force. eps holds the in-plane guess on entry and the
+   * solution on return; out needs sig and D. Returns the plastic increment.
+   */
+  stepColumn(eps, T, dt, out, k) {
+    const P = [0, 1, 3], A = this._colA || (this._colA = new Float64Array(9)), Ai = this._colAi || (this._colAi = new Float64Array(9));
+    let d = 0;
+    for (let it = 0; it < CONST.COLUMN_NEWTON_MAXIT; it++) {
+      d = this.step(eps, T, dt, out, true, k);
+      const r0 = out.sig[0], r1 = out.sig[1], r2 = out.sig[3];
+      const ref = Math.max(1, Math.abs(out.sig[2]), Math.abs(out.sig[4]), Math.abs(out.sig[5]));
+      if (Math.max(Math.abs(r0), Math.abs(r1), Math.abs(r2)) < CONST.COLUMN_STRESS_TOL * ref) break;
+      for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) A[3 * r + c] = out.D[6 * P[r] + P[c]];
+      inv3(A, Ai);
+      for (let r = 0; r < 3; r++) eps[P[r]] -= Ai[3 * r] * r0 + Ai[3 * r + 1] * r1 + Ai[3 * r + 2] * r2;
+    }
+    return d;
+  }
+
   /** ds/d(delta ebar_p) from the implicit evolution equation. */
   _dsdd(d, s, dt, expQ) {
     if (d <= 0) return 0;
@@ -249,10 +272,11 @@ function screeningSites(d) {
 
 /**
  * Bump-layer total strain (engineering) at every site for every cycling
- * sample temperature of the analysis: Float64Array(nsites x ntemps x 6).
+ * sample temperature of the analysis: Float64Array(nsites x ntemps x 6), from
+ * the element DOFs marched along the thermal path (Analysis.qAlong).
  */
 function siteStrainTable(an, dieIdx, sites, temps) {
-  const mesh = an.mesh, model = an.model, g = mesh.geom, st = an.finalStage;
+  const mesh = an.mesh, model = an.model, g = mesh.geom;
   const n = sites.x.length, nt = temps.length;
   const out = new Float64Array(n * nt * 6).fill(NaN);
   const zmid = g.zt + 0.5 * g.so, kb = findInterval(mesh.zs, zmid);
@@ -264,12 +288,13 @@ function siteStrainTable(an, dieIdx, sites, temps) {
     if (!byElem.has(e)) byElem.set(e, []);
     byElem.get(e).push(q);
   }
-  const qv = new Float64Array(33), eps = new Float64Array(6);
-  for (let ti = 0; ti < nt; ti++) {
-    const u = an.fields.get(temps[ti]);
-    for (const [e, list] of byElem) {
-      model.elementState(e, temps[ti], st, u, qv);
-      const [hx, hy, hz] = model.elementDims(e);
+  const eps = new Float64Array(6);
+  for (const [e, list] of byElem) {
+    const qs = an.qAlong(e, temps);
+    const [hx, hy, hz] = model.elementDims(e);
+    for (let ti = 0; ti < nt; ti++) {
+      const qv = qs.get(temps[ti]);
+      if (!qv) continue;
       for (const q of list) {
         const [xi, eta, zeta] = naturalCoords(mesh, e, sites.x[q], sites.y[q], zmid);
         boxStrainAt(hx, hy, hz, qv, qv.subarray(24), xi, eta, zeta, eps);
@@ -281,9 +306,14 @@ function siteStrainTable(an, dieIdx, sites, temps) {
 }
 
 /**
- * Screening (Section 9.1): Anand integration at every bump site through the
- * cycle from the interpolated bump-layer strain history. Returns per-site
- * stabilized-cycle inelastic work density and equivalent strain range.
+ * Screening (Section 9.1, as amended): Anand integration at every bump site
+ * through the cycle, the joint seen as a free-standing column between its two
+ * pads. Its axial strain (the bump layer's ezz minus the solder thermal strain)
+ * and transverse shear strains (gyz, gzx) follow the global bump layer, while
+ * its in-plane stresses are held at zero (AnandPoint.stepColumn), so the joint
+ * is not forced to take the die's in-plane strain as an iso-strain point would.
+ * Returns per-site stabilized-cycle inelastic work density and equivalent
+ * strain range.
  */
 function screenBumps(an, dieIdx, opts) {
   const cfg = an.cfg, g = an.mesh.geom, d = g.dies[dieIdx];
@@ -296,8 +326,9 @@ function screenBumps(an, dieIdx, opts) {
   const n = sites.x.length, nt = temps.length, nsteps = hist.t.length;
   const dW = new Float64Array(n).fill(NaN), dE = new Float64Array(n).fill(NaN), stab = new Float64Array(n).fill(NaN);
   const pt = new AnandPoint(solder);
-  const out = { sig: new Float64Array(6) };
-  const eps = new Float64Array(6), e25 = new Float64Array(6);
+  const out = { sig: new Float64Array(6), D: new Float64Array(36) };
+  const eps = new Float64Array(6), e25 = new Float64Array(6), prevZ = { v: 0 };
+  const nu = pt.nu;
   const i25 = temps.indexOf(25);
   // per-step interpolation weights in the temperature table
   const wi = new Int32Array(nsteps), wt = new Float64Array(nsteps), Fth = new Float64Array(nsteps), kc = [];
@@ -314,11 +345,15 @@ function screenBumps(an, dieIdx, opts) {
     pt.reset();
     for (let c = 0; c < 6; c++) e25[c] = i25 >= 0 ? table[base + i25 * 6 + c] : 0;
     Wc.fill(0); Ec.fill(0);
+    eps.fill(0); prevZ.v = 0;
     for (let k = 1; k < nsteps; k++) {
       const a = base + wi[k] * 6, b = a + 6, t = wt[k];
-      for (let c = 0; c < 6; c++) eps[c] = table[a + c] + t * (table[b + c] - table[a + c]) - e25[c];
-      eps[0] -= Fth[k]; eps[1] -= Fth[k]; eps[2] -= Fth[k];
-      pt.step(eps, hist.T[k], kc[k].dt, out, false, kc[k]);
+      const lay = c => table[a + c] + t * (table[b + c] - table[a + c]) - e25[c];
+      const ez = lay(2) - Fth[k];
+      // in-plane guess: last step's strains plus the elastic lateral contraction of the axial increment
+      eps[0] -= nu * (ez - prevZ.v); eps[1] -= nu * (ez - prevZ.v);
+      eps[2] = ez; eps[4] = lay(4); eps[5] = lay(5); prevZ.v = ez;
+      pt.stepColumn(eps, hist.T[k], kc[k].dt, out, kc[k]);
       pt.commit();
       const cyc = hist.cycle[k];
       Wc[cyc] = pt.W; Ec[cyc] = pt.ebar;
@@ -430,7 +465,7 @@ class BumpSubmodel {
     this.siD = siliconD(findMaterial(this.lib, 'si'), d.si);
     this.siF = materialTables(findMaterial(this.lib, 'si')).F;
     this._prepareSubstrateSlice(g);
-    if (this.opts.uniformMaterial) { this._prepareHomogenizedLayer(d); this.topSection = buildBandSection(g.sub.bands[g.sub.bands.length - 1], this.lib, CONST.NU_MAX_GLOBAL); }
+    if (this.opts.uniformMaterial) this.topSection = buildBandSection(g.sub.bands[g.sub.bands.length - 1], this.lib, CONST.NU_MAX_GLOBAL);
     // Gauss-point material states
     this.anand = [];
     this.gpMat = new Int8Array(mesh.ne * 8);
@@ -444,6 +479,9 @@ class BumpSubmodel {
     this._boundary();
     this._bbarCache();
     this.u = new Float64Array(this.ndof);
+    // committed state of the elastic parts (incremental): temperature, displacement, Gauss-point stress, internal force
+    this.Tn = 25; this.uN = new Float64Array(this.ndof);
+    this.sigE = new Float64Array(mesh.ne * 48); this.eFn = new Float64Array(mesh.ne * 24);
     this.log = [];
   }
 
@@ -516,21 +554,6 @@ class BumpSubmodel {
     this.subF = F;
   }
 
-  /** V7 mode: every element uses the Voigt-superposed bump-layer phases. */
-  _prepareHomogenizedLayer(d) {
-    const fb = d.density;
-    this.homD = new Float64Array(TGRID_N * 36); this.homS0 = new Float64Array(TGRID_N * 6);
-    const st = materialTables(this.solderMat), ut = this.ufTables;
-    const Ds = new Float64Array(36), Du = new Float64Array(36);
-    for (let i = 0; i < TGRID_N; i++) {
-      isoD(st.E[i], st.nu, CONST.NU_MAX_GLOBAL, Ds); isoD(ut.E[i], ut.nu, CONST.NU_MAX_GLOBAL, Du);
-      for (let q = 0; q < 36; q++) this.homD[36 * i + q] = fb * Ds[q] + (1 - fb) * Du[q];
-      // thermal stress weights: sum of phase D x phase thermal strain
-      const fs = st.F[i] - gridAt(st.F, 25), fu = ut.F[i] - gridAt(ut.F, 25);
-      for (let r = 0; r < 6; r++) this.homS0[6 * i + r] = fb * (Ds[r * 6] + Ds[r * 6 + 1] + Ds[r * 6 + 2]) * fs + (1 - fb) * (Du[r * 6] + Du[r * 6 + 1] + Du[r * 6 + 2]) * fu;
-    }
-  }
-
   /** Boundary nodes and their global-element interpolation data. */
   _boundary() {
     const m = this.mesh, gm = this.an.mesh, geom = gm.geom;
@@ -546,7 +569,7 @@ class BumpSubmodel {
     this.bNodes = Int32Array.from(list);
     // global element and trilinear weights for each boundary node
     const nb = list.length;
-    this.bElem = new Int32Array(nb), this.bN = new Float64Array(nb * 8), this.bNat = new Float64Array(nb * 3);
+    this.bElem = new Int32Array(nb), this.bN = new Float64Array(nb * 8);
     const N = new Float64Array(8);
     for (let q = 0; q < nb; q++) {
       const n = list[q];
@@ -561,26 +584,7 @@ class BumpSubmodel {
       const [xi, eta, zeta] = naturalCoords(gm, e, x, y, z);
       hexN(xi, eta, zeta, N);
       this.bN.set(N, 8 * q);
-      this.bNat[3 * q] = xi; this.bNat[3 * q + 1] = eta; this.bNat[3 * q + 2] = zeta;
     }
-    this.bElems = Array.from(new Set(Array.from(this.bElem)));
-  }
-
-  /** Incompatible-mode parameters (9 per element) of the global solution at T for the boundary elements. */
-  _alphaAt(T) {
-    const an = this.an, m = an.model, st = an.finalStage;
-    const ts = an.temps.all;
-    const i = findInterval(ts, T);
-    const t = clamp((T - ts[i]) / (ts[i + 1] - ts[i]), 0, 1);
-    const out = new Map(), q = new Float64Array(33);
-    for (const e of this.bElems) {
-      const a = new Float64Array(9);
-      m.elementState(e, ts[i], st, an.fields.get(ts[i]), q);
-      for (let k = 0; k < 9; k++) a[k] = (1 - t) * q[24 + k];
-      if (t > 0) { m.elementState(e, ts[i + 1], st, an.fields.get(ts[i + 1]), q); for (let k = 0; k < 9; k++) a[k] += t * q[24 + k]; }
-      out.set(e, a);
-    }
-    return out;
   }
 
   /** Prescribed boundary displacement change u(T) - u(25) from the global fields. */
@@ -588,11 +592,7 @@ class BumpSubmodel {
     const an = this.an, gm = an.mesh;
     const uT = an.fieldAt(T, this._uT), u25 = an.fields.get(25);
     this._uT = uT;
-    // trilinear nodal interpolation within the global elements (Section 9.3); the elements' incompatible
-    // modes can be added with opts.withBubbles (it does not improve the V7 consistency, see the report)
-    const bub = this.opts.withBubbles;
-    if (bub && !this._alpha25) this._alpha25 = this._alphaAt(25);
-    const aT = bub ? this._alphaAt(T) : null, a25 = this._alpha25;
+    // trilinear nodal interpolation within the global elements (Section 9.3)
     for (let q = 0; q < this.bNodes.length; q++) {
       const n = this.bNodes[q], e = this.bElem[q];
       let ux = 0, uy = 0, uz = 0;
@@ -600,57 +600,75 @@ class BumpSubmodel {
         const gn = gm.conn[8 * e + a], w = this.bN[8 * q + a];
         ux += w * (uT[3 * gn] - u25[3 * gn]); uy += w * (uT[3 * gn + 1] - u25[3 * gn + 1]); uz += w * (uT[3 * gn + 2] - u25[3 * gn + 2]);
       }
-      if (bub) {
-        const xi = this.bNat[3 * q], eta = this.bNat[3 * q + 1], zeta = this.bNat[3 * q + 2];
-        const P = [1 - xi * xi, 1 - eta * eta, 1 - zeta * zeta];
-        const al = aT.get(e), b25 = a25.get(e);
-        for (let k = 0; k < 3; k++) { ux += P[k] * (al[3 * k] - b25[3 * k]); uy += P[k] * (al[3 * k + 1] - b25[3 * k + 1]); uz += P[k] * (al[3 * k + 2] - b25[3 * k + 2]); }
-      }
       u[3 * n] = ux; u[3 * n + 1] = uy; u[3 * n + 2] = uz;
     }
   }
 
-  /** Elastic material data at T for a group: D (36) and thermal strain vector (3 normal). */
-  _elastic(mat, T, D, eth) {
-    const MAT = this.MAT;
+  /**
+   * Elastic material data of one step from Ta to Tb (incremental, Section 6.5 as
+   * amended): stiffness D (36) at the step midpoint and the thermal stress
+   * increment sth (6) = D [F(Tb) - F(Ta)], summed over the phases where the
+   * bump layer is homogenized (V7).
+   */
+  _elastic(mat, Ta, Tb, D, sth) {
+    const MAT = this.MAT, Tm = 0.5 * (Ta + Tb), dF = this._dF || (this._dF = new Float64Array(3));
+    const fromStrain = () => { for (let r = 0; r < 6; r++) sth[r] = D[r * 6] * dF[0] + D[r * 6 + 1] * dF[1] + D[r * 6 + 2] * dF[2]; };
+    const isoStep = (tab, nuMax) => { isoD(gridAt(tab.E, Tm), tab.nu, nuMax, D); dF[0] = dF[1] = dF[2] = gridAt(tab.F, Tb) - gridAt(tab.F, Ta); fromStrain(); };
     if (this.opts.uniformMaterial && mat === MAT.UF) {
-      let x = clamp(T - CONST.TGRID_MIN, 0, TGRID_N - 1); const i = Math.min(Math.floor(x), TGRID_N - 2), t = x - i;
-      for (let q = 0; q < 36; q++) D[q] = this.homD[36 * i + q] + t * (this.homD[36 * (i + 1) + q] - this.homD[36 * i + q]);
-      for (let r = 0; r < 6; r++) eth[r] = this.homS0[6 * i + r] + t * (this.homS0[6 * (i + 1) + r] - this.homS0[6 * i + r]);
-      return 'stress';
+      // the global bump-layer cell: solder columns (columnD) and underfill superposed with volume fractions fb, 1 - fb
+      const fb = this.die.density, st = materialTables(this.solderMat), ut = this.ufTables;
+      const Ds = columnD(gridAt(st.E, Tm), st.nu, this._Ds || (this._Ds = new Float64Array(36)));
+      const Du = isoD(gridAt(ut.E, Tm), ut.nu, CONST.NU_MAX_GLOBAL, this._Du || (this._Du = new Float64Array(36)));
+      const fs = gridAt(st.F, Tb) - gridAt(st.F, Ta), fu = gridAt(ut.F, Tb) - gridAt(ut.F, Ta);
+      for (let q = 0; q < 36; q++) D[q] = fb * Ds[q] + (1 - fb) * Du[q];
+      for (let r = 0; r < 6; r++) sth[r] = fb * (Ds[r * 6] + Ds[r * 6 + 1] + Ds[r * 6 + 2]) * fs + (1 - fb) * (Du[r * 6] + Du[r * 6 + 1] + Du[r * 6 + 2]) * fu;
+      return;
     }
-    if (mat === MAT.SI) { D.set(this.siD); const f = gridAt(this.siF, T) - gridAt(this.siF, 25); eth[0] = eth[1] = eth[2] = f; return 'strain'; }
-    if (mat === MAT.UF) { isoD(gridAt(this.ufTables.E, T), this.ufTables.nu, CONST.NU_MAX_SUBMODEL, D); const f = gridAt(this.ufTables.F, T) - gridAt(this.ufTables.F, 25); eth[0] = eth[1] = eth[2] = f; return 'strain'; }
-    if (mat === MAT.SOLDER) { const st = materialTables(this.solderMat); isoD(gridAt(st.E, T), st.nu, CONST.NU_MAX_SUBMODEL, D); const f = gridAt(st.F, T) - gridAt(st.F, 25); eth[0] = eth[1] = eth[2] = f; return 'strain'; }
+    if (mat === MAT.SI) { D.set(this.siD); dF[0] = dF[1] = dF[2] = gridAt(this.siF, Tb) - gridAt(this.siF, Ta); fromStrain(); return; }
+    if (mat === MAT.UF) { isoStep(this.ufTables, CONST.NU_MAX_SUBMODEL); return; }
+    if (mat === MAT.SOLDER) { isoStep(materialTables(this.solderMat), CONST.NU_MAX_SUBMODEL); return; }
     // substrate slice
+    let x = clamp(Tm - CONST.TGRID_MIN, 0, TGRID_N - 1); const i = Math.min(Math.floor(x), TGRID_N - 2), t = x - i;
     if (this.opts.uniformMaterial && this._subZ !== undefined) {
       // consistency mode: the global band's own sub-layer stiffness at this height
       const sec = this.topSection;
       let sl = sec.ns - 1;
       for (let q2 = 0; q2 < sec.ns; q2++) if (this._subZ <= sec.subZ[q2][1] + 1e-12) { sl = q2; break; }
-      let x = clamp(T - CONST.TGRID_MIN, 0, TGRID_N - 1); const i = Math.min(Math.floor(x), TGRID_N - 2), t = x - i;
-      const da = (sl * TGRID_N + i) * 36, db = da + 36;
-      for (let q = 0; q < 36; q++) D[q] = sec.D[da + q] + t * (sec.D[db + q] - sec.D[da + q]);
-      const fb = sl * TGRID_N * 3, Fs = sec.F.subarray(fb, fb + TGRID_N * 3);
-      for (let c = 0; c < 3; c++) eth[c] = gridAt(Fs, T, 3, c) - gridAt(Fs, 25, 3, c);
+      sectionSubD(sec, sl, Tm, D);
+      sectionSubDF(sec, sl, Ta, Tb, dF);
       // through-thickness response of the whole band (one thickness strain shared by its sub-layers in the
       // global element): Voigt thickness modulus and Turner-weighted thermal strain over the band
       let Ez = 0, EzF = 0, tt = 0;
+      const Dq = this._Dq || (this._Dq = new Float64Array(36)), dFq = this._dFq || (this._dFq = new Float64Array(3));
       for (let q2 = 0; q2 < sec.ns; q2++) {
         const ts = sec.subZ[q2][1] - sec.subZ[q2][0];
-        const d2 = (q2 * TGRID_N + i) * 36, d3 = d2 + 36;
-        const E = sec.D[d2 + 14] + t * (sec.D[d3 + 14] - sec.D[d2 + 14]);
-        const F2 = sec.F.subarray(q2 * TGRID_N * 3, (q2 + 1) * TGRID_N * 3);
-        const f = gridAt(F2, T, 3, 2) - gridAt(F2, 25, 3, 2);
-        Ez += ts * E; EzF += ts * E * f; tt += ts;
+        sectionSubD(sec, q2, Tm, Dq); sectionSubDF(sec, q2, Ta, Tb, dFq);
+        Ez += ts * Dq[14]; EzF += ts * Dq[14] * dFq[2]; tt += ts;
       }
-      D[14] = Ez / tt; eth[2] = EzF / Ez;
-      return 'strain';
+      D[14] = Ez / tt; dF[2] = EzF / Ez;
+      fromStrain();
+      return;
     }
-    let x = clamp(T - CONST.TGRID_MIN, 0, TGRID_N - 1); const i = Math.min(Math.floor(x), TGRID_N - 2), t = x - i;
     for (let q = 0; q < 36; q++) D[q] = this.subD[36 * i + q] + t * (this.subD[36 * (i + 1) + q] - this.subD[36 * i + q]);
-    for (let c = 0; c < 3; c++) eth[c] = gridAt(this.subF, T, 3, c) - gridAt(this.subF, 25, 3, c);
-    return 'strain';
+    for (let c = 0; c < 3; c++) dF[c] = gridAt(this.subF, Tb, 3, c) - gridAt(this.subF, Ta, 3, c);
+    fromStrain();
+  }
+
+  /** Key and data (D, sth) of an elastic element's material for the current step from Tn to T (cached per step). */
+  _elasRec(e, T) {
+    const m = this.mesh, mat = m.eGroup[e], k = m.eIJK[3 * e + 2];
+    const perElement = this.opts.uniformMaterial && mat === this.MAT.SUB;
+    const key = perElement ? 'sub' + k : mat;
+    const elas = this._elasMap || (this._elasMap = new Map());
+    let rec = elas.get(key);
+    if (!rec) {
+      rec = { D: new Float64Array(36), sth: new Float64Array(6) };
+      this._subZ = perElement ? 0.5 * (m.zs[k] + m.zs[k + 1]) : undefined;
+      this._elastic(mat, this.Tn, T, rec.D, rec.sth);
+      this._subZ = undefined;
+      elas.set(key, rec);
+    }
+    return rec;
   }
 
   /**
@@ -659,66 +677,45 @@ class BumpSubmodel {
    * equivalent plastic strain increment over the solder Gauss points.
    */
   assemble(T, dt, u, rint, wantK) {
-    const m = this.mesh, MAT = this.MAT;
-    const val = this.val;
+    const m = this.mesh, val = this.val;
     if (wantK) val.fill(0);
     rint.fill(0);
-    const buf = this._buf || (this._buf = { D: new Float64Array(36), eth: new Float64Array(6), eps: new Float64Array(6), epsM: new Float64Array(6), sig: new Float64Array(6), ue: new Float64Array(24), Ke: new Float64Array(576), fe: new Float64Array(24), DB: new Float64Array(144), Dt: new Float64Array(36), elas: new Map() });
-    const { D, eth, eps, epsM, sig, ue, Ke, fe, DB } = buf;
+    const buf = this._buf || (this._buf = { D: new Float64Array(36), eps: new Float64Array(6), epsM: new Float64Array(6), sig: new Float64Array(6), ue: new Float64Array(24), Ke: new Float64Array(576), fe: new Float64Array(24), DB: new Float64Array(144), Dt: new Float64Array(36) });
+    const { D, eps, epsM, sig, ue, Ke, fe, DB } = buf;
     const out = { sig, D: buf.Dt };
-    // elastic material data per group at this T (cached per call)
-    const elas = buf.elas; elas.clear();
+    // elastic element matrices of this step (from the committed T_n to T), rebuilt when the step changes
+    const stepKey = this.Tn + '|' + T, fresh = this.eStepKey !== stepKey;
+    if (fresh && this._elasMap) this._elasMap.clear();
     const kAn = this.anandConst || (this.anandConst = new AnandPoint(this.solderMat));
     const kc = kAn.stepConstants(T, dt);
     const fSolder = kAn.thermalStrain(T) - kAn.thermalStrain(25);
     let dMax = 0;
     for (let e = 0; e < m.ne; e++) {
-      const mat = m.eGroup[e];
       const bb = this.bbList[this.eBb[e]], Ball = bb.B, w = bb.w;
       for (let a = 0; a < 8; a++) { const n = m.conn[8 * e + a]; ue[3 * a] = u[3 * n]; ue[3 * a + 1] = u[3 * n + 1]; ue[3 * a + 2] = u[3 * n + 2]; }
       Ke.fill(0); fe.fill(0);
       const isAnand = this.anand[e * 8] !== null;
-      let kind = null;
       if (!isAnand) {
-        // elastic element: K_e and the thermal load depend on T only; cache them per temperature and
-        // reuse across the Newton iterations of a step (internal force = K_e u_e - f_th)
-        const cacheOk = this.eCacheT === T;
-        if (cacheOk && !wantK) {
-          const Kc = this.eK.subarray(576 * e, 576 * e + 576), fc = this.eF.subarray(24 * e, 24 * e + 24);
-          for (let a = 0; a < 24; a++) { let sum = -fc[a]; const ro = a * 24; for (let b = 0; b < 24; b++) sum += Kc[ro + b] * ue[b]; fe[a] = sum; }
-          for (let a = 0; a < 8; a++) { const n = m.conn[8 * e + a]; rint[3 * n] += fe[3 * a]; rint[3 * n + 1] += fe[3 * a + 1]; rint[3 * n + 2] += fe[3 * a + 2]; }
-          continue;
-        }
-        if (cacheOk && wantK) {
-          const Kc = this.eK.subarray(576 * e, 576 * e + 576), fc = this.eF.subarray(24 * e, 24 * e + 24);
-          for (let a = 0; a < 24; a++) { let sum = -fc[a]; const ro = a * 24; for (let b = 0; b < 24; b++) sum += Kc[ro + b] * ue[b]; fe[a] = sum; }
-          for (let a = 0; a < 8; a++) { const n = m.conn[8 * e + a]; rint[3 * n] += fe[3 * a]; rint[3 * n + 1] += fe[3 * a + 1]; rint[3 * n + 2] += fe[3 * a + 2]; }
-          for (let a = 0; a < 8; a++) for (let b = 0; b < 8; b++) {
-            const kk = this.bmap[(e * 8 + a) * 8 + b], v = 9 * kk;
-            for (let p = 0; p < 3; p++) for (let q = 0; q < 3; q++) val[v + 3 * p + q] += Kc[(3 * a + p) * 24 + 3 * b + q];
-          }
-          continue;
-        }
-        const k = m.eIJK[3 * e + 2];
-        const perElement = this.opts.uniformMaterial && mat === MAT.SUB;
-        const key = perElement ? 'sub' + k : mat;
-        let rec = elas.get(key);
-        if (!rec) { rec = { D: new Float64Array(36), eth: new Float64Array(6) }; this._subZ = perElement ? 0.5 * (m.zs[k] + m.zs[k + 1]) : undefined; rec.kind = this._elastic(mat, T, rec.D, rec.eth); this._subZ = undefined; elas.set(key, rec); }
-        D.set(rec.D); eth.set(rec.eth); kind = rec.kind;
-        // build K_e and f_th once for this T (independent of u), then the internal force from them
+        // elastic element, incremental: sigma = sigma_n + D(Tm) B (u - u_n) - sth with the committed state at
+        // T_n. K_e and the thermal load f_th depend on the step (T_n, T) only, so they are built once per step and
+        // reused across its Newton iterations: f_int = f_n + K_e (u_e - u_n,e) - f_th
         if (!this.eK) { this.eK = new Float64Array(576 * m.ne); this.eF = new Float64Array(24 * m.ne); }
         const Kc = this.eK.subarray(576 * e, 576 * e + 576), fc = this.eF.subarray(24 * e, 24 * e + 24);
-        Kc.fill(0); fc.fill(0);
-        for (let gq = 0; gq < 8; gq++) {
-          const Bb = Ball.subarray(144 * gq, 144 * gq + 144);
-          // thermal stress s_th = D eth (strain form) or eth itself (stress form)
-          for (let r = 0; r < 6; r++) { let sum = 0; if (kind === 'stress') sum = eth[r]; else for (let c = 0; c < 3; c++) sum += D[r * 6 + c] * eth[c]; sig[r] = sum; }
-          for (let c = 0; c < 24; c++) { let sum = 0; for (let r = 0; r < 6; r++) sum += Bb[r * 24 + c] * sig[r]; fc[c] += w * sum; }
-          for (let r = 0; r < 6; r++) for (let c = 0; c < 24; c++) { let sum = 0; for (let t = 0; t < 6; t++) sum += D[r * 6 + t] * Bb[t * 24 + c]; DB[r * 24 + c] = sum; }
-          for (let a = 0; a < 24; a++) for (let b = a; b < 24; b++) { let sum = 0; for (let r = 0; r < 6; r++) sum += Bb[r * 24 + a] * DB[r * 24 + b]; Kc[a * 24 + b] += w * sum; }
+        if (fresh) {
+          const rec = this._elasRec(e, T);
+          D.set(rec.D);
+          Kc.fill(0); fc.fill(0);
+          for (let gq = 0; gq < 8; gq++) {
+            const Bb = Ball.subarray(144 * gq, 144 * gq + 144);
+            for (let c = 0; c < 24; c++) { let sum = 0; for (let r = 0; r < 6; r++) sum += Bb[r * 24 + c] * rec.sth[r]; fc[c] += w * sum; }
+            for (let r = 0; r < 6; r++) for (let c = 0; c < 24; c++) { let sum = 0; for (let t = 0; t < 6; t++) sum += D[r * 6 + t] * Bb[t * 24 + c]; DB[r * 24 + c] = sum; }
+            for (let a = 0; a < 24; a++) for (let b = a; b < 24; b++) { let sum = 0; for (let r = 0; r < 6; r++) sum += Bb[r * 24 + a] * DB[r * 24 + b]; Kc[a * 24 + b] += w * sum; }
+          }
+          for (let a = 0; a < 24; a++) for (let b = 0; b < a; b++) Kc[a * 24 + b] = Kc[b * 24 + a];
         }
-        for (let a = 0; a < 24; a++) for (let b = 0; b < a; b++) Kc[a * 24 + b] = Kc[b * 24 + a];
-        for (let a = 0; a < 24; a++) { let sum = -fc[a]; const ro = a * 24; for (let b = 0; b < 24; b++) sum += Kc[ro + b] * ue[b]; fe[a] = sum; }
+        const uN = this.uN, fn = this.eFn;
+        for (let a = 0; a < 8; a++) { const n = m.conn[8 * e + a]; ue[3 * a] -= uN[3 * n]; ue[3 * a + 1] -= uN[3 * n + 1]; ue[3 * a + 2] -= uN[3 * n + 2]; }
+        for (let a = 0; a < 24; a++) { let sum = fn[24 * e + a] - fc[a]; const ro = a * 24; for (let b = 0; b < 24; b++) sum += Kc[ro + b] * ue[b]; fe[a] = sum; }
         for (let a = 0; a < 8; a++) { const n = m.conn[8 * e + a]; rint[3 * n] += fe[3 * a]; rint[3 * n + 1] += fe[3 * a + 1]; rint[3 * n + 2] += fe[3 * a + 2]; }
         if (wantK) for (let a = 0; a < 8; a++) for (let b = 0; b < 8; b++) {
           const kk = this.bmap[(e * 8 + a) * 8 + b], v = 9 * kk;
@@ -729,22 +726,12 @@ class BumpSubmodel {
       for (let gq = 0; gq < 8; gq++) {
         const Bb = Ball.subarray(144 * gq, 144 * gq + 144);
         for (let r = 0; r < 6; r++) { let s = 0; const ro = r * 24; for (let c = 0; c < 24; c++) s += Bb[ro + c] * ue[c]; eps[r] = s; }
-        let Dg;
-        if (isAnand) {
-          const pt = this.anand[e * 8 + gq];
-          epsM.set(eps); epsM[0] -= fSolder; epsM[1] -= fSolder; epsM[2] -= fSolder;
-          const d = pt.step(epsM, T, dt, out, wantK, kc);
-          if (d > dMax) dMax = d;
-          Dg = out.D;
-        } else {
-          if (kind === 'stress') {
-            for (let r = 0; r < 6; r++) { let s = -eth[r]; for (let c = 0; c < 6; c++) s += D[r * 6 + c] * eps[c]; sig[r] = s; }
-          } else {
-            epsM.set(eps); epsM[0] -= eth[0]; epsM[1] -= eth[1]; epsM[2] -= eth[2];
-            for (let r = 0; r < 6; r++) { let s = 0; for (let c = 0; c < 6; c++) s += D[r * 6 + c] * epsM[c]; sig[r] = s; }
-          }
-          Dg = D;
-        }
+        // solder: Anand point driven by the mechanical strain change from the 25 degC state
+        const pt = this.anand[e * 8 + gq];
+        epsM.set(eps); epsM[0] -= fSolder; epsM[1] -= fSolder; epsM[2] -= fSolder;
+        const d = pt.step(epsM, T, dt, out, wantK, kc);
+        if (d > dMax) dMax = d;
+        const Dg = out.D;
         for (let c = 0; c < 24; c++) { let s = 0; for (let r = 0; r < 6; r++) s += Bb[r * 24 + c] * sig[r]; fe[c] += w * s; }
         if (wantK) {
           for (let r = 0; r < 6; r++) for (let c = 0; c < 24; c++) { let s = 0; for (let t = 0; t < 6; t++) s += Dg[r * 6 + t] * Bb[t * 24 + c]; DB[r * 24 + c] = s; }
@@ -764,8 +751,27 @@ class BumpSubmodel {
         }
       }
     }
-    this.eCacheT = T;
+    this.eStepKey = stepKey;
     return dMax;
+  }
+
+  /** Commit the elastic parts at the converged displacement: Gauss-point stresses, internal forces, T_n, u_n. */
+  _commitElastic(T) {
+    const m = this.mesh, u = this.u, uN = this.uN, due = new Float64Array(24), de = new Float64Array(6), sg = new Float64Array(6);
+    for (let e = 0; e < m.ne; e++) {
+      if (this.anand[e * 8] !== null) continue;
+      const rec = this._elasRec(e, T), bb = this.bbList[this.eBb[e]], Ball = bb.B, w = bb.w;
+      for (let a = 0; a < 8; a++) { const n = m.conn[8 * e + a]; for (let c = 0; c < 3; c++) due[3 * a + c] = u[3 * n + c] - uN[3 * n + c]; }
+      const fn = this.eFn.subarray(24 * e, 24 * e + 24);
+      fn.fill(0);
+      for (let gq = 0; gq < 8; gq++) {
+        const Bb = Ball.subarray(144 * gq, 144 * gq + 144), o = 48 * e + 6 * gq;
+        for (let r = 0; r < 6; r++) { let s2 = 0; const ro = r * 24; for (let c = 0; c < 24; c++) s2 += Bb[ro + c] * due[c]; de[r] = s2; }
+        for (let r = 0; r < 6; r++) { let s2 = -rec.sth[r]; for (let c = 0; c < 6; c++) s2 += rec.D[r * 6 + c] * de[c]; this.sigE[o + r] += s2; sg[r] = this.sigE[o + r]; }
+        for (let c = 0; c < 24; c++) { let s2 = 0; for (let r = 0; r < 6; r++) s2 += Bb[r * 24 + c] * sg[r]; fn[c] += w * s2; }
+      }
+    }
+    uN.set(u); this.Tn = T;
   }
 
   _constrain() {
@@ -847,37 +853,34 @@ class BumpSubmodel {
       // final state at the converged displacement (residual-only assembly refreshes the trial states)
       dMax = this.assemble(T, dt, u, rint, false);
       for (const pt of this.anand) if (pt) pt.commit();
+      this._commitElastic(T);
     }
     return { converged, newton: it, dMax };
   }
 
   /**
-   * Stress change from the as-assembled 25 degC state in every element at T, for the
-   * cross-section view: Gauss-point stresses extrapolated to the 8 corners
-   * (GP_TO_NODE). Elastic parts: sigma = D(T) (eps - [F(T) - F(25)]); solder:
-   * the Anand stress at the committed plastic strain. Float32Array(48 per element).
+   * Stress change from the as-assembled 25 degC state in every element at the
+   * committed temperature T, for the cross-section view: Gauss-point stresses
+   * extrapolated to the 8 corners (GP_TO_NODE). Elastic parts: the committed
+   * incremental stress; solder: the Anand stress at the committed plastic strain.
+   * Float32Array(48 per element).
    */
   _stressSnapshot(T) {
     const m = this.mesh, out = new Float32Array(m.ne * 48);
     const ue = new Float64Array(24), eps = new Float64Array(6), sig = new Float64Array(6), gp = new Float64Array(48);
-    const elas = new Map();
     for (let e = 0; e < m.ne; e++) {
-      const mat = m.eGroup[e], Ball = this.bbList[this.eBb[e]].B, pt0 = this.anand[e * 8];
-      for (let a = 0; a < 8; a++) { const n = m.conn[8 * e + a]; ue[3 * a] = this.u[3 * n]; ue[3 * a + 1] = this.u[3 * n + 1]; ue[3 * a + 2] = this.u[3 * n + 2]; }
-      let rec = null;
-      if (!pt0) { rec = elas.get(mat); if (!rec) { rec = { D: new Float64Array(36), eth: new Float64Array(6) }; rec.kind = this._elastic(mat, T, rec.D, rec.eth); elas.set(mat, rec); } }
-      for (let gq = 0; gq < 8; gq++) {
-        const Bb = Ball.subarray(144 * gq, 144 * gq + 144);
-        for (let r = 0; r < 6; r++) { let s = 0; const ro = r * 24; for (let c = 0; c < 24; c++) s += Bb[ro + c] * ue[c]; eps[r] = s; }
-        if (pt0) {
+      const Ball = this.bbList[this.eBb[e]].B, pt0 = this.anand[e * 8];
+      if (!pt0) gp.set(this.sigE.subarray(48 * e, 48 * e + 48));
+      else {
+        for (let a = 0; a < 8; a++) { const n = m.conn[8 * e + a]; ue[3 * a] = this.u[3 * n]; ue[3 * a + 1] = this.u[3 * n + 1]; ue[3 * a + 2] = this.u[3 * n + 2]; }
+        for (let gq = 0; gq < 8; gq++) {
+          const Bb = Ball.subarray(144 * gq, 144 * gq + 144);
+          for (let r = 0; r < 6; r++) { let s = 0; const ro = r * 24; for (let c = 0; c < 24; c++) s += Bb[ro + c] * ue[c]; eps[r] = s; }
           const pt = this.anand[e * 8 + gq], f = pt.thermalStrain(T) - pt.thermalStrain(25);
           eps[0] -= f; eps[1] -= f; eps[2] -= f;
           pt.stressAt(eps, T, sig);
-        } else {
-          eps[0] -= rec.eth[0]; eps[1] -= rec.eth[1]; eps[2] -= rec.eth[2];
-          for (let r = 0; r < 6; r++) { let s = 0; for (let c = 0; c < 6; c++) s += rec.D[r * 6 + c] * eps[c]; sig[r] = s; }
+          gp.set(sig, 6 * gq);
         }
-        gp.set(sig, 6 * gq);
       }
       for (let a = 0; a < 8; a++) for (let c = 0; c < 6; c++) {
         let v = 0;
@@ -888,9 +891,17 @@ class BumpSubmodel {
     return out;
   }
 
-  /** Save / restore the solder states and displacement for cutbacks. */
-  _snapshot() { return { u: Float64Array.from(this.u), st: this.anand.map(p => p ? p.save() : null) }; }
-  _restore(s) { this.u.set(s.u); this.anand.forEach((p, i) => { if (p) p.restore(s.st[i]); }); }
+  /** Save / restore the committed state (displacement, solder points, elastic stresses) for cutbacks. */
+  _snapshot() {
+    const b = this._snapBuf || (this._snapBuf = { u: new Float64Array(this.ndof), sigE: new Float64Array(this.sigE.length), eFn: new Float64Array(this.eFn.length) });
+    b.u.set(this.u); b.sigE.set(this.sigE); b.eFn.set(this.eFn); b.Tn = this.Tn;
+    b.st = this.anand.map(p => p ? p.save() : null);
+    return b;
+  }
+  _restore(s) {
+    this.u.set(s.u); this.uN.set(s.u); this.sigE.set(s.sigE); this.eFn.set(s.eFn); this.Tn = s.Tn;
+    this.anand.forEach((p, i) => { if (p) p.restore(s.st[i]); });
+  }
 
   /** Run the configured cycles; returns the result record. */
   run() {
@@ -997,15 +1008,42 @@ class BumpSubmodel {
 }
 
 /**
+ * As-assembled global stress at 25 degC at the centroid of every element of a
+ * submodel section record S (for the total-stress view of the submodel
+ * cross-section): silicon from the die, underfill from the underfill phase of
+ * the bump layer, the substrate slice from the sub-layer of the layered band at
+ * that height (layeredPointStress). Solder gets 0, since the submodel takes the
+ * solder as relaxed at 25 degC. Float32Array(6 per element).
+ */
+function submodelResidual(an, S) {
+  const view = an.view(25), mesh = an.mesh, nx = S.xs.length - 1, ny = S.ys.length - 1, nz = S.zs.length - 1;
+  const out = new Float32Array(nx * ny * nz * 6), st = { eps: new Float64Array(6), sig: new Float64Array(6) };
+  const partOf = [PART.SUB, null, PART.UF_BUMP, PART.DIE]; // submodel groups: substrate slice, solder, underfill, silicon
+  for (let i = 0; i < nx; i++) for (let j = 0; j < ny; j++) for (let k = 0; k < nz; k++) {
+    const e = (i * ny + j) * nz + k, part = partOf[S.grp[e]];
+    if (part == null) continue;
+    const x = 0.5 * (S.xs[i] + S.xs[i + 1]), y = 0.5 * (S.ys[j] + S.ys[j + 1]), z = 0.5 * (S.zs[k] + S.zs[k + 1]);
+    const [gi, gj, gk] = cellAt(mesh, x, y, z);
+    const ge = elementInCell(mesh, gi, gj, gk, part);
+    if (ge < 0) continue;
+    const [xi, eta, zeta] = naturalCoords(mesh, ge, x, y, z);
+    if (part === PART.SUB) layeredPointStress(view, ge, xi, eta, zeta, st); else view.point(ge, xi, eta, zeta, st);
+    for (let c = 0; c < 6; c++) out[6 * e + c] = st.sig[c];
+  }
+  return out;
+}
+
+/**
  * Vertical cut through a bump submodel result sm along the x or y grid lines at
  * grid-line index jc across the cut, for snapshot si. Returns the record the
  * cross-section plot draws (see sectionStress), in local coordinates: s in um from
  * the bump axis, z in um above the substrate top. A cut along a voxel face between
  * two materials shows the element nearer the bump axis; corner values are averaged
- * only within one material.
+ * only within one material. total: add the as-assembled 25 degC stress of each
+ * element (S.residual, submodelResidual) to the change from 25 degC.
  */
-function submodelSection(sm, si, axis, jc) {
-  const S = sm.section, snap = S.snaps[si];
+function submodelSection(sm, si, axis, jc, total) {
+  const S = sm.section, snap = S.snaps[si], res = total && S.residual ? S.residual : null;
   const alongY = axis === 'y';
   const along = alongY ? S.ys : S.xs, across = alongY ? S.xs : S.ys;
   const nx = S.xs.length - 1, ny = S.ys.length - 1, nz = S.zs.length - 1;
@@ -1027,7 +1065,7 @@ function submodelSection(sm, si, axis, jc) {
       use = dA < dB ? [[eA, faceA]] : [[eB, faceB]];
     } else use = [[eA, faceA], [eB, faceB]].filter(([e]) => e >= 0);
     face.fill(0);
-    for (const [e, fc] of use) for (let v = 0; v < 4; v++) for (let cc = 0; cc < 6; cc++) face[6 * v + cc] += snap.sig[48 * e + 6 * fc[v] + cc] / use.length;
+    for (const [e, fc] of use) for (let v = 0; v < 4; v++) for (let cc = 0; cc < 6; cc++) face[6 * v + cc] += (snap.sig[48 * e + 6 * fc[v] + cc] + (res ? res[6 * e + cc] : 0)) / use.length;
     const grp = S.grp[use[0][0]];
     [[ia, k], [ia + 1, k], [ia + 1, k + 1], [ia, k + 1]].forEach(([ca, cb], v) => {
       const o = (grp * nn + ca * nzl + cb) * 7;
@@ -1039,7 +1077,7 @@ function submodelSection(sm, si, axis, jc) {
   const n = quads.length, sig = new Float32Array(24 * n);
   const out = { T: snap.T, axis: alongY ? 'y' : 'x', c: +((across[jc] - c0) * toUm).toFixed(6), a0: sl[0], a1: sl[na], zMin: zl[0], zTop: zl[nz], sl, zl, n,
     qa: new Int32Array(n), qb: new Int32Array(n), part: new Int8Array(n), grp: new Int16Array(n), pair: new Int8Array(n), cutBelow: new Int8Array(n), sig,
-    topA: new Float32Array(n).fill(NaN), topB: new Float32Array(n).fill(NaN), groups: S.groups, submodel: true };
+    topA: new Float32Array(n).fill(NaN), topB: new Float32Array(n).fill(NaN), groups: S.groups, submodel: true, total: !!res };
   quads.forEach((Q, t) => {
     out.qa[t] = Q.a; out.qb[t] = Q.b; out.part[t] = Q.grp; out.grp[t] = Q.grp;
     [[Q.a, Q.b], [Q.a + 1, Q.b], [Q.a + 1, Q.b + 1], [Q.a, Q.b + 1]].forEach(([ca, cb], v) => {

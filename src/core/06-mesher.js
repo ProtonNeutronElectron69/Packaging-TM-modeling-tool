@@ -108,14 +108,15 @@ function mergeFeatures(feats, tol) {
 
 /**
  * Subdivide [lo, hi] between merged feature lines with the size function
- * s(x) = min(hmax, min over die edges of hmin + (r - 1) max(0, |x - e| - 2 t))
- * (geometric growth at ratio r, Section 5.2) and per-interval minimum counts.
+ * s(x) = min(hmax, min over refined edges of hmin + (r - 1) max(0, |x - e| - zone))
+ * (geometric growth at ratio r, Section 5.2; zone = 2 t at a die edge) and
+ * per-interval minimum counts.
  */
 function gridLines(lines, edges, hmin, hmax, spans) {
   const r = CONST.GROWTH_RATIO_MAX;
   const size = x => {
     let s = hmax;
-    for (const e of edges) s = Math.min(s, hmin + (r - 1) * Math.max(0, Math.abs(x - e.v) - CONST.REFINE_ZONE_FACTOR * e.t));
+    for (const e of edges) s = Math.min(s, hmin + (r - 1) * Math.max(0, Math.abs(x - e.v) - e.zone));
     return Math.max(s, 1e-6);
   };
   // minimum element count per interval from ring spans
@@ -157,16 +158,21 @@ function gridLines(lines, edges, hmin, hmax, spans) {
   return out;
 }
 
-/** Feature lines and refinement data along one axis ('x' or 'y'). */
+/**
+ * Feature lines and refinement data along one axis ('x' or 'y'): die edges
+ * (edges) and the lid foot or stiffener ring edges (ringEdges), where the
+ * adhesive and the top solder resist under the ring edge carry a stress
+ * concentration that a grid sized for the dies alone would miss.
+ */
 function axisFeatures(g, axis) {
   const lo = axis === 'x' ? g.substrate.x0 : g.substrate.y0, hi = axis === 'x' ? g.substrate.x1 : g.substrate.y1;
   const k0 = axis === 'x' ? 'x0' : 'y0', k1 = axis === 'x' ? 'x1' : 'y1';
   const feats = [{ v: lo, prio: 3, label: 'substrate edge' }, { v: hi, prio: 3, label: 'substrate edge' }];
-  const edges = [], spans = [];
+  const edges = [], spans = [], ringEdges = [];
   const add = (v, prio, label) => { if (v > lo + 1e-12 && v < hi - 1e-12) feats.push({ v, prio, label }); };
   for (const d of g.dies) {
     add(d.rect[k0], 2, d.name + ' edge'); add(d.rect[k1], 2, d.name + ' edge');
-    edges.push({ v: d.rect[k0], t: d.t }, { v: d.rect[k1], t: d.t });
+    edges.push({ v: d.rect[k0], zone: CONST.REFINE_ZONE_FACTOR * d.t }, { v: d.rect[k1], zone: CONST.REFINE_ZONE_FACTOR * d.t });
     const fa = d.rect[k0] - g.uf.Wf, fb = d.rect[k1] + g.uf.Wf;
     add(fa, 1, d.name + ' fillet'); add(fb, 1, d.name + ' fillet');
     spans.push({ a: Math.max(lo, fa), b: d.rect[k0], fillet: true }, { a: d.rect[k1], b: Math.min(hi, fb), fillet: true });
@@ -179,8 +185,10 @@ function axisFeatures(g, axis) {
     add(ring.outer[k0], 2, what + ' outer'); add(ring.outer[k1], 2, what + ' outer');
     add(ring.inner[k0], 2, what + ' inner'); add(ring.inner[k1], 2, what + ' inner');
     spans.push({ a: ring.outer[k0], b: ring.inner[k0] }, { a: ring.inner[k1], b: ring.outer[k1] });
+    const zone = CONST.RING_EDGE_ZONE * (g.lid ? g.lid.footH : g.stiff.zTop - g.stiff.zAdhTop);
+    for (const v of [ring.outer[k0], ring.inner[k0], ring.inner[k1], ring.outer[k1]]) ringEdges.push({ v, zone });
   }
-  return { feats, edges, spans };
+  return { feats, edges, spans, ringEdges };
 }
 
 // ---- z planes ---------------------------------------------------------------------
@@ -250,7 +258,8 @@ function packageGroups(cfg, g) {
   const add = (key, o) => { o.key = key; o.index = groups.length; groups.push(o); return o.index; };
   const G = {};
   G.sub = add('sub', { name: 'Substrate', kind: 'layered', stage: 0, part: PART.SUB });
-  G.solder = add('solder', { name: 'Solder phase', kind: 'homog', mat: cfg.bump.solder, stage: 1, part: PART.SOLDER });
+  // the joints are separate columns between two pads: axial and transverse shear stiffness only (columnD)
+  G.solder = add('solder', { name: 'Solder phase', kind: 'homog', mat: cfg.bump.solder, stage: 1, part: PART.SOLDER, column: true });
   G.uf = add('uf', { name: 'Underfill', kind: 'homog', mat: cfg.underfill.mat, stage: 2, part: PART.UF_BUMP });
   G.die = g.dies.map((d, i) => add('die' + i, { name: d.name, kind: 'homog', mat: 'si', siModel: d.si, stage: 1, part: PART.DIE, die: i }));
   if (g.lid) {
@@ -347,7 +356,10 @@ function presetParams(cfg, override) {
 
 /**
  * Build the package mesh at a fidelity preset, enlarging h_min and h_max
- * proportionally until the DOF estimate is under the cap (Section 5.2).
+ * proportionally until the DOF estimate is under the cap (Section 5.2). The
+ * lid foot or stiffener ring edges are then refined to the same h_min on top
+ * of that grid, so the ring refinement never coarsens the dies (the DOF can end
+ * above the cap by that refinement).
  */
 function buildPackageMesh(cfg, override) {
   const t0 = nowMs();
@@ -357,17 +369,21 @@ function buildPackageMesh(cfg, override) {
   const mx = mergeFeatures(fx.feats, CONST.FEATURE_SNAP_TOL), my = mergeFeatures(fy.feats, CONST.FEATURE_SNAP_TOL);
   const zp = zPlanes(g);
   const { groups, G } = packageGroups(cfg, g);
-  let hmin = pre.hmin, hmax = pre.hmax, mesh = null, scaled = false;
+  let hmin = pre.hmin, hmax = pre.hmax, mesh = null, scaled = false, capDof = 0;
+  const build = ring => {
+    const xs = gridLines(mx.lines, ring ? fx.edges.concat(fx.ringEdges) : fx.edges, hmin, hmax, fx.spans);
+    const ys = gridLines(my.lines, ring ? fy.edges.concat(fy.ringEdges) : fy.edges, hmin, hmax, fy.spans);
+    return buildStructuredMesh(xs, ys, zp.zs, groups, makePackageAssign(g, xs, ys, zp.zs, G, zp.layerBand));
+  };
   for (let it = 0; it < CONST.CAP_MAX_ITER; it++) {
-    const xs = gridLines(mx.lines, fx.edges, hmin, hmax, fx.spans);
-    const ys = gridLines(my.lines, fy.edges, hmin, hmax, fy.spans);
-    const assign = makePackageAssign(g, xs, ys, zp.zs, G, zp.layerBand);
-    mesh = buildStructuredMesh(xs, ys, zp.zs, groups, assign);
-    const dof = 3 * mesh.nn;
-    if (dof <= pre.cap || override && override.noCap) break;
-    const f = Math.sqrt(dof / pre.cap) * CONST.CAP_GROWTH_PAD;
+    mesh = build(false);
+    capDof = 3 * mesh.nn;
+    if (capDof <= pre.cap || override && override.noCap) break;
+    const f = Math.sqrt(capDof / pre.cap) * CONST.CAP_GROWTH_PAD;
     hmin *= f; hmax *= f; scaled = true;
   }
+  const ringRefined = fx.ringEdges.length > 0;
+  if (ringRefined) mesh = build(true);
   mesh.layerBand = Int32Array.from(zp.layerBand);
   // indices of the in-plane feature lines (kept at every multigrid coarse level)
   // (structural lines only: die edges and lid foot or stiffener ring edges)
@@ -391,7 +407,7 @@ function buildPackageMesh(cfg, override) {
     if (a > CONST.ASPECT_WARN) nwarn++;
   }
   mesh.info = {
-    preset: pre.label, hmin, hmax, hminPreset: pre.hmin, hmaxPreset: pre.hmax, cap: pre.cap, scaled,
+    preset: pre.label, hmin, hmax, hminPreset: pre.hmin, hmaxPreset: pre.hmax, cap: pre.cap, scaled, capDof, ringRefined, ringLabel: g.lid ? 'lid foot' : (g.stiff ? 'stiffener ring' : null),
     snappedX: mx.snapped, snappedY: my.snapped, snappedZ: zp.snapped,
     nx: mesh.nx, ny: mesh.ny, nz: mesh.nz, nNodes: mesh.nn, nElem: mesh.ne, nDof: 3 * mesh.nn,
     aspectMax: amax, nAspectWarn: nwarn, planeLabels: zp.baseLabels, basePlanes: zp.basePlanes,
@@ -405,7 +421,8 @@ function meshWarnings(mesh) {
   const w = [];
   const inf = mesh.info;
   if (inf.nAspectWarn > 0) w.push({ level: 'warning', text: inf.nAspectWarn + ' elements have aspect ratio above ' + CONST.ASPECT_WARN + ' (max ' + inf.aspectMax.toFixed(0) + '); thin layers are handled by the incompatible-mode element but check mesh sensitivity.' });
-  if (inf.nDof > inf.cap) w.push({ level: 'warning', text: 'DOF ' + inf.nDof + ' above the ' + inf.preset + ' cap ' + inf.cap + '.' });
+  if (inf.capDof > inf.cap) w.push({ level: 'warning', text: 'DOF ' + inf.capDof + ' above the ' + inf.preset + ' cap ' + inf.cap + '.' });
+  else if (inf.ringRefined && inf.nDof > inf.cap) w.push({ level: 'info', text: 'The refinement at the ' + inf.ringLabel + ' edges adds ' + (inf.nDof - inf.capDof) + ' DOF on top of the ' + inf.preset + ' cap ' + inf.cap + ' (total ' + inf.nDof + ').' });
   if (inf.scaled) w.push({ level: 'info', text: 'Mesh sizes enlarged to h_min ' + inf.hmin.toFixed(3) + ' mm and h_max ' + inf.hmax.toFixed(3) + ' mm to stay under the ' + inf.preset + ' DOF cap.' });
   const sn = inf.snappedX.concat(inf.snappedY);
   if (sn.length) w.push({ level: 'info', text: sn.length + ' in-plane feature lines closer than 10 µm were merged (' + sn.slice(0, 3).map(s => s.a + ' / ' + s.b).join('; ') + (sn.length > 3 ? '; ...' : '') + ').' });

@@ -176,8 +176,8 @@ function substrateTopWarpage(mesh, geom, u) {
  * Gauss-point stresses of the adjacent die elements, extrapolated to nodes and
  * averaged only among elements of that die. Returns grids over the die columns.
  */
-function dieSurfaceStress(model, geom, dieIdx, which, T, stage, u) {
-  const mesh = model.mesh, d = geom.dies[dieIdx];
+function dieSurfaceStress(view, geom, dieIdx, which) {
+  const mesh = view.model.mesh, d = geom.dies[dieIdx], T = view.T;
   const top = which === 'top';
   const kPlane = planeIndex(mesh, top ? d.ztop : d.zaf);
   const kElem = top ? kPlane - 1 : kPlane;
@@ -186,7 +186,7 @@ function dieSurfaceStress(model, geom, dieIdx, which, T, stage, u) {
   const j0 = findInterval(mesh.ys, d.rect.y0 + 1e-9), j1 = findInterval(mesh.ys, d.rect.y1 - 1e-9) + 1;
   const nxd = i1 - i0 + 1, nyd = j1 - j0 + 1;
   const sum = new Float64Array(nxd * nyd * 6), cnt = new Int32Array(nxd * nyd);
-  const q = new Float64Array(33), gp = new Float64Array(48), st = { eps: new Float64Array(6), sig: new Float64Array(6), mech: new Float64Array(6) };
+  const gp = new Float64Array(48), st = { eps: new Float64Array(6), sig: new Float64Array(6) };
   let gpPeak = -Infinity, gpPeakAll = -Infinity;
   const band = CONST.DIE_EDGE_BAND;
   const inner = { x0: d.rect.x0 + band, x1: d.rect.x1 - band, y0: d.rect.y0 + band, y1: d.rect.y1 - band };
@@ -194,9 +194,8 @@ function dieSurfaceStress(model, geom, dieIdx, which, T, stage, u) {
   for (let i = i0; i < i1; i++) for (let j = j0; j < j1; j++) {
     const e = elementInCell(mesh, i, j, kElem, PART.DIE);
     if (e < 0 || mesh.eGroup[e] !== group) continue;
-    model.elementState(e, T, stage, u, q);
     for (let g = 0; g < 8; g++) {
-      model.pointStress(e, T, stage, q, HEX_XI[g] * GP2, HEX_ETA[g] * GP2, HEX_ZETA[g] * GP2, st);
+      view.point(e, HEX_XI[g] * GP2, HEX_ETA[g] * GP2, HEX_ZETA[g] * GP2, st);
       gp.set(st.sig, 6 * g);
       const sp = maxPrincipal(st.sig);
       if (HEX_ZETA[g] === zetaFace) {
@@ -257,8 +256,8 @@ function dieSurfaceStress(model, geom, dieIdx, which, T, stage, u) {
 }
 
 /** Per-bump axial and shear forces from the solder-phase stress at each site (Section 8.3). */
-function bumpLoads(model, geom, dieIdx, T, stage, u) {
-  const mesh = model.mesh, d = geom.dies[dieIdx];
+function bumpLoads(view, geom, dieIdx) {
+  const mesh = view.model.mesh, d = geom.dies[dieIdx], T = view.T;
   const sites = dieBumpSites(d);
   const n = sites.x.length;
   const N = new Float64Array(n).fill(NaN), V = new Float64Array(n).fill(NaN), szz = new Float64Array(n).fill(NaN);
@@ -272,13 +271,12 @@ function bumpLoads(model, geom, dieIdx, T, stage, u) {
     if (!byElem.has(e)) byElem.set(e, []);
     byElem.get(e).push(q);
   }
-  const qv = new Float64Array(33), st = { eps: new Float64Array(6), sig: new Float64Array(6), mech: new Float64Array(6) };
+  const st = { eps: new Float64Array(6), sig: new Float64Array(6) };
   const A = d.abump;
   for (const [e, list] of byElem) {
-    model.elementState(e, T, stage, u, qv);
     for (const q of list) {
       const [xi, eta, zeta] = naturalCoords(mesh, e, sites.x[q], sites.y[q], zmid);
-      model.pointStress(e, T, stage, qv, xi, eta, zeta, st);
+      view.point(e, xi, eta, zeta, st);
       szz[q] = st.sig[2];
       N[q] = st.sig[2] * A;
       V[q] = Math.hypot(st.sig[4], st.sig[5]) * A;
@@ -313,8 +311,8 @@ function dieCorners(r) {
  * underfill near the edge (normal = z), from underfill-side stresses averaged
  * over 50 um x 50 um patches.
  */
-function ufTractions(model, geom, dieIdx, T, stage, u) {
-  const mesh = model.mesh, d = geom.dies[dieIdx], r = d.rect;
+function ufTractions(view, geom, dieIdx) {
+  const mesh = view.model.mesh, d = geom.dies[dieIdx], r = d.rect, T = view.T;
   const step = CONST.TRACTION_PATCH, ns = CONST.TRACTION_SAMPLES;
   // perimeter walked clockwise from corner 1 (+x, -y): side k runs from corner k to corner k+1, outward normal (nx, ny)
   const cs = dieCorners(r);
@@ -322,16 +320,13 @@ function ufTractions(model, geom, dieIdx, T, stage, u) {
   const s = [], px = [], py = [], peelSide = [], shearSide = [], peelFace = [], shearFace = [];
   const corners = [0];
   let s0 = 0;
-  const qv = new Float64Array(33), st = { eps: new Float64Array(6), sig: new Float64Array(6), mech: new Float64Array(6) };
-  const cache = new Map();
-  const stateOf = e => { if (!cache.has(e)) { const q = new Float64Array(33); model.elementState(e, T, stage, u, q); cache.set(e, q); } return cache.get(e); };
+  const st = { eps: new Float64Array(6), sig: new Float64Array(6) };
   const sigAt = (x, y, z, part) => {
     const [i, j, k] = cellAt(mesh, x, y, z);
     const e = elementInCell(mesh, i, j, k, part);
     if (e < 0) return null;
-    const q = stateOf(e);
     const [xi, eta, zeta] = naturalCoords(mesh, e, x, y, z);
-    model.pointStress(e, T, stage, q, xi, eta, zeta, st);
+    view.point(e, xi, eta, zeta, st);
     return st.sig;
   };
   const eps = 1e-6;
@@ -382,17 +377,18 @@ function ufTractions(model, geom, dieIdx, T, stage, u) {
  * stress of the sub-layer and o = (zz, yz, xz), p = (xx, yy, xy):
  * d_eps_o = D_oo^-1 (sigma_o,avg - sigma_V,o), sigma_p = sigma_V,p + D_po d_eps_o.
  */
-function layeredPointStress(model, e, T, stage, q, xi, eta, zeta, st) {
-  const mesh = model.mesh, k = mesh.eIJK[3 * e + 2];
+function layeredPointStress(view, e, xi, eta, zeta, st) {
+  const model = view.model, mesh = model.mesh, k = mesh.eIJK[3 * e + 2];
   const sec = model.sections[mesh.subBand[k]], z0 = mesh.zs[k], hz = mesh.zs[k + 1] - z0;
   const O = [2, 4, 5], Pp = [0, 1, 3];
   const avg = [0, 0, 0];
   for (const [za, zb] of sec.subZ) {
-    model.pointStress(e, T, stage, q, xi, eta, (za + zb - 2 * z0) / hz - 1, st);
+    view.point(e, xi, eta, (za + zb - 2 * z0) / hz - 1, st);
     for (let r = 0; r < 3; r++) avg[r] += (zb - za) / hz * st.sig[O[r]];
   }
-  model.pointStress(e, T, stage, q, xi, eta, zeta, st);
-  const D = model._D, Doo = new Float64Array(9), inv = new Float64Array(9);
+  view.point(e, xi, eta, zeta, st);
+  // tangent stiffness of the sub-layer at the point, at the view temperature
+  const D = sectionSubD(sec, model.subLayerAt(e, zeta), view.T), Doo = new Float64Array(9), inv = new Float64Array(9);
   for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) Doo[3 * r + c] = D[6 * O[r] + O[c]];
   inv3(Doo, inv);
   const r0 = avg[0] - st.sig[2], r1 = avg[1] - st.sig[4], r2 = avg[2] - st.sig[5];
@@ -417,8 +413,8 @@ function layeredPointStress(model, e, T, stage, q, xi, eta, zeta, st) {
  * Quad corners run (s0, z0), (s1, z0), (s1, z1), (s0, z1); sig holds the six
  * components xx, yy, zz, xy, yz, xz per corner.
  */
-function sectionStress(model, geom, cut, T, stage, u) {
-  const mesh = model.mesh;
+function sectionStress(view, geom, cut) {
+  const model = view.model, mesh = model.mesh, T = view.T;
   const alongY = cut.axis === 'y';
   const along = alongY ? mesh.ys : mesh.xs, across = alongY ? mesh.xs : mesh.ys;
   const lo = Math.max(Math.min(cut.a0, cut.a1), along[0]), hi = Math.min(Math.max(cut.a0, cut.a1), along[along.length - 1]);
@@ -436,7 +432,7 @@ function sectionStress(model, geom, cut, T, stage, u) {
   const ns = sl.length, nzl = zl.length, nn = ns * nzl, ng = model.groups.length;
   const acc = new Float64Array(ng * nn * 7);
   const quads = [];
-  const q = new Float64Array(33), st = { eps: new Float64Array(6), sig: new Float64Array(6), mech: new Float64Array(6) };
+  const st = { eps: new Float64Array(6), sig: new Float64Array(6) };
   const gp = new Float64Array(24), g = GP2;
   const ncy = mesh.ny - 1, ncz = mesh.nz - 1;
   for (let b = 0; b + 1 < nzl; b++) {
@@ -455,11 +451,10 @@ function sectionStress(model, geom, cut, T, stage, u) {
         const grp = mesh.eGroup[e], layered = model.groups[grp].kind === 'layered';
         // sampled face: the whole element, or the solder resist sub-layer of a layered element
         const zm = layered ? 0.5 * (zeta(zl[b]) + zeta(zl[b + 1])) : 0, zh = layered ? 0.5 * (zeta(zl[b + 1]) - zeta(zl[b])) : 1;
-        model.elementState(e, T, stage, u, q);
         for (let pp = 0; pp < 2; pp++) for (let zz = 0; zz < 2; zz++) {
           const p = (2 * pp - 1) * g, zt = zm + (2 * zz - 1) * g * zh;
-          if (layered) layeredPointStress(model, e, T, stage, q, alongY ? pc : p, alongY ? p : pc, zt, st);
-          else model.pointStress(e, T, stage, q, alongY ? pc : p, alongY ? p : pc, zt, st);
+          if (layered) layeredPointStress(view, e, alongY ? pc : p, alongY ? p : pc, zt, st);
+          else view.point(e, alongY ? pc : p, alongY ? p : pc, zt, st);
           gp.set(st.sig, 6 * (2 * pp + zz));
         }
         const corners = [[a, b], [a + 1, b], [a + 1, b + 1], [a, b + 1]];
@@ -539,15 +534,14 @@ function boundaryFaces(mesh) {
  * Nodal max principal stress per boundary face vertex, averaged among elements
  * of the same part (for the 3D view). Returns Float32Array(4 x nfaces).
  */
-function faceStressField(model, faces, T, stage, u) {
-  const mesh = model.mesh;
+function faceStressField(view, faces) {
+  const mesh = view.model.mesh;
   const sum = new Map(); // key part*nn + node -> [sum, count]
-  const q = new Float64Array(33), gp = new Float64Array(48), st = { eps: new Float64Array(6), sig: new Float64Array(6), mech: new Float64Array(6) };
+  const gp = new Float64Array(48), st = { eps: new Float64Array(6), sig: new Float64Array(6) };
   const tens = new Float64Array(6);
   const touched = new Set(Array.from(faces.elem));
   for (const e of touched) {
-    model.elementState(e, T, stage, u, q);
-    for (let g = 0; g < 8; g++) { model.pointStress(e, T, stage, q, HEX_XI[g] * GP2, HEX_ETA[g] * GP2, HEX_ZETA[g] * GP2, st); gp.set(st.sig, 6 * g); }
+    for (let g = 0; g < 8; g++) { view.point(e, HEX_XI[g] * GP2, HEX_ETA[g] * GP2, HEX_ZETA[g] * GP2, st); gp.set(st.sig, 6 * g); }
     const part = mesh.ePart[e];
     for (let a = 0; a < 8; a++) {
       for (let c = 0; c < 6; c++) { let v = 0; for (let g = 0; g < 8; g++) v += GP_TO_NODE[a * 8 + g] * gp[6 * g + c]; tens[c] = v; }

@@ -249,6 +249,23 @@ function isoD(E, nu, nuMax, out) {
 }
 
 /**
+ * Stiffness of the solder phase of the homogenized bump layer seen as an array
+ * of separate columns between two pads (Section 6.3, as amended): axial modulus
+ * E along z and transverse shear G = E / (2 (1 + nu)) in the xz and yz planes,
+ * with no lateral Poisson coupling and only a numerical floor
+ * (COLUMN_INPLANE_FRACTION) in the in-plane terms, since separate joints carry
+ * no in-plane membrane force and do not follow the die's in-plane strain.
+ */
+function columnD(E, nu, out) {
+  out = out || new Float64Array(36);
+  out.fill(0);
+  const G = E / (2 * (1 + nu)), fl = CONST.COLUMN_INPLANE_FRACTION;
+  out[0] = out[7] = fl * E; out[21] = fl * G;
+  out[14] = E; out[28] = G; out[35] = G;
+  return out;
+}
+
+/**
  * Cubic stiffness of (100) silicon rotated by theta about z (theta = 45 deg puts
  * the x axis along <110>). Full tensor rotation C'_ijkl = R_ip R_jq R_kr R_ls C_pqrs.
  */

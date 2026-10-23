@@ -7,11 +7,16 @@
 // (hx hy hz / 8) (2 / h_r) (2 / h_s). K[(a,p),(b,q)] = sum_rs d_r N_a d_s N_b
 // D[v(p,r)][v(q,s)] with v the Voigt index of the (p, r) pair.
 //
-// Total formulation with element birth (Section 6.5):
-//   sigma = D(T) (eps - eps_b - [F(T) - F(Tb)]),  eps_b = B q_b
-// where q_b (33 DOFs: nodal + incompatible) is the element state when its
-// material was born, so the birth load is K33(T) q_b and the thermal load is
-// the integral of B^T D [F(T) - F(Tb)].
+// Incremental (rate-form) thermoelasticity with element birth (Section 6.5, as
+// amended): d sigma = D(T) (d eps - alpha dT), integrated along the actual
+// temperature path in steps [Ta, Tb] with the stiffness at the step midpoint Tm:
+//   K(Tm) du = integral B^T D(Tm) [F(Tb) - F(Ta)] dV   (born materials only)
+//   sigma   += D(Tm) (B dq - [F(Tb) - F(Ta)])
+// A material is born stress-free at its stage's birth temperature, so it simply
+// starts accumulating at its first step. The stress already present is in
+// equilibrium, so every step is an independent linear solve. A total (secant)
+// form D(T) (eps - [F(T) - F(Tb)]) would apply the glassy modulus to all the
+// contraction a polymer made while rubbery and overstate its stress severalfold.
 
 const VOIGT_IDX = [[0, 3, 5], [3, 1, 4], [5, 4, 2]];
 
@@ -154,12 +159,6 @@ function elementFth(hx, hy, hz, Sst, s0, f) {
   return f;
 }
 
-/** y = K33 x (33). */
-function mul33(K, x, y) {
-  for (let i = 0; i < 33; i++) { let s = 0; const r = i * 33; for (let j = 0; j < 33; j++) s += K[r + j] * x[j]; y[i] = s; }
-  return y;
-}
-
 /** Full (both triangles) block CSR pattern from the upper one. */
 function fullPatternFromUpper(P) {
   const n = P.n;
@@ -192,9 +191,46 @@ function fullMatVec(P, val, x, y) {
   return y;
 }
 
+/** Strain monomials of a box element with incompatible modes: 1, xi, eta, zeta, xi eta, eta zeta, xi zeta. */
+const STRAIN_MONO = 7;
+
 /**
- * Finite-element model of a mesh: group property tables, element birth
- * states, sparsity, assembly and strain / stress recovery.
+ * Strain of a box element as a polynomial in the natural coordinates:
+ * eps(xi, eta, zeta) = sum_m phi_m E_m with phi = [1, xi, eta, zeta, xi eta,
+ * eta zeta, xi zeta] (exact for the trilinear field plus the three
+ * incompatible modes). E (42) holds the six strain components per monomial.
+ */
+function boxStrainPoly(hx, hy, hz, q, E) {
+  E.fill(0);
+  const sx = 2 / hx, sy = 2 / hy, sz = 2 / hz;
+  for (let a = 0; a < 8; a++) {
+    const xa = HEX_XI[a], ya = HEX_ETA[a], za = HEX_ZETA[a], ux = q[3 * a], uy = q[3 * a + 1], uz = q[3 * a + 2];
+    // d/dx: monomials 1, eta, zeta, eta zeta; d/dy: 1, xi, zeta, xi zeta; d/dz: 1, xi, eta, xi eta
+    const cx = xa * sx / 8, cy = ya * sy / 8, cz = za * sz / 8;
+    const dx = [[0, cx], [2, cx * ya], [3, cx * za], [5, cx * ya * za]];
+    const dy = [[0, cy], [1, cy * xa], [3, cy * za], [6, cy * xa * za]];
+    const dz = [[0, cz], [1, cz * xa], [2, cz * ya], [4, cz * xa * ya]];
+    for (const [m, c] of dx) { E[6 * m] += c * ux; E[6 * m + 3] += c * uy; E[6 * m + 5] += c * uz; }
+    for (const [m, c] of dy) { E[6 * m + 1] += c * uy; E[6 * m + 3] += c * ux; E[6 * m + 4] += c * uz; }
+    for (const [m, c] of dz) { E[6 * m + 2] += c * uz; E[6 * m + 4] += c * uy; E[6 * m + 5] += c * ux; }
+  }
+  // incompatible modes: d(1 - xi^2)/dx = -2 xi sx, and likewise for eta and zeta
+  const a1 = q.subarray(24, 27), a2 = q.subarray(27, 30), a3 = q.subarray(30, 33);
+  E[6 * 1] += -2 * sx * a1[0]; E[6 * 1 + 3] += -2 * sx * a1[1]; E[6 * 1 + 5] += -2 * sx * a1[2];
+  E[6 * 2 + 1] += -2 * sy * a2[1]; E[6 * 2 + 3] += -2 * sy * a2[0]; E[6 * 2 + 4] += -2 * sy * a2[2];
+  E[6 * 3 + 2] += -2 * sz * a3[2]; E[6 * 3 + 4] += -2 * sz * a3[1]; E[6 * 3 + 5] += -2 * sz * a3[0];
+  return E;
+}
+
+/** Monomial values phi (7) at (xi, eta, zeta). */
+function strainMonomials(xi, eta, zeta, phi) {
+  phi[0] = 1; phi[1] = xi; phi[2] = eta; phi[3] = zeta; phi[4] = xi * eta; phi[5] = eta * zeta; phi[6] = xi * zeta;
+  return phi;
+}
+
+/**
+ * Finite-element model of a mesh: group property tables, sparsity, assembly of
+ * the steps of the thermal path and element stress histories.
  */
 class FEModel {
   constructor(mesh, cfg, opts) {
@@ -203,11 +239,9 @@ class FEModel {
     this.cfg = cfg;
     this.lib = cfg.materials;
     this.nuMax = opts.nuMax || CONST.NU_MAX_GLOBAL;
-    this.birthT = opts.birthT || [cfg.process.Tsub, cfg.process.Tjoin, cfg.process.Tuf, cfg.process.Tattach];
     const t0 = nowMs();
     this.groups = mesh.groups.map(g => this._prepareGroup(g));
     this.sections = mesh.geom ? mesh.geom.sub.bands.map(b => buildBandSection(b, this.lib, this.nuMax)) : (opts.sections || []);
-    this.qb = new Float64Array(mesh.ne * 33);
     this.upper = bcsrFromElements(mesh.nn, mesh.conn, mesh.ne, 8);
     this.pattern = fullPatternFromUpper(this.upper);
     this.bmap = this._blockMap();
@@ -215,9 +249,10 @@ class FEModel {
     this.ndof = 3 * mesh.nn;
     this.constraints = mesh.constraints ? mesh.constraints.dofs : (opts.constraints || new Int32Array(0));
     this.setupMs = nowMs() - t0;
-    this._K33 = new Float64Array(1089); this._f33 = new Float64Array(33); this._tmp33 = new Float64Array(33);
-    this._W = new Float64Array(108); this._V = new Float64Array(18); this._D = new Float64Array(36); this._s0 = new Float64Array(6);
+    this._K33 = new Float64Array(1089); this._f33 = new Float64Array(33);
+    this._W = new Float64Array(108); this._s0 = new Float64Array(6);
     this._cond = { Kc: new Float64Array(576), fc: new Float64Array(24), X: new Float64Array(216), xf: new Float64Array(9) };
+    this._Kr = new Float64Array(297); this._E = new Float64Array(6 * STRAIN_MONO); this._phi = new Float64Array(STRAIN_MONO); this._dq = new Float64Array(33);
   }
 
   /** Per-group stiffness and thermal-strain tables on the 1 degC grid. */
@@ -254,11 +289,13 @@ class FEModel {
     } else if (mat.elastic.type === 'iso') {
       const t = materialTables(mat);
       const constE = mat.elastic.E.type === 'const' && !mat.solidus;
-      if (constE) out.Dconst = isoD(t.E[0], t.nu, this.nuMax);
+      // the solder phase of the bump layer is an array of separate columns (columnD), any other isotropic material a continuum
+      const mk = (E, D) => g.column ? columnD(E, t.nu, D) : isoD(E, t.nu, this.nuMax, D);
+      if (constE) out.Dconst = mk(t.E[0], new Float64Array(36));
       else {
         out.Dgrid = new Float64Array(TGRID_N * 36);
         const tmp = new Float64Array(36);
-        for (let i = 0; i < TGRID_N; i++) { isoD(t.E[i], t.nu, this.nuMax, tmp); out.Dgrid.set(tmp, 36 * i); }
+        for (let i = 0; i < TGRID_N; i++) { mk(t.E[i], tmp); out.Dgrid.set(tmp, 36 * i); }
       }
       out.solidus = mat.solidus ? pv(mat.solidus) : null;
     } else if (mat.elastic.type === 'ortho') {
@@ -278,9 +315,9 @@ class FEModel {
     return out;
   }
 
-  /** Thermal strain difference F(T) - F(Tb) (3 normal components) of a homogeneous group. */
-  groupDF(g, T, Tb, out) {
-    for (let c = 0; c < 3; c++) out[c] = gridAt(g.F, T, 3, c) - gridAt(g.F, Tb, 3, c);
+  /** Thermal strain increment F(Tb) - F(Ta) (3 normal components) of a homogeneous group. */
+  groupDF(g, Ta, Tb, out) {
+    for (let c = 0; c < 3; c++) out[c] = gridAt(g.F, Tb, 3, c) - gridAt(g.F, Ta, 3, c);
     return out;
   }
 
@@ -307,64 +344,59 @@ class FEModel {
 
   isBorn(g, stage) { return g.stage <= stage; }
 
-  /** Per-temperature group data: shape matrices and thermal stress weights. */
-  prepareT(T, stage) {
-    if (this._prepT === T && this._prepStage === stage) return;
-    this._prepT = T; this._prepStage = stage;
+  /**
+   * Group data of one step of the thermal path from Ta to Tb in a stage:
+   * stiffness and shape matrices at the midpoint Tm and the thermal stress
+   * D(Tm) [F(Tb) - F(Ta)] of every born group.
+   */
+  prepareStep(Ta, Tb, stage) {
+    const key = Ta + '|' + Tb + '|' + stage;
+    if (this._prepKey === key) return;
+    this._prepKey = key;
+    const Tm = 0.5 * (Ta + Tb);
     for (const g of this.groups) {
       if (g.kind === 'layered') continue;
       g._D = g._D || new Float64Array(36);
-      this.groupD(g, T, g._D);
+      this.groupD(g, Tm, g._D);
       g._M = shapeMatrices(null, g._D, g._M);
       g._born = this.isBorn(g, stage);
-      if (g._born) {
-        const dF = this.groupDF(g, T, this.birthT[g.stage], this._s0);
-        g._s0 = g._s0 || new Float64Array(6);
-        const D = g._D;
-        for (let r = 0; r < 6; r++) g._s0[r] = D[r * 6] * dF[0] + D[r * 6 + 1] * dF[1] + D[r * 6 + 2] * dF[2];
-      }
+      g._dF = g._dF || new Float64Array(3);
+      g._s0 = g._s0 || new Float64Array(6);
+      this.groupDF(g, Ta, Tb, g._dF);
+      const D = g._D, dF = g._dF;
+      for (let r = 0; r < 6; r++) g._s0[r] = g._born ? D[r * 6] * dF[0] + D[r * 6 + 1] * dF[1] + D[r * 6 + 2] * dF[2] : 0;
     }
     for (const sec of this.sections) {
-      sectionW(sec, T, this._W);
+      sectionW(sec, Tm, this._W);
       sec._M = shapeMatrices(this._W, null, sec._M);
-      sec._V = sectionV(sec, T, this.birthT[0], sec._V);
+      sec._V = sectionVstep(sec, Tm, Ta, Tb, sec._V);
     }
   }
 
-  /**
-   * Element stiffness K33 (and load f33 when born) at temperature T. Returns
-   * true when the load is non-zero.
-   */
-  elementSystem(e, T, stage, K33, f33) {
-    this.prepareT(T, stage);
+  /** Element stiffness K33 and thermal load f33 of the prepared step. Returns true when the load is non-zero. */
+  elementSystem(e, K33, f33) {
     const m = this.mesh, g = this.groups[m.eGroup[e]];
     const i = m.eIJK[3 * e], j = m.eIJK[3 * e + 1], k = m.eIJK[3 * e + 2];
     const hx = m.xs[i + 1] - m.xs[i], hy = m.ys[j + 1] - m.ys[j], hz = m.zs[k + 1] - m.zs[k];
-    const born = g.stage <= stage;
-    let hasF = false;
     if (g.kind === 'layered') {
       const sec = this.sections[m.subBand[k]];
       elementK33Fast(hx, hy, hz, sec._M, K33);
-      if (born) { elementFth(hx, hy, hz, sec._V, null, f33); hasF = true; }
-    } else {
-      elementK33Fast(hx, hy, hz, g._M, K33);
-      if (born) { elementFth(hx, hy, hz, null, g._s0, f33); hasF = true; }
+      elementFth(hx, hy, hz, sec._V, null, f33);
+      return true;
     }
-    if (born && g.stage > 0) {
-      const qb = this.qb.subarray(33 * e, 33 * e + 33);
-      const t = this._tmp33;
-      mul33(K33, qb, t);
-      for (let i = 0; i < 33; i++) f33[i] += t[i];
-      hasF = true;
-    }
-    return hasF;
+    elementK33Fast(hx, hy, hz, g._M, K33);
+    if (!g._born) return false;
+    elementFth(hx, hy, hz, null, g._s0, f33);
+    return true;
   }
 
   /**
-   * Assemble K(T) (full block CSR values) and the load vector for the given
-   * stage. Unborn elements keep UNBORN_SCALE x stiffness and no load.
+   * Assemble K(Tm) (full block CSR values) and the thermal load of the step
+   * from Ta to Tb in a stage. Unborn elements keep UNBORN_SCALE x stiffness
+   * and no load.
    */
-  assemble(T, stage, rhs, noConstraints) {
+  assembleStep(Ta, Tb, stage, rhs, noConstraints) {
+    this.prepareStep(Ta, Tb, stage);
     const m = this.mesh, val = this.val, bmap = this.bmap;
     val.fill(0); rhs.fill(0);
     const K33 = this._K33, f33 = this._f33, cond = this._cond;
@@ -373,7 +405,7 @@ class FEModel {
       const born = this.isBorn(g, stage);
       const scale = m.eScale[e] * (born ? 1 : CONST.UNBORN_SCALE);
       f33.fill(0);
-      const hasF = this.elementSystem(e, T, stage, K33, f33);
+      const hasF = this.elementSystem(e, K33, f33);
       condense33(K33, hasF ? f33 : null, cond);
       const Kc = cond.Kc;
       for (let a = 0; a < 8; a++) {
@@ -415,7 +447,7 @@ class FEModel {
     }
   }
 
-  /** Element DOF vector (24) from the global solution. */
+  /** Element DOF vector (24) from a global field. */
   elementU(u, e, out) {
     const m = this.mesh;
     for (let a = 0; a < 8; a++) { const n = m.conn[8 * e + a]; out[3 * a] = u[3 * n]; out[3 * a + 1] = u[3 * n + 1]; out[3 * a + 2] = u[3 * n + 2]; }
@@ -423,76 +455,104 @@ class FEModel {
   }
 
   /**
-   * Full element state q (33) at temperature T for solution u: nodal DOFs plus
-   * recovered incompatible-mode parameters alpha = K_aa^-1 (f_a - K_au u).
+   * Compact per-step data for stress histories (kept for every step of the
+   * path): per group the midpoint stiffness, the incompatible-mode rows
+   * (24..32) of its shape matrices, the thermal stress and strain increments;
+   * per substrate band the same rows, its thermal-stress weights and every
+   * sub-layer's stiffness and thermal strain increment.
    */
-  elementState(e, T, stage, u, q) {
-    const K33 = this._K33, f33 = this._f33;
-    f33.fill(0);
-    this.elementSystem(e, T, stage, K33, f33);
-    this.elementU(u, e, q);
-    const Kaa = condense33._Kaa, col = condense33._col;
-    for (let i = 0; i < 9; i++) for (let j = 0; j < 9; j++) Kaa[i * 9 + j] = K33[(24 + i) * 33 + 24 + j];
-    cholDense(Kaa, 9, 1e-14);
-    for (let i = 0; i < 9; i++) {
-      let s = f33[24 + i];
-      for (let j = 0; j < 24; j++) s -= K33[(24 + i) * 33 + j] * q[j];
-      col[i] = s;
-    }
-    cholSolveDense(Kaa, 9, col, 0);
-    for (let i = 0; i < 9; i++) q[24 + i] = col[i];
-    return q;
+  stepRecovery(Ta, Tb, stage) {
+    this.prepareStep(Ta, Tb, stage);
+    const rows = M => { const r = new Float64Array(6 * 297); for (let p = 0; p < 6; p++) for (let i = 0; i < 9; i++) for (let j = 0; j < 33; j++) r[p * 297 + i * 33 + j] = M[p * 1089 + (24 + i) * 33 + j]; return r; };
+    const Tm = 0.5 * (Ta + Tb);
+    return {
+      Ta, Tb, stage,
+      groups: this.groups.map(g => g.kind === 'layered' ? null : { D: Float64Array.from(g._D), Ma: rows(g._M), s0: Float64Array.from(g._s0), dF: Float64Array.from(g._dF), born: g._born }),
+      sections: this.sections.map(sec => ({
+        Ma: rows(sec._M), V: Float64Array.from(sec._V),
+        Ds: Array.from({ length: sec.ns }, (_, s) => sectionSubD(sec, s, Tm)),
+        dFs: Array.from({ length: sec.ns }, (_, s) => sectionSubDF(sec, s, Ta, Tb)),
+      })),
+    };
   }
 
-  /** Record the birth state q_b of every element of the given stage from solution u at T. */
-  recordBirth(stage, T, u) {
-    const m = this.mesh, q = new Float64Array(33);
-    for (let e = 0; e < m.ne; e++) {
-      const g = this.groups[m.eGroup[e]];
-      if (g.stage !== stage) continue;
-      this.elementState(e, T, stage - 1, u, q);
-      this.qb.set(q, 33 * e);
-    }
+  /** Values per element of a stress history state: element DOFs q (33), then 7 strain monomials + 1 thermal term (x 6) per sub-layer. */
+  stateSize(e) {
+    const m = this.mesh, g = this.groups[m.eGroup[e]];
+    const ns = g.kind === 'layered' ? this.sections[m.subBand[m.eIJK[3 * e + 2]]].ns : 1;
+    return 33 + ns * 6 * (STRAIN_MONO + 1);
   }
 
   /**
-   * Stress and strain of element e at natural point (xi, eta, zeta) from a
-   * recovered state q at T. Returns {eps (total), sig}. Layered elements use
-   * the sub-layer stiffness at that zeta.
+   * Add one step of the path to the stress history state of element e:
+   * dq = (du at the element nodes, d alpha = K_aa^-1 (f_a - K_au du)) with the
+   * step's midpoint stiffness, q += dq, and per sub-layer
+   * S_m += D(Tm) E_m(dq), S_th += D(Tm) [F(Tb) - F(Ta)] when the material is born
+   * (qOnly: the DOFs only, for strain histories).
    */
-  pointStress(e, T, stage, q, xi, eta, zeta, out) {
-    out = out || { eps: new Float64Array(6), sig: new Float64Array(6), mech: new Float64Array(6) };
+  accumulateStep(e, rec, du, state, qOnly) {
+    const m = this.mesh, g = this.groups[m.eGroup[e]];
+    const i = m.eIJK[3 * e], j = m.eIJK[3 * e + 1], k = m.eIJK[3 * e + 2];
+    const hx = m.xs[i + 1] - m.xs[i], hy = m.ys[j + 1] - m.ys[j], hz = m.zs[k + 1] - m.zs[k];
+    const layered = g.kind === 'layered';
+    const gr = layered ? rec.sections[m.subBand[k]] : rec.groups[m.eGroup[e]];
+    const born = layered || gr.born;
+    // incompatible-mode rows of K33 and of the load
+    const V8 = hx * hy * hz / 8;
+    const c = [V8 * 4 / (hx * hx), V8 * 4 / (hy * hy), V8 * 4 / (hz * hz), V8 * 4 / (hx * hy), V8 * 4 / (hy * hz), V8 * 4 / (hz * hx)];
+    const Kr = this._Kr, Ma = gr.Ma;
+    for (let q = 0; q < 297; q++) Kr[q] = c[0] * Ma[q] + c[1] * Ma[297 + q] + c[2] * Ma[594 + q] + c[3] * Ma[891 + q] + c[4] * Ma[1188 + q] + c[5] * Ma[1485 + q];
+    const f33 = this._f33;
+    f33.fill(0);
+    if (born) elementFth(hx, hy, hz, layered ? gr.V : null, layered ? null : gr.s0, f33);
+    const dq = this._dq;
+    for (let a = 0; a < 8; a++) { const n = m.conn[8 * e + a]; dq[3 * a] = du[3 * n]; dq[3 * a + 1] = du[3 * n + 1]; dq[3 * a + 2] = du[3 * n + 2]; }
+    const Kaa = condense33._Kaa, col = condense33._col;
+    for (let r = 0; r < 9; r++) for (let s = 0; s < 9; s++) Kaa[r * 9 + s] = Kr[r * 33 + 24 + s];
+    cholDense(Kaa, 9, 1e-14);
+    for (let r = 0; r < 9; r++) { let s = f33[24 + r]; for (let t = 0; t < 24; t++) s -= Kr[r * 33 + t] * dq[t]; col[r] = s; }
+    cholSolveDense(Kaa, 9, col, 0);
+    for (let r = 0; r < 9; r++) dq[24 + r] = col[r];
+    for (let q = 0; q < 33; q++) state[q] += dq[q];
+    if (!born || qOnly) return;
+    const E = boxStrainPoly(hx, hy, hz, dq, this._E);
+    const ns = layered ? gr.Ds.length : 1, blk = 6 * (STRAIN_MONO + 1);
+    for (let s = 0; s < ns; s++) {
+      const D = layered ? gr.Ds[s] : gr.D, dF = layered ? gr.dFs[s] : gr.dF, o = 33 + s * blk;
+      for (let mo = 0; mo < STRAIN_MONO; mo++) {
+        const Em = 6 * mo, so = o + 6 * mo;
+        for (let r = 0; r < 6; r++) { let v = 0; const dr = r * 6; for (let t = 0; t < 6; t++) v += D[dr + t] * E[Em + t]; state[so + r] += v; }
+      }
+      const so = o + 6 * STRAIN_MONO;
+      for (let r = 0; r < 6; r++) state[so + r] += D[r * 6] * dF[0] + D[r * 6 + 1] * dF[1] + D[r * 6 + 2] * dF[2];
+    }
+  }
+
+  /** Sub-layer index of a layered element at natural coordinate zeta. */
+  subLayerAt(e, zeta) {
+    const m = this.mesh, k = m.eIJK[3 * e + 2], sec = this.sections[m.subBand[k]];
+    const z = m.zs[k] + 0.5 * (zeta + 1) * (m.zs[k + 1] - m.zs[k]);
+    for (let s = 0; s < sec.ns; s++) if (z <= sec.subZ[s][1] + 1e-12) return s;
+    return sec.ns - 1;
+  }
+
+  /**
+   * Stress and total strain of element e at natural point (xi, eta, zeta) from
+   * its history state: sigma = sum_m phi_m S_m - S_th of the sub-layer at that
+   * zeta (layered elements) or of the element. Returns {eps, sig}.
+   */
+  stateStress(e, state, xi, eta, zeta, out) {
+    out = out || { eps: new Float64Array(6), sig: new Float64Array(6) };
     const m = this.mesh, g = this.groups[m.eGroup[e]];
     const [hx, hy, hz] = this.elementDims(e);
-    const qb = this.qb.subarray(33 * e, 33 * e + 33);
-    const dq = this._tmp33;
-    for (let i = 0; i < 33; i++) dq[i] = q[i] - qb[i];
-    boxStrainAt(hx, hy, hz, q, q.subarray(24), xi, eta, zeta, out.eps);
-    boxStrainAt(hx, hy, hz, dq, dq.subarray(24), xi, eta, zeta, out.mech);
-    const born = this.isBorn(g, stage);
-    const Tb = this.birthT[g.stage];
-    const D = this._D;
-    let dF;
-    if (g.kind === 'layered') {
-      const sec = this.sections[m.subBand[m.eIJK[3 * e + 2]]];
-      const z = m.zs[m.eIJK[3 * e + 2]] + 0.5 * (zeta + 1) * hz;
-      let s = sec.ns - 1;
-      for (let q2 = 0; q2 < sec.ns; q2++) if (z <= sec.subZ[q2][1] + 1e-12) { s = q2; break; }
-      let x = clamp(T - CONST.TGRID_MIN, 0, TGRID_N - 1);
-      const i = Math.min(Math.floor(x), TGRID_N - 2), t = x - i;
-      const da = (s * TGRID_N + i) * 36, db = da + 36;
-      for (let r = 0; r < 36; r++) D[r] = sec.D[da + r] + t * (sec.D[db + r] - sec.D[da + r]);
-      const fb = s * TGRID_N * 3;
-      const Fs = sec.F.subarray(fb, fb + TGRID_N * 3);
-      dF = [gridAt(Fs, T, 3, 0) - gridAt(Fs, Tb, 3, 0), gridAt(Fs, T, 3, 1) - gridAt(Fs, Tb, 3, 1), gridAt(Fs, T, 3, 2) - gridAt(Fs, Tb, 3, 2)];
-    } else {
-      this.groupD(g, T, D);
-      dF = this.groupDF(g, T, Tb, this._s0);
+    boxStrainAt(hx, hy, hz, state, state.subarray(24, 33), xi, eta, zeta, out.eps);
+    const s = g.kind === 'layered' ? this.subLayerAt(e, zeta) : 0;
+    const phi = strainMonomials(xi, eta, zeta, this._phi), o = 33 + s * 6 * (STRAIN_MONO + 1);
+    for (let r = 0; r < 6; r++) {
+      let v = -state[o + 6 * STRAIN_MONO + r];
+      for (let mo = 0; mo < STRAIN_MONO; mo++) v += phi[mo] * state[o + 6 * mo + r];
+      out.sig[r] = v;
     }
-    const em = out.mech;
-    if (!born) { out.sig.fill(0); return out; }
-    const e0 = em[0] - dF[0], e1 = em[1] - dF[1], e2 = em[2] - dF[2];
-    for (let r = 0; r < 6; r++) out.sig[r] = D[r * 6] * e0 + D[r * 6 + 1] * e1 + D[r * 6 + 2] * e2 + D[r * 6 + 3] * em[3] + D[r * 6 + 4] * em[4] + D[r * 6 + 5] * em[5];
     return out;
   }
 }

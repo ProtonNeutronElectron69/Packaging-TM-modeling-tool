@@ -192,29 +192,37 @@ function sectionW(sec, T, out) {
   return out;
 }
 
-/**
- * Thermal-stress weight vectors V_j(T) = sum_s D_s(T) [F_s(T) - F_s(Tb)] int L_j
- * (3 x 6) for a band born stress-free at Tb.
- */
-function sectionV(sec, T, Tb, out) {
-  out = out || new Float64Array(18);
-  out.fill(0);
+/** Stiffness D_s(T) (36) of sub-layer s of a band section by linear interpolation in the grid. */
+function sectionSubD(sec, s, T, out) {
+  out = out || new Float64Array(36);
   let x = clamp(T - CONST.TGRID_MIN, 0, TGRID_N - 1);
   const i = Math.min(Math.floor(x), TGRID_N - 2), t = x - i;
-  const eps = new Float64Array(6);
+  const da = (s * TGRID_N + i) * 36, db = da + 36;
+  for (let q = 0; q < 36; q++) out[q] = sec.D[da + q] + t * (sec.D[db + q] - sec.D[da + q]);
+  return out;
+}
+
+/** Thermal strain increment F_s(Tb) - F_s(Ta) (3 normal components) of sub-layer s. */
+function sectionSubDF(sec, s, Ta, Tb, out) {
+  out = out || new Float64Array(3);
+  const Fs = sec.F.subarray(s * TGRID_N * 3, (s + 1) * TGRID_N * 3);
+  for (let c = 0; c < 3; c++) out[c] = gridAt(Fs, Tb, 3, c) - gridAt(Fs, Ta, 3, c);
+  return out;
+}
+
+/**
+ * Thermal-stress weight vectors of one step of the thermal path from Ta to Tb
+ * with the stiffness at the step midpoint Tm:
+ *   V_j = sum_s D_s(Tm) [F_s(Tb) - F_s(Ta)] int L_j   (3 x 6).
+ */
+function sectionVstep(sec, Tm, Ta, Tb, out) {
+  out = out || new Float64Array(18);
+  out.fill(0);
+  const D = new Float64Array(36), dF = new Float64Array(3);
   for (let s = 0; s < sec.ns; s++) {
-    const fb = s * TGRID_N * 3;
-    for (let c = 0; c < 3; c++) {
-      const Fi = sec.F[fb + i * 3 + c] + t * (sec.F[fb + (i + 1) * 3 + c] - sec.F[fb + i * 3 + c]);
-      eps[c] = Fi - gridAt(sec.F.subarray(fb, fb + TGRID_N * 3), Tb, 3, c);
-    }
-    const da = (s * TGRID_N + i) * 36, db = (s * TGRID_N + i + 1) * 36;
+    sectionSubD(sec, s, Tm, D); sectionSubDF(sec, s, Ta, Tb, dF);
     for (let r = 0; r < 6; r++) {
-      let sig = 0;
-      for (let c = 0; c < 3; c++) {
-        const d = sec.D[da + r * 6 + c] + t * (sec.D[db + r * 6 + c] - sec.D[da + r * 6 + c]);
-        sig += d * eps[c];
-      }
+      const sig = D[r * 6] * dF[0] + D[r * 6 + 1] * dF[1] + D[r * 6 + 2] * dF[2];
       for (let j = 0; j < 3; j++) out[j * 6 + r] += sig * sec.Ls[s][j];
     }
   }

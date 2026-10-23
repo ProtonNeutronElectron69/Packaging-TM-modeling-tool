@@ -475,7 +475,7 @@ const VERIFICATION_TESTS = [
   },
   {
     id: 'V16', name: 'Stress through a glass transition, incremental thermoelasticity', slow: false,
-    criterion: 'free block stress below 1e-8 x E alpha dT; laterally held block within 1.5 % of -integral E / (1 - nu) alpha dT',
+    criterion: 'free block stress below 1e-8 x E alpha dT; laterally held block within 0.1 % of -integral E / (1 - nu) alpha dT',
     about: 'Cools a block of underfill from its cure temperature through its glass transition along the thermal path the tool uses. Left free it must stay stress-free; held at its sides its in-plane stress must equal the exact sum of modulus times thermal contraction over each degree of cooling, which a single room-temperature modulus would overstate several times.',
     run(ctx) {
       const cfg = defaultConfig(ctx.db), lib = cfg.materials, mat = findMaterial(lib, cfg.underfill.mat), tab = materialTables(mat);
@@ -508,7 +508,7 @@ const VERIFICATION_TESTS = [
       const free = run(false), held = run(true);
       const sref = gridAt(tab.E, Tb) * Math.abs(gridAt(tab.F, Tb) - gridAt(tab.F, Ta));
       const err = Math.abs(held.sx / exact - 1);
-      const pass = free.smax < 1e-8 * sref && err < 0.015 && held.sz < 1e-6 * Math.abs(exact);
+      const pass = free.smax < 1e-8 * sref && err < 0.001 && held.sz < 1e-6 * Math.abs(exact);
       return { pass, measured: pts.length - 1 + ' steps from ' + Ta + ' to ' + Tb + ' °C: free block ' + (free.smax / sref).toExponential(2) + ' x E alpha dT; held block ' + held.sx.toFixed(2) + ' MPa vs exact ' + exact.toFixed(2) + ' MPa (' + (100 * err).toFixed(2) + ' %); a secant (total) form would give ' + secant.toFixed(2) + ' MPa' };
     },
   },

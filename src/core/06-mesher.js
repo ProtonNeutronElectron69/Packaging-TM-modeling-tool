@@ -422,7 +422,7 @@ function meshWarnings(mesh) {
   const inf = mesh.info;
   if (inf.nAspectWarn > 0) w.push({ level: 'warning', text: inf.nAspectWarn + ' elements have aspect ratio above ' + CONST.ASPECT_WARN + ' (max ' + inf.aspectMax.toFixed(0) + '); thin layers are handled by the incompatible-mode element but check mesh sensitivity.' });
   if (inf.capDof > inf.cap) w.push({ level: 'warning', text: 'DOF ' + inf.capDof + ' above the ' + inf.preset + ' cap ' + inf.cap + '.' });
-  else if (inf.ringRefined && inf.nDof > inf.cap) w.push({ level: 'info', text: 'The refinement at the ' + inf.ringLabel + ' edges adds ' + (inf.nDof - inf.capDof) + ' DOF on top of the ' + inf.preset + ' cap ' + inf.cap + ' (total ' + inf.nDof + ').' });
+  else if (inf.ringRefined && inf.nDof > inf.cap) w.push({ level: 'info', text: 'The refinement at the ' + inf.ringLabel + ' edges adds ' + (inf.nDof - inf.capDof) + ' DOF to the grid sized for the ' + inf.preset + ' cap of ' + inf.cap + ' (total ' + inf.nDof + ').' });
   if (inf.scaled) w.push({ level: 'info', text: 'Mesh sizes enlarged to h_min ' + inf.hmin.toFixed(3) + ' mm and h_max ' + inf.hmax.toFixed(3) + ' mm to stay under the ' + inf.preset + ' DOF cap.' });
   const sn = inf.snappedX.concat(inf.snappedY);
   if (sn.length) w.push({ level: 'info', text: sn.length + ' in-plane feature lines closer than 10 µm were merged (' + sn.slice(0, 3).map(s => s.a + ' / ' + s.b).join('; ') + (sn.length > 3 ? '; ...' : '') + ').' });

@@ -99,6 +99,7 @@ class Analysis {
 
   build() {
     const t0 = nowMs();
+    this.tAll = t0;
     this.mesh = buildPackageMesh(this.cfg, this.opts);
     this.timings.mesh = nowMs() - t0;
     const t1 = nowMs();
@@ -152,16 +153,15 @@ class Analysis {
       for (let k = 1; k < pts.length; k++) { steps.push({ Ta: pts[k - 1], Tb: pts[k], stage, branch }); ids.push(steps.length - 1); }
       return ids;
     };
-    // solve order: the chain, then both sweep branches in the final stage (down first, so the matrix structure
-    // continues from the last chain stage), then the chip-join branch; the preconditioner is rebuilt only where
-    // the stage or the solder regime changes
+    // solve order (consecutive steps of similar shape warm-start each other): S0, S1, the chip-join branch (needed
+    // for the bump loads of a full analysis only; it continues the stage-1 cooling), the rest of the chain, then
+    // both sweep branches in the final stage (down first, continuing from the last chain step)
     const s0 = Math.abs(p.Tsub - p.Tjoin) > 1e-9 ? seg(p.Tsub, p.Tjoin, 0, 'chain') : [];
     const s1 = seg(p.Tjoin, p.Tuf, 1, 'chain');
+    const cpi = this.opts.evaluations === 'full' ? seg(p.Tuf, 25, 1, 'cpi') : [];
     const rest = fin === 3 ? seg(p.Tuf, p.Tattach, 2, 'chain').concat(seg(p.Tattach, 25, 3, 'chain')) : seg(p.Tuf, 25, 2, 'chain');
     const ev = temps.all;
     const down = seg(25, Math.min(25, ...ev), fin, 'down', ev), up = seg(25, Math.max(25, ...ev), fin, 'up', ev);
-    // the chip-join state is needed for the bump loads of a full analysis only
-    const cpi = this.opts.evaluations === 'full' ? seg(p.Tuf, 25, 1, 'cpi') : [];
     this.path = { steps, chain: s0.concat(s1, rest), chainJoin: s0.concat(s1), cpi, up, down, hasCPI: this.opts.evaluations === 'full' };
     this.du = new Array(steps.length).fill(null);
     this.rec = new Array(steps.length).fill(null);
@@ -190,7 +190,6 @@ class Analysis {
 
   /** Run every step in this thread, then sum them up. */
   run() {
-    this.tAll = nowMs();
     if (!this.mesh) this.build();
     const steps = this.buildPath(), n = steps.length;
     steps.forEach((s, k) => { this.progress(0.02 + 0.86 * k / n, 'Thermal path: ' + stepLabel(s) + ' (' + (k + 1) + '/' + n + ')'); this.du[k] = this.solveStep(k).u; });

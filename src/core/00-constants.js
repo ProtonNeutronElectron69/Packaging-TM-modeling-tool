@@ -58,6 +58,8 @@ const CONST = Object.freeze({
   WARM_START_MAX: 20,
   REBUILD_FACTOR: 2,         // rebuild the preconditioner when a solve needs this many times its iterations per decade of residual reduction right after the build
   REBUILD_MIN_ITERS: 30,     // never rebuild before this many iterations of a stale preconditioner
+  SWEEP_BLOCKS_PER_WORKER: 3, // thermal-path steps go to the workers in about this many blocks each, taken from a shared queue
+  SWEEP_BLOCK_MIN: 2,        // steps per block at least (consecutive steps warm-start each other)
   // ---- live progress (run details panel and status dot) -------------------
   LIVE_INTERVAL_MS: 1000,    // solvers and submodels report their state at most this often
   LIVE_HIST_POINTS: 100,     // residual history points sent with each report

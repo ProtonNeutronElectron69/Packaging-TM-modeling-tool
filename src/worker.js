@@ -34,40 +34,52 @@
     self.postMessage({ type: 'liveport', port: ch.port1 }, [ch.port1]);
     return ch.port2;
   }
-  /** Run jobs on n helpers; onPartial(payload) per partial / result message; resolves with the result payloads. */
+  /**
+   * Run jobs on n helpers: jobs is an array, or a function returning the next job or null (a queue shared with
+   * this worker). onPartial(j, payload) per partial message; resolves with the result payloads in job order.
+   */
   function runOnHelpers(n, jobs, onPartial, onProgress) {
+    const take = typeof jobs === 'function' ? jobs : (() => { let i = 0; return () => (i < jobs.length ? jobs[i++] : null); })();
     return new Promise((resolve, reject) => {
-      const helpers = [];
-      const results = new Array(jobs.length);
-      let next = 0, done = 0, failed = false;
+      const helpers = [], results = [];
+      let seq = 0, running = 0, failed = false;
       const finish = () => { for (const w of helpers) w.terminate(); };
       const launch = w => {
-        if (next >= jobs.length) return;
-        const j = next++;
-        const job = jobs[j];
+        if (failed) return;
+        const job = take();
+        if (!job) { if (running === 0) { finish(); resolve(results); } return; }
+        const j = seq++;
+        running++;
         w.onmessage = ev => {
           const m = ev.data;
           if (m.id !== j + 1) return; // init acknowledgement or a stale message
           if (m.type === 'progress') { if (onProgress) onProgress(j, m.frac, m.msg); return; }
           if (m.type === 'partial') { if (onPartial) onPartial(j, m.payload); return; }
           if (m.type === 'error') { if (!failed) { failed = true; finish(); reject(new Error(m.message)); } return; }
-          results[j] = m.payload; done++;
-          if (done === jobs.length) { finish(); resolve(results); } else launch(w);
+          results[j] = m.payload; running--;
+          launch(w);
         };
         w.onerror = ev => { if (!failed) { failed = true; finish(); reject(new Error(ev.message || 'helper worker error')); } };
         w.postMessage(Object.assign({ id: j + 1 }, job.msg), job.transfer || []);
       };
-      for (let i = 0; i < Math.min(n, jobs.length); i++) helpers.push(spawnHelper(i));
+      for (let i = 0; i < (typeof jobs === 'function' ? n : Math.min(n, jobs.length)); i++) helpers.push(spawnHelper(i));
       for (const w of helpers) launch(w);
+      if (!helpers.length) resolve(results);
     });
   }
 
-  /** Helper: solve a subset of the steps of the thermal path of the main analysis (each step is an independent solve). */
+  /**
+   * Helper: solve a block of steps of the thermal path of the main analysis (each step is an independent solve).
+   * The model is kept for the next block of the same run, so its warm-start solutions carry over.
+   */
   function evalSteps(msg) {
-    const id = msg.id;
-    const an = new Analysis(msg.cfg, { preset: msg.preset, evaluations: msg.evaluations, precond: msg.precond || 'mg' });
-    an.build();
-    const steps = an.buildPath();
+    const id = msg.id, key = configHashes(msg.cfg).all + '|' + msg.preset + '|' + msg.evaluations + '|' + (msg.precond || 'mg');
+    if (!state.stepAn || state.stepAn.key !== key) {
+      const an = new Analysis(msg.cfg, { preset: msg.preset, evaluations: msg.evaluations, precond: msg.precond || 'mg' });
+      an.build(); an.buildPath();
+      state.stepAn = { key, an };
+    }
+    const an = state.stepAn.an, steps = an.path.steps;
     if (steps.length !== msg.nSteps) throw new Error('Helper thermal path differs from the main analysis (' + steps.length + ' versus ' + msg.nSteps + ' steps).');
     const out = [];
     msg.steps.forEach((k, i) => {
@@ -91,9 +103,9 @@
   }
 
   /**
-   * The thermal path: every step in this worker, or the steps split over helpers when asked and possible
-   * (contiguous blocks in solve order, so each worker rebuilds its preconditioner only where its own block
-   * changes stage or solder regime).
+   * The thermal path: every step in this worker, or split over helpers when asked and possible, in blocks of
+   * consecutive steps (which warm-start each other) taken from a queue by this worker and the helpers alike, so
+   * the costly blocks (stage 1, with the underfill unborn) do not pile up on one worker.
    */
   async function runSweep(an, msg, id) {
     const steps = an.buildPath(), n = steps.length;
@@ -104,14 +116,16 @@
       an.finishPath();
       return;
     }
-    const chunks = Array.from({ length: nw }, (_, w) => { const out = []; for (let k = Math.round(w * n / nw); k < Math.round((w + 1) * n / nw); k++) out.push(k); return out; });
-    const mine = chunks[0], jobs = [];
-    for (let w = 1; w < nw; w++) jobs.push({ msg: { type: 'evalSteps', cfg: msg.cfg, preset: msg.preset, evaluations: msg.evaluations || 'full', precond: msg.precond || 'mg', steps: chunks[w], nSteps: n } });
-    let doneCount = 0;
+    const size = Math.max(CONST.SWEEP_BLOCK_MIN, Math.ceil(n / (CONST.SWEEP_BLOCKS_PER_WORKER * nw)));
+    const blocks = [];
+    for (let k = 0; k < n; k += size) blocks.push(Array.from({ length: Math.min(size, n - k) }, (_, i) => k + i));
+    let next = 0, doneCount = 0;
+    const take = () => (next < blocks.length ? blocks[next++] : null);
+    const job = b => ({ msg: { type: 'evalSteps', cfg: msg.cfg, preset: msg.preset, evaluations: msg.evaluations || 'full', precond: msg.precond || 'mg', steps: b, nSteps: n } });
     const tick = k => { doneCount++; progress(id, 0.02 + 0.86 * doneCount / n, 'Thermal path: ' + stepLabel(steps[k]) + ' (' + doneCount + '/' + n + ', ' + nw + ' workers)'); };
-    const helperP = runOnHelpers(nw - 1, jobs, (j, p) => { an.du[p.k] = p.du; tick(p.k); }, null);
-    // this worker takes its own block meanwhile (solves are synchronous; helper messages are handled between them)
-    for (const k of mine) { solveHere(k); tick(k); await new Promise(r => setTimeout(r, 0)); }
+    const helperP = runOnHelpers(nw - 1, () => { const b = take(); return b && job(b); }, (j, p) => { an.du[p.k] = p.du; tick(p.k); }, null);
+    // this worker takes blocks from the same queue meanwhile (solves are synchronous; helper messages are handled between them)
+    for (let b = take(); b; b = take()) for (const k of b) { solveHere(k); tick(k); await new Promise(r => setTimeout(r, 0)); }
     const res = await helperP;
     for (const r of res) for (const l of r.log) an.log.push(Object.assign({ helper: true }, l));
     an.finishPath();

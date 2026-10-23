@@ -182,16 +182,6 @@ function buildBandSection(band, lib, nuMax) {
   return { z0: band.z0, z1: band.z1, ns, Ls, D, F, W, subZ: band.subs.map(s => [s.z0, s.z1]) };
 }
 
-/** W_j(T) (3 x 36) of a band section by linear interpolation in the grid. */
-function sectionW(sec, T, out) {
-  out = out || new Float64Array(108);
-  let x = clamp(T - CONST.TGRID_MIN, 0, TGRID_N - 1);
-  const i = Math.min(Math.floor(x), TGRID_N - 2), t = x - i;
-  const a = i * 108, b = (i + 1) * 108;
-  for (let q = 0; q < 108; q++) out[q] = sec.W[a + q] + t * (sec.W[b + q] - sec.W[a + q]);
-  return out;
-}
-
 /** Stiffness D_s(T) (36) of sub-layer s of a band section by linear interpolation in the grid. */
 function sectionSubD(sec, s, T, out) {
   out = out || new Float64Array(36);
@@ -202,29 +192,30 @@ function sectionSubD(sec, s, T, out) {
   return out;
 }
 
-/** Thermal strain increment F_s(Tb) - F_s(Ta) (3 normal components) of sub-layer s. */
-function sectionSubDF(sec, s, Ta, Tb, out) {
-  out = out || new Float64Array(3);
-  const Fs = sec.F.subarray(s * TGRID_N * 3, (s + 1) * TGRID_N * 3);
-  for (let c = 0; c < 3; c++) out[c] = gridAt(Fs, Tb, 3, c) - gridAt(Fs, Ta, 3, c);
-  return out;
+/** Mean stiffness (36) of sub-layer s over the step [Ta, Tb]. */
+function sectionSubMeanD(sec, s, Ta, Tb, out) {
+  return gridMean(sec.D.subarray(s * TGRID_N * 36, (s + 1) * TGRID_N * 36), 36, 36, Ta, Tb, out);
 }
 
+/** Thermal stress increment (6) of sub-layer s over the step: integral from Ta to Tb of D_s dF_s. */
+function sectionSubStress(sec, s, Ta, Tb, out) {
+  return gridStressIncrement(sec.D.subarray(s * TGRID_N * 36, (s + 1) * TGRID_N * 36), null, sec.F.subarray(s * TGRID_N * 3, (s + 1) * TGRID_N * 3), Ta, Tb, out);
+}
+
+/** Weight matrices W_j (3 x 36) of a band section averaged over the step [Ta, Tb]. */
+function sectionWmean(sec, Ta, Tb, out) { return gridMean(sec.W, 108, 108, Ta, Tb, out); }
+
 /**
- * Thermal-stress weight vectors of one step of the thermal path from Ta to Tb
- * with the stiffness at the step midpoint Tm:
- *   V_j = sum_s D_s(Tm) [F_s(Tb) - F_s(Ta)] int L_j   (3 x 6).
+ * Thermal-stress weight vectors of one step of the thermal path from Ta to Tb:
+ *   V_j = sum_s [integral of D_s dF_s] int L_j   (3 x 6).
  */
-function sectionVstep(sec, Tm, Ta, Tb, out) {
+function sectionVstep(sec, Ta, Tb, out) {
   out = out || new Float64Array(18);
   out.fill(0);
-  const D = new Float64Array(36), dF = new Float64Array(3);
+  const s0 = new Float64Array(6);
   for (let s = 0; s < sec.ns; s++) {
-    sectionSubD(sec, s, Tm, D); sectionSubDF(sec, s, Ta, Tb, dF);
-    for (let r = 0; r < 6; r++) {
-      const sig = D[r * 6] * dF[0] + D[r * 6 + 1] * dF[1] + D[r * 6 + 2] * dF[2];
-      for (let j = 0; j < 3; j++) out[j * 6 + r] += sig * sec.Ls[s][j];
-    }
+    sectionSubStress(sec, s, Ta, Tb, s0);
+    for (let r = 0; r < 6; r++) for (let j = 0; j < 3; j++) out[j * 6 + r] += s0[r] * sec.Ls[s][j];
   }
   return out;
 }

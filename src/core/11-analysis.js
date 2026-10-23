@@ -14,12 +14,12 @@ function planeSegments(mesh) {
   return seg;
 }
 
-/** Tg values (degC) of every material used by the model (mesh or model groups). */
-function modelTgs(cfg, groups) {
+/** Tg values (degC) of the materials of the model (mesh or model groups) born by process stage maxStage (all by default). */
+function modelTgs(cfg, groups, maxStage) {
   const out = [];
   const seen = new Set();
   const add = id => { if (!id || seen.has(id)) return; seen.add(id); for (const t of materialTgs(findMaterial(cfg.materials, id))) out.push(t.T); };
-  for (const g of groups) add(g.mat);
+  for (const g of groups) if (maxStage == null || g.stage <= maxStage) add(g.mat);
   for (const r of cfg.substrate.layers) { add(r.mat); add(r.fill); }
   return out;
 }
@@ -42,9 +42,9 @@ function temperatureSamples(Tmin, Tmax, tgs, extras) {
  * Points of the thermal path from Ta to Tb (either direction): steps of at most
  * INC_DT_MAX, at most INC_DT_TG where a step meets the INC_TG_BAND window of
  * any Tg, and every temperature of `stops` strictly between Ta and Tb
- * (evaluation temperatures, the solder solidus). With the midpoint stiffness
- * these steps integrate E alpha dT of the default polymers through their glass
- * transitions to about 1.5 % (the secant form is off by 50 to 1100 %).
+ * (evaluation temperatures, the solder solidus). Within a step the stiffness is
+ * its mean over the step and the thermal load the exact integral of D dF, so the
+ * only approximation is a strain taken linear in T across the step.
  */
 function thermalPathPoints(Ta, Tb, tgs, stops) {
   const dir = Math.sign(Tb - Ta), pts = [Ta];
@@ -111,10 +111,14 @@ class Analysis {
     return this;
   }
 
-  /** Data the thermal path needs: final process stage, Tg values of the model's materials, solder solidus. */
+  /**
+   * Data the thermal path needs: final process stage, Tg values of the model's materials (all of them for
+   * the evaluation temperatures, those born by each stage for its steps), solder solidus.
+   */
   setupPath(groups) {
     this.finalStage = this.cfg.packageType === 'bare' ? 2 : 3;
     this.tgs = modelTgs(this.cfg, groups);
+    this.stageTgs = [0, 1, 2, 3].map(s => modelTgs(this.cfg, groups, s));
     this.solidus = pv(findMaterial(this.cfg.materials, this.cfg.bump.solder).solidus || { v: 217 });
     return this;
   }
@@ -143,7 +147,7 @@ class Analysis {
     this.temps = temps;
     const steps = [];
     const seg = (Ta, Tb, stage, branch, stops) => {
-      const pts = thermalPathPoints(Ta, Tb, this.tgs, (stops || []).concat([this.solidus]));
+      const pts = thermalPathPoints(Ta, Tb, this.stageTgs[stage], (stops || []).concat([this.solidus]));
       const ids = [];
       for (let k = 1; k < pts.length; k++) { steps.push({ Ta: pts[k - 1], Tb: pts[k], stage, branch }); ids.push(steps.length - 1); }
       return ids;
@@ -164,7 +168,7 @@ class Analysis {
     return steps;
   }
 
-  /** One step of the path: assemble K(Tm) and the thermal-strain increment load, solve. */
+  /** One step of the path: assemble K (mean stiffness over the step) and the thermal stress increment load, solve. */
   solveStep(k) {
     this.checkCancel();
     const s = this.path.steps[k];

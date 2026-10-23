@@ -609,52 +609,61 @@ class BumpSubmodel {
 
   /**
    * Elastic material data of one step from Ta to Tb (incremental, Section 6.5 as
-   * amended): stiffness D (36) at the step midpoint and the thermal stress
-   * increment sth (6) = D [F(Tb) - F(Ta)], summed over the phases where the
-   * bump layer is homogenized (V7).
+   * amended): the mean stiffness D (36) over the step and the thermal stress
+   * increment sth (6), the integral of D dF (an isotropic D is linear in E at a
+   * fixed nu, so it is D(E_m) / E_m times the integral of E dF), summed over the
+   * phases where the bump layer is homogenized (V7).
    */
   _elastic(mat, Ta, Tb, D, sth) {
-    const MAT = this.MAT, Tm = 0.5 * (Ta + Tb), dF = this._dF || (this._dF = new Float64Array(3));
-    const fromStrain = () => { for (let r = 0; r < 6; r++) sth[r] = D[r * 6] * dF[0] + D[r * 6 + 1] * dF[1] + D[r * 6 + 2] * dF[2]; };
-    const isoStep = (tab, nuMax) => { isoD(gridAt(tab.E, Tm), tab.nu, nuMax, D); dF[0] = dF[1] = dF[2] = gridAt(tab.F, Tb) - gridAt(tab.F, Ta); fromStrain(); };
+    const MAT = this.MAT, e1 = this._e1 || (this._e1 = new Float64Array(1));
+    const meanE = tab => gridMean(tab.E, 1, 1, Ta, Tb, e1)[0];
+    const rowSum = (Dx, r) => Dx[r * 6] + Dx[r * 6 + 1] + Dx[r * 6 + 2];
+    const isoStep = (tab, nuMax) => {
+      const Em = meanE(tab), ef = gridModulusStrainIncrement(tab.E, tab.F, Ta, Tb) / Em;
+      isoD(Em, tab.nu, nuMax, D);
+      for (let r = 0; r < 6; r++) sth[r] = rowSum(D, r) * ef;
+    };
     if (this.opts.uniformMaterial && mat === MAT.UF) {
       // the global bump-layer cell: solder columns (columnD) and underfill superposed with volume fractions fb, 1 - fb
       const fb = this.die.density, st = materialTables(this.solderMat), ut = this.ufTables;
-      const Ds = columnD(gridAt(st.E, Tm), st.nu, this._Ds || (this._Ds = new Float64Array(36)));
-      const Du = isoD(gridAt(ut.E, Tm), ut.nu, CONST.NU_MAX_GLOBAL, this._Du || (this._Du = new Float64Array(36)));
-      const fs = gridAt(st.F, Tb) - gridAt(st.F, Ta), fu = gridAt(ut.F, Tb) - gridAt(ut.F, Ta);
+      const Es = meanE(st), Eu = meanE(ut);
+      const Ds = columnD(Es, st.nu, this._Ds || (this._Ds = new Float64Array(36)));
+      const Du = isoD(Eu, ut.nu, CONST.NU_MAX_GLOBAL, this._Du || (this._Du = new Float64Array(36)));
+      const fs = gridModulusStrainIncrement(st.E, st.F, Ta, Tb) / Es, fu = gridModulusStrainIncrement(ut.E, ut.F, Ta, Tb) / Eu;
       for (let q = 0; q < 36; q++) D[q] = fb * Ds[q] + (1 - fb) * Du[q];
-      for (let r = 0; r < 6; r++) sth[r] = fb * (Ds[r * 6] + Ds[r * 6 + 1] + Ds[r * 6 + 2]) * fs + (1 - fb) * (Du[r * 6] + Du[r * 6 + 1] + Du[r * 6 + 2]) * fu;
+      for (let r = 0; r < 6; r++) sth[r] = fb * rowSum(Ds, r) * fs + (1 - fb) * rowSum(Du, r) * fu;
       return;
     }
-    if (mat === MAT.SI) { D.set(this.siD); dF[0] = dF[1] = dF[2] = gridAt(this.siF, Tb) - gridAt(this.siF, Ta); fromStrain(); return; }
+    if (mat === MAT.SI) { D.set(this.siD); const f = gridAt(this.siF, Tb) - gridAt(this.siF, Ta); for (let r = 0; r < 6; r++) sth[r] = rowSum(D, r) * f; return; }
     if (mat === MAT.UF) { isoStep(this.ufTables, CONST.NU_MAX_SUBMODEL); return; }
     if (mat === MAT.SOLDER) { isoStep(materialTables(this.solderMat), CONST.NU_MAX_SUBMODEL); return; }
     // substrate slice
-    let x = clamp(Tm - CONST.TGRID_MIN, 0, TGRID_N - 1); const i = Math.min(Math.floor(x), TGRID_N - 2), t = x - i;
     if (this.opts.uniformMaterial && this._subZ !== undefined) {
-      // consistency mode: the global band's own sub-layer stiffness at this height
-      const sec = this.topSection;
+      // consistency mode: the global band's own sub-layer stiffness at this height, with the through-thickness
+      // response of the whole band (one thickness strain shared by its sub-layers in the global element): Voigt
+      // thickness modulus and Turner-weighted thermal strain over the band
+      const sec = this.topSection, dF = this._dF || (this._dF = new Float64Array(3));
       let sl = sec.ns - 1;
       for (let q2 = 0; q2 < sec.ns; q2++) if (this._subZ <= sec.subZ[q2][1] + 1e-12) { sl = q2; break; }
-      sectionSubD(sec, sl, Tm, D);
-      sectionSubDF(sec, sl, Ta, Tb, dF);
-      // through-thickness response of the whole band (one thickness strain shared by its sub-layers in the
-      // global element): Voigt thickness modulus and Turner-weighted thermal strain over the band
+      sectionSubMeanD(sec, sl, Ta, Tb, D);
+      const Fs = q2 => sec.F.subarray(q2 * TGRID_N * 3, (q2 + 1) * TGRID_N * 3);
+      for (let c = 0; c < 2; c++) dF[c] = gridAt(Fs(sl), Tb, 3, c) - gridAt(Fs(sl), Ta, 3, c);
       let Ez = 0, EzF = 0, tt = 0;
-      const Dq = this._Dq || (this._Dq = new Float64Array(36)), dFq = this._dFq || (this._dFq = new Float64Array(3));
+      const Dq = this._Dq || (this._Dq = new Float64Array(36)), sq = this._sq || (this._sq = new Float64Array(6));
       for (let q2 = 0; q2 < sec.ns; q2++) {
         const ts = sec.subZ[q2][1] - sec.subZ[q2][0];
-        sectionSubD(sec, q2, Tm, Dq); sectionSubDF(sec, q2, Ta, Tb, dFq);
-        Ez += ts * Dq[14]; EzF += ts * Dq[14] * dFq[2]; tt += ts;
+        sectionSubMeanD(sec, q2, Ta, Tb, Dq);
+        // integral of E_z dF_z of the sub-layer: its zz thermal stress increment without the in-plane coupling
+        const fx = gridAt(Fs(q2), Tb, 3, 0) - gridAt(Fs(q2), Ta, 3, 0), fy = gridAt(Fs(q2), Tb, 3, 1) - gridAt(Fs(q2), Ta, 3, 1);
+        sectionSubStress(sec, q2, Ta, Tb, sq);
+        Ez += ts * Dq[14]; EzF += ts * (sq[2] - Dq[12] * fx - Dq[13] * fy); tt += ts;
       }
       D[14] = Ez / tt; dF[2] = EzF / Ez;
-      fromStrain();
+      for (let r = 0; r < 6; r++) sth[r] = D[r * 6] * dF[0] + D[r * 6 + 1] * dF[1] + D[r * 6 + 2] * dF[2];
       return;
     }
-    for (let q = 0; q < 36; q++) D[q] = this.subD[36 * i + q] + t * (this.subD[36 * (i + 1) + q] - this.subD[36 * i + q]);
-    for (let c = 0; c < 3; c++) dF[c] = gridAt(this.subF, Tb, 3, c) - gridAt(this.subF, Ta, 3, c);
-    fromStrain();
+    gridMean(this.subD, 36, 36, Ta, Tb, D);
+    gridStressIncrement(this.subD, null, this.subF, Ta, Tb, sth);
   }
 
   /** Key and data (D, sth) of an elastic element's material for the current step from Tn to T (cached per step). */
@@ -699,7 +708,7 @@ class BumpSubmodel {
       Ke.fill(0); fe.fill(0);
       const isAnand = this.anand[e * 8] !== null;
       if (!isAnand) {
-        // elastic element, incremental: sigma = sigma_n + D(Tm) B (u - u_n) - sth with the committed state at
+        // elastic element, incremental: sigma = sigma_n + D_m B (u - u_n) - sth with the committed state at
         // T_n. K_e and the thermal load f_th depend on the step (T_n, T) only, so they are built once per step and
         // reused across its Newton iterations: f_int = f_n + K_e (u_e - u_n,e) - f_th
         if (!this.eK) { this.eK = new Float64Array(576 * m.ne); this.eF = new Float64Array(24 * m.ne); }

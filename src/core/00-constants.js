@@ -56,7 +56,7 @@ const CONST = Object.freeze({
   PCG_TOL: 1e-8,
   PCG_MAXIT: 2000,
   WARM_START_MAX: 20,
-  REBUILD_FACTOR: 2,
+  REBUILD_FACTOR: 2,         // rebuild the preconditioner when a solve needs this many times its iterations per decade of residual reduction right after the build
   REBUILD_MIN_ITERS: 30,     // never rebuild before this many iterations of a stale preconditioner
   // ---- live progress (run details panel and status dot) -------------------
   LIVE_INTERVAL_MS: 1000,    // solvers and submodels report their state at most this often

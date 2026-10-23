@@ -280,7 +280,7 @@ const VERIFICATION_TESTS = [
       boxStrainAt(hx, hy, hz, q125, q125.subarray(24), xi, eta, zeta, eB);
       const dEps = Array.from(eB, (v, c) => v - eA[c]);
       const scale = Math.max(...dEps.map(Math.abs));
-      // the submodel follows the global steps of the up branch (same step midpoints for the stiffness)
+      // the submodel follows the global steps of the up branch (same step means of the stiffness)
       const upTemps = an.path.up.map(k => an.path.steps[k].Tb);
       const march = sm => { let r = null; for (const T of upTemps) { r = sm.stepTo(T, 1); if (!r.converged) break; } return r; };
       // submodel strain at the voxel nearest the site centre, mid-height of the bump layer

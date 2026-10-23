@@ -303,7 +303,7 @@ const CONST = Object.freeze({
   PCG_TOL: 1e-8,
   PCG_MAXIT: 2000,
   WARM_START_MAX: 20,
-  REBUILD_FACTOR: 2,
+  REBUILD_FACTOR: 2,         // rebuild the preconditioner when a solve needs this many times its iterations per decade of residual reduction right after the build
   REBUILD_MIN_ITERS: 30,     // never rebuild before this many iterations of a stale preconditioner
   // ---- live progress (run details panel and status dot) -------------------
   LIVE_INTERVAL_MS: 1000,    // solvers and submodels report their state at most this often
@@ -1109,6 +1109,69 @@ function gridAt(arr, T, stride, comp) {
   return a + t * (b - a);
 }
 
+/** out[c] += w * component c (0..n-1) at T of a grid table with stride values per 1 degC point (linear interpolation). */
+function gridAddAt(grid, T, stride, n, w, out) {
+  const x = clamp(T - CONST.TGRID_MIN, 0, TGRID_N - 1), i = Math.min(Math.floor(x), TGRID_N - 2), t = x - i;
+  const a = i * stride, b = a + stride;
+  for (let c = 0; c < n; c++) out[c] += w * (grid[a + c] + t * (grid[b + c] - grid[a + c]));
+}
+
+/**
+ * Step integrals of the thermal path over [Ta, Tb] (either order) for tables on the
+ * 1 degC grid: on every grid interval a stiffness is linear in T and a thermal strain
+ * F is linear (dF/dT constant), so the midpoint rule per interval integrates the
+ * interpolated tables exactly. fn(Tmid, T0, T1) is called for each piece of the step.
+ */
+function forGridSegments(Ta, Tb, fn) {
+  const lo = Math.min(Ta, Tb), hi = Math.max(Ta, Tb);
+  for (let t0 = lo; t0 < hi - 1e-12;) {
+    const t1 = Math.min(hi, CONST.TGRID_MIN + Math.floor(t0 - CONST.TGRID_MIN + 1e-9) + 1);
+    fn(0.5 * (t0 + t1), t0, t1);
+    t0 = t1;
+  }
+}
+
+/** Mean over the step [Ta, Tb] of components 0..n-1 of a grid table (stride values per point). */
+function gridMean(grid, stride, n, Ta, Tb, out) {
+  out = out || new Float64Array(n);
+  out.fill(0, 0, n);
+  const L = Math.abs(Tb - Ta);
+  if (L < 1e-12) { gridAddAt(grid, Ta, stride, n, 1, out); return out; }
+  forGridSegments(Ta, Tb, (tm, t0, t1) => gridAddAt(grid, tm, stride, n, (t1 - t0) / L, out));
+  return out;
+}
+
+/**
+ * Thermal stress increment of a step, integral from Ta to Tb of D(T) dF(T) (6), for a
+ * stiffness grid Dg (36 per point) or a constant stiffness Dc, and a thermal strain grid
+ * Fg (3 normal components per point).
+ */
+function gridStressIncrement(Dg, Dc, Fg, Ta, Tb, out) {
+  out = out || new Float64Array(6);
+  out.fill(0);
+  if (!Dg) {
+    const f0 = gridAt(Fg, Tb, 3, 0) - gridAt(Fg, Ta, 3, 0), f1 = gridAt(Fg, Tb, 3, 1) - gridAt(Fg, Ta, 3, 1), f2 = gridAt(Fg, Tb, 3, 2) - gridAt(Fg, Ta, 3, 2);
+    for (let r = 0; r < 6; r++) out[r] = Dc[6 * r] * f0 + Dc[6 * r + 1] * f1 + Dc[6 * r + 2] * f2;
+    return out;
+  }
+  const sg = Tb >= Ta ? 1 : -1, D = gridStressIncrement._D;
+  forGridSegments(Ta, Tb, (tm, t0, t1) => {
+    D.fill(0); gridAddAt(Dg, tm, 36, 36, 1, D);
+    const f0 = gridAt(Fg, t1, 3, 0) - gridAt(Fg, t0, 3, 0), f1 = gridAt(Fg, t1, 3, 1) - gridAt(Fg, t0, 3, 1), f2 = gridAt(Fg, t1, 3, 2) - gridAt(Fg, t0, 3, 2);
+    for (let r = 0; r < 6; r++) out[r] += sg * (D[6 * r] * f0 + D[6 * r + 1] * f1 + D[6 * r + 2] * f2);
+  });
+  return out;
+}
+gridStressIncrement._D = new Float64Array(36);
+
+/** Integral from Ta to Tb of E(T) dF(T) for a scalar modulus grid E and a scalar thermal strain grid F. */
+function gridModulusStrainIncrement(E, F, Ta, Tb) {
+  const sg = Tb >= Ta ? 1 : -1;
+  let s = 0;
+  forGridSegments(Ta, Tb, (tm, t0, t1) => { s += gridAt(E, tm) * (gridAt(F, t1) - gridAt(F, t0)); });
+  return sg * s;
+}
+
 /**
  * Precompute E(T) (MPa) and F(T) on the 1 degC grid for an isotropic or cubic
  * material used by single-material elements. Returns {E, F, nu}.
@@ -1321,16 +1384,6 @@ function buildBandSection(band, lib, nuMax) {
   return { z0: band.z0, z1: band.z1, ns, Ls, D, F, W, subZ: band.subs.map(s => [s.z0, s.z1]) };
 }
 
-/** W_j(T) (3 x 36) of a band section by linear interpolation in the grid. */
-function sectionW(sec, T, out) {
-  out = out || new Float64Array(108);
-  let x = clamp(T - CONST.TGRID_MIN, 0, TGRID_N - 1);
-  const i = Math.min(Math.floor(x), TGRID_N - 2), t = x - i;
-  const a = i * 108, b = (i + 1) * 108;
-  for (let q = 0; q < 108; q++) out[q] = sec.W[a + q] + t * (sec.W[b + q] - sec.W[a + q]);
-  return out;
-}
-
 /** Stiffness D_s(T) (36) of sub-layer s of a band section by linear interpolation in the grid. */
 function sectionSubD(sec, s, T, out) {
   out = out || new Float64Array(36);
@@ -1341,29 +1394,30 @@ function sectionSubD(sec, s, T, out) {
   return out;
 }
 
-/** Thermal strain increment F_s(Tb) - F_s(Ta) (3 normal components) of sub-layer s. */
-function sectionSubDF(sec, s, Ta, Tb, out) {
-  out = out || new Float64Array(3);
-  const Fs = sec.F.subarray(s * TGRID_N * 3, (s + 1) * TGRID_N * 3);
-  for (let c = 0; c < 3; c++) out[c] = gridAt(Fs, Tb, 3, c) - gridAt(Fs, Ta, 3, c);
-  return out;
+/** Mean stiffness (36) of sub-layer s over the step [Ta, Tb]. */
+function sectionSubMeanD(sec, s, Ta, Tb, out) {
+  return gridMean(sec.D.subarray(s * TGRID_N * 36, (s + 1) * TGRID_N * 36), 36, 36, Ta, Tb, out);
 }
 
+/** Thermal stress increment (6) of sub-layer s over the step: integral from Ta to Tb of D_s dF_s. */
+function sectionSubStress(sec, s, Ta, Tb, out) {
+  return gridStressIncrement(sec.D.subarray(s * TGRID_N * 36, (s + 1) * TGRID_N * 36), null, sec.F.subarray(s * TGRID_N * 3, (s + 1) * TGRID_N * 3), Ta, Tb, out);
+}
+
+/** Weight matrices W_j (3 x 36) of a band section averaged over the step [Ta, Tb]. */
+function sectionWmean(sec, Ta, Tb, out) { return gridMean(sec.W, 108, 108, Ta, Tb, out); }
+
 /**
- * Thermal-stress weight vectors of one step of the thermal path from Ta to Tb
- * with the stiffness at the step midpoint Tm:
- *   V_j = sum_s D_s(Tm) [F_s(Tb) - F_s(Ta)] int L_j   (3 x 6).
+ * Thermal-stress weight vectors of one step of the thermal path from Ta to Tb:
+ *   V_j = sum_s [integral of D_s dF_s] int L_j   (3 x 6).
  */
-function sectionVstep(sec, Tm, Ta, Tb, out) {
+function sectionVstep(sec, Ta, Tb, out) {
   out = out || new Float64Array(18);
   out.fill(0);
-  const D = new Float64Array(36), dF = new Float64Array(3);
+  const s0 = new Float64Array(6);
   for (let s = 0; s < sec.ns; s++) {
-    sectionSubD(sec, s, Tm, D); sectionSubDF(sec, s, Ta, Tb, dF);
-    for (let r = 0; r < 6; r++) {
-      const sig = D[r * 6] * dF[0] + D[r * 6 + 1] * dF[1] + D[r * 6 + 2] * dF[2];
-      for (let j = 0; j < 3; j++) out[j * 6 + r] += sig * sec.Ls[s][j];
-    }
+    sectionSubStress(sec, s, Ta, Tb, s0);
+    for (let r = 0; r < 6; r++) for (let j = 0; j < 3; j++) out[j * 6 + r] += s0[r] * sec.Ls[s][j];
   }
   return out;
 }
@@ -2584,9 +2638,11 @@ function axpy(alpha, x, y) { for (let i = 0; i < y.length; i++) y[i] += alpha * 
 //
 // Incremental (rate-form) thermoelasticity with element birth (Section 6.5, as
 // amended): d sigma = D(T) (d eps - alpha dT), integrated along the actual
-// temperature path in steps [Ta, Tb] with the stiffness at the step midpoint Tm:
-//   K(Tm) du = integral B^T D(Tm) [F(Tb) - F(Ta)] dV   (born materials only)
-//   sigma   += D(Tm) (B dq - [F(Tb) - F(Ta)])
+// temperature path in steps [Ta, Tb]. With the strain taken linear in T within a
+// step, the step is exact with the mean stiffness D_m over the step and the
+// thermal stress increment s_th = integral of D dF from Ta to Tb:
+//   K(D_m) du = integral B^T s_th dV   (born materials only)
+//   sigma    += D_m B dq - s_th
 // A material is born stress-free at its stage's birth temperature, so it simply
 // starts accumulating at its first step. The stress already present is in
 // equilibrium, so every step is an independent linear solve. A total (secant)
@@ -2881,21 +2937,6 @@ class FEModel {
     return out;
   }
 
-  groupD(g, T, out) {
-    if (g.Dconst) { out.set(g.Dconst); return out; }
-    let x = clamp(T - CONST.TGRID_MIN, 0, TGRID_N - 1);
-    const i = Math.min(Math.floor(x), TGRID_N - 2), t = x - i;
-    const a = 36 * i, b = a + 36;
-    for (let q = 0; q < 36; q++) out[q] = g.Dgrid[a + q] + t * (g.Dgrid[b + q] - g.Dgrid[a + q]);
-    return out;
-  }
-
-  /** Thermal strain increment F(Tb) - F(Ta) (3 normal components) of a homogeneous group. */
-  groupDF(g, Ta, Tb, out) {
-    for (let c = 0; c < 3; c++) out[c] = gridAt(g.F, Tb, 3, c) - gridAt(g.F, Ta, 3, c);
-    return out;
-  }
-
   _blockMap() {
     const m = this.mesh, P = this.pattern;
     const map = new Int32Array(m.ne * 64);
@@ -2920,31 +2961,26 @@ class FEModel {
   isBorn(g, stage) { return g.stage <= stage; }
 
   /**
-   * Group data of one step of the thermal path from Ta to Tb in a stage:
-   * stiffness and shape matrices at the midpoint Tm and the thermal stress
-   * D(Tm) [F(Tb) - F(Ta)] of every born group.
+   * Group data of one step of the thermal path from Ta to Tb in a stage: the
+   * mean stiffness over the step with its shape matrices, and the thermal
+   * stress increment (integral of D dF) of every born group.
    */
   prepareStep(Ta, Tb, stage) {
     const key = Ta + '|' + Tb + '|' + stage;
     if (this._prepKey === key) return;
     this._prepKey = key;
-    const Tm = 0.5 * (Ta + Tb);
     for (const g of this.groups) {
       if (g.kind === 'layered') continue;
-      g._D = g._D || new Float64Array(36);
-      this.groupD(g, Tm, g._D);
+      g._D = g.Dconst ? Float64Array.from(g.Dconst) : gridMean(g.Dgrid, 36, 36, Ta, Tb, g._D);
       g._M = shapeMatrices(null, g._D, g._M);
       g._born = this.isBorn(g, stage);
-      g._dF = g._dF || new Float64Array(3);
       g._s0 = g._s0 || new Float64Array(6);
-      this.groupDF(g, Ta, Tb, g._dF);
-      const D = g._D, dF = g._dF;
-      for (let r = 0; r < 6; r++) g._s0[r] = g._born ? D[r * 6] * dF[0] + D[r * 6 + 1] * dF[1] + D[r * 6 + 2] * dF[2] : 0;
+      if (g._born) gridStressIncrement(g.Dconst ? null : g.Dgrid, g.Dconst, g.F, Ta, Tb, g._s0); else g._s0.fill(0);
     }
     for (const sec of this.sections) {
-      sectionW(sec, Tm, this._W);
+      sectionWmean(sec, Ta, Tb, this._W);
       sec._M = shapeMatrices(this._W, null, sec._M);
-      sec._V = sectionVstep(sec, Tm, Ta, Tb, sec._V);
+      sec._V = sectionVstep(sec, Ta, Tb, sec._V);
     }
   }
 
@@ -2966,7 +3002,7 @@ class FEModel {
   }
 
   /**
-   * Assemble K(Tm) (full block CSR values) and the thermal load of the step
+   * Assemble K with the step's mean stiffness (full block CSR values) and the thermal load of the step
    * from Ta to Tb in a stage. Unborn elements keep UNBORN_SCALE x stiffness
    * and no load.
    */
@@ -3031,22 +3067,21 @@ class FEModel {
 
   /**
    * Compact per-step data for stress histories (kept for every step of the
-   * path): per group the midpoint stiffness, the incompatible-mode rows
-   * (24..32) of its shape matrices, the thermal stress and strain increments;
-   * per substrate band the same rows, its thermal-stress weights and every
-   * sub-layer's stiffness and thermal strain increment.
+   * path): per group the mean stiffness, the incompatible-mode rows (24..32)
+   * of its shape matrices and the thermal stress increment; per substrate band
+   * the same rows, its thermal-stress weights and every sub-layer's mean
+   * stiffness and thermal stress increment.
    */
   stepRecovery(Ta, Tb, stage) {
     this.prepareStep(Ta, Tb, stage);
     const rows = M => { const r = new Float64Array(6 * 297); for (let p = 0; p < 6; p++) for (let i = 0; i < 9; i++) for (let j = 0; j < 33; j++) r[p * 297 + i * 33 + j] = M[p * 1089 + (24 + i) * 33 + j]; return r; };
-    const Tm = 0.5 * (Ta + Tb);
     return {
       Ta, Tb, stage,
-      groups: this.groups.map(g => g.kind === 'layered' ? null : { D: Float64Array.from(g._D), Ma: rows(g._M), s0: Float64Array.from(g._s0), dF: Float64Array.from(g._dF), born: g._born }),
+      groups: this.groups.map(g => g.kind === 'layered' ? null : { D: Float64Array.from(g._D), Ma: rows(g._M), s0: Float64Array.from(g._s0), born: g._born }),
       sections: this.sections.map(sec => ({
         Ma: rows(sec._M), V: Float64Array.from(sec._V),
-        Ds: Array.from({ length: sec.ns }, (_, s) => sectionSubD(sec, s, Tm)),
-        dFs: Array.from({ length: sec.ns }, (_, s) => sectionSubDF(sec, s, Ta, Tb)),
+        Ds: Array.from({ length: sec.ns }, (_, s) => sectionSubMeanD(sec, s, Ta, Tb)),
+        s0s: Array.from({ length: sec.ns }, (_, s) => sectionSubStress(sec, s, Ta, Tb)),
       })),
     };
   }
@@ -3061,9 +3096,9 @@ class FEModel {
   /**
    * Add one step of the path to the stress history state of element e:
    * dq = (du at the element nodes, d alpha = K_aa^-1 (f_a - K_au du)) with the
-   * step's midpoint stiffness, q += dq, and per sub-layer
-   * S_m += D(Tm) E_m(dq), S_th += D(Tm) [F(Tb) - F(Ta)] when the material is born
-   * (qOnly: the DOFs only, for strain histories).
+   * step's mean stiffness D_m, q += dq, and per sub-layer S_m += D_m E_m(dq),
+   * S_th += integral of D dF when the material is born (qOnly: the DOFs only,
+   * for strain histories).
    */
   accumulateStep(e, rec, du, state, qOnly) {
     const m = this.mesh, g = this.groups[m.eGroup[e]];
@@ -3093,13 +3128,13 @@ class FEModel {
     const E = boxStrainPoly(hx, hy, hz, dq, this._E);
     const ns = layered ? gr.Ds.length : 1, blk = 6 * (STRAIN_MONO + 1);
     for (let s = 0; s < ns; s++) {
-      const D = layered ? gr.Ds[s] : gr.D, dF = layered ? gr.dFs[s] : gr.dF, o = 33 + s * blk;
+      const D = layered ? gr.Ds[s] : gr.D, s0 = layered ? gr.s0s[s] : gr.s0, o = 33 + s * blk;
       for (let mo = 0; mo < STRAIN_MONO; mo++) {
         const Em = 6 * mo, so = o + 6 * mo;
         for (let r = 0; r < 6; r++) { let v = 0; const dr = r * 6; for (let t = 0; t < 6; t++) v += D[dr + t] * E[Em + t]; state[so + r] += v; }
       }
       const so = o + 6 * STRAIN_MONO;
-      for (let r = 0; r < 6; r++) state[so + r] += D[r * 6] * dF[0] + D[r * 6 + 1] * dF[1] + D[r * 6 + 2] * dF[2];
+      for (let r = 0; r < 6; r++) state[so + r] += s0[r];
     }
   }
 
@@ -3940,6 +3975,9 @@ function liveReport(info, throttled) {
   LIVE.post(info);
 }
 
+/** PCG iterations per decade of residual reduction of one run. */
+function pcgRate(res) { return res.iters / Math.max(Math.log10(res.iters0 / Math.max(res.relres, 1e-300)), 0.5); }
+
 class LinearSolver {
   constructor(model, opts) {
     this.model = model;
@@ -3947,7 +3985,7 @@ class LinearSolver {
     this.n = model.ndof;
     this.s = new Float64Array(this.n);
     this.pc = null;
-    this.itersAtBuild = 0;
+    this.ratePerDecade = 0;
     this.needRebuild = true;
     this.basis = [];
     this.log = [];
@@ -4066,16 +4104,16 @@ class LinearSolver {
     if (!this.pc || this.needRebuild) { pcMs = this._buildPC(this.opts.precond); rebuilt = true; }
     this._warmStart(fs, x);
     this._liveCtx = live ? { label, base: 0, maxit: this.opts.maxit, r0: null } : null;
-    // iteration budget before a rebuild: twice the count right after the last build
-    let budget = rebuilt ? this.opts.maxit : Math.max(2 * this.itersAtBuild, CONST.REBUILD_MIN_ITERS);
-    let res = this._pcg(fs, x, tol, Math.min(budget, this.opts.maxit));
-    let fallback = null, totalIters = res.iters, itersAfterBuild = rebuilt ? res.iters : 0;
+    // iteration budget of a stale preconditioner: REBUILD_FACTOR x its iterations per decade of residual reduction
+    // right after its build, times the decades this solve needs (the warm start changes the decades, not the rate)
+    let res = this._pcg(fs, x, tol, this.opts.maxit, rebuilt ? 0 : CONST.REBUILD_FACTOR * this.ratePerDecade);
+    let fallback = null, totalIters = res.iters;
     if (!res.converged && !rebuilt) {
       // stale preconditioner (e.g. a material event between evaluations): rebuild the preferred kind and continue
       if (live) { liveReport({ event: 'rebuild', label, iters: totalIters, relres: res.relres, precond: this.opts.precond }); this._liveCtx.base = totalIters; }
       pcMs += this._buildPC(this.opts.precond); rebuilt = true;
       res = this._pcg(fs, x, tol, this.opts.maxit);
-      totalIters += res.iters; itersAfterBuild = res.iters;
+      totalIters += res.iters;
     }
     if (!res.converged) {
       // rebuild with the other method once (keep the current iterate)
@@ -4087,11 +4125,16 @@ class LinearSolver {
       totalIters += res.iters;
       this.needRebuild = true; // return to the preferred preconditioner on the next solve
     }
+    // the rate of a preconditioner is measured on the first run after its build that reduces the residual by at
+    // least a decade (a warm start can leave less to do); later solves slower by REBUILD_FACTOR ask for a rebuild
+    if (!fallback && res.converged) {
+      const known = this.ratePerDecade > 0 && !rebuilt;
+      if (known) { if (pcgRate(res) > CONST.REBUILD_FACTOR * this.ratePerDecade) this.needRebuild = true; }
+      else this.ratePerDecade = Math.log10(res.iters0 / Math.max(res.relres, 1e-300)) >= 1 ? pcgRate(res) : 0;
+    }
     res.iters = totalIters;
     const u = new Float64Array(n);
     for (let q = 0; q < n; q++) u[q] = x[q] * s[q];
-    if (rebuilt && !fallback) this.itersAtBuild = Math.max(itersAfterBuild, 1);
-    else if (!fallback && res.iters > CONST.REBUILD_FACTOR * this.itersAtBuild) this.needRebuild = true;
     if (res.converged) this._storeSolution(u);
     const rec = { label, iters: res.iters, relres: res.relres, converged: res.converged, ms: nowMs() - t0, pcMs, precond: this.pcKind, rebuilt, warm: this.basis.length, iters0: res.iters0, fallback };
     this.log.push(rec); this.lastResult = rec;
@@ -4101,7 +4144,12 @@ class LinearSolver {
     return Object.assign({ u }, rec);
   }
 
-  _pcg(b, x, tol, maxit) {
+  /**
+   * PCG on the scaled system from the initial guess x. perDecade > 0 caps the
+   * iterations at perDecade x the decades of residual reduction still needed
+   * (at least REBUILD_MIN_ITERS), the budget of a stale preconditioner.
+   */
+  _pcg(b, x, tol, maxit, perDecade) {
     const P = this.model.pattern, val = this.model.val, n = this.n;
     const r = this._r, z = this._z, p = this._p, q = this._q;
     const isC = this.model.isConstrained;
@@ -4112,6 +4160,7 @@ class LinearSolver {
     let rnorm = norm2(r);
     const r0 = rnorm / bnorm;
     if (rnorm / bnorm < tol) return { iters: 0, relres: rnorm / bnorm, converged: true, iters0: r0 };
+    if (perDecade > 0) maxit = Math.min(maxit, Math.max(CONST.REBUILD_MIN_ITERS, Math.ceil(perDecade * Math.log10(r0 / tol))));
     const lc = this._liveCtx;
     let hist = null;
     if (lc) {
@@ -4160,12 +4209,12 @@ function planeSegments(mesh) {
   return seg;
 }
 
-/** Tg values (degC) of every material used by the model (mesh or model groups). */
-function modelTgs(cfg, groups) {
+/** Tg values (degC) of the materials of the model (mesh or model groups) born by process stage maxStage (all by default). */
+function modelTgs(cfg, groups, maxStage) {
   const out = [];
   const seen = new Set();
   const add = id => { if (!id || seen.has(id)) return; seen.add(id); for (const t of materialTgs(findMaterial(cfg.materials, id))) out.push(t.T); };
-  for (const g of groups) add(g.mat);
+  for (const g of groups) if (maxStage == null || g.stage <= maxStage) add(g.mat);
   for (const r of cfg.substrate.layers) { add(r.mat); add(r.fill); }
   return out;
 }
@@ -4188,9 +4237,9 @@ function temperatureSamples(Tmin, Tmax, tgs, extras) {
  * Points of the thermal path from Ta to Tb (either direction): steps of at most
  * INC_DT_MAX, at most INC_DT_TG where a step meets the INC_TG_BAND window of
  * any Tg, and every temperature of `stops` strictly between Ta and Tb
- * (evaluation temperatures, the solder solidus). With the midpoint stiffness
- * these steps integrate E alpha dT of the default polymers through their glass
- * transitions to about 1.5 % (the secant form is off by 50 to 1100 %).
+ * (evaluation temperatures, the solder solidus). Within a step the stiffness is
+ * its mean over the step and the thermal load the exact integral of D dF, so the
+ * only approximation is a strain taken linear in T across the step.
  */
 function thermalPathPoints(Ta, Tb, tgs, stops) {
   const dir = Math.sign(Tb - Ta), pts = [Ta];
@@ -4257,10 +4306,14 @@ class Analysis {
     return this;
   }
 
-  /** Data the thermal path needs: final process stage, Tg values of the model's materials, solder solidus. */
+  /**
+   * Data the thermal path needs: final process stage, Tg values of the model's materials (all of them for
+   * the evaluation temperatures, those born by each stage for its steps), solder solidus.
+   */
   setupPath(groups) {
     this.finalStage = this.cfg.packageType === 'bare' ? 2 : 3;
     this.tgs = modelTgs(this.cfg, groups);
+    this.stageTgs = [0, 1, 2, 3].map(s => modelTgs(this.cfg, groups, s));
     this.solidus = pv(findMaterial(this.cfg.materials, this.cfg.bump.solder).solidus || { v: 217 });
     return this;
   }
@@ -4289,7 +4342,7 @@ class Analysis {
     this.temps = temps;
     const steps = [];
     const seg = (Ta, Tb, stage, branch, stops) => {
-      const pts = thermalPathPoints(Ta, Tb, this.tgs, (stops || []).concat([this.solidus]));
+      const pts = thermalPathPoints(Ta, Tb, this.stageTgs[stage], (stops || []).concat([this.solidus]));
       const ids = [];
       for (let k = 1; k < pts.length; k++) { steps.push({ Ta: pts[k - 1], Tb: pts[k], stage, branch }); ids.push(steps.length - 1); }
       return ids;
@@ -4310,7 +4363,7 @@ class Analysis {
     return steps;
   }
 
-  /** One step of the path: assemble K(Tm) and the thermal-strain increment load, solve. */
+  /** One step of the path: assemble K (mean stiffness over the step) and the thermal stress increment load, solve. */
   solveStep(k) {
     this.checkCancel();
     const s = this.path.steps[k];
@@ -5643,52 +5696,61 @@ class BumpSubmodel {
 
   /**
    * Elastic material data of one step from Ta to Tb (incremental, Section 6.5 as
-   * amended): stiffness D (36) at the step midpoint and the thermal stress
-   * increment sth (6) = D [F(Tb) - F(Ta)], summed over the phases where the
-   * bump layer is homogenized (V7).
+   * amended): the mean stiffness D (36) over the step and the thermal stress
+   * increment sth (6), the integral of D dF (an isotropic D is linear in E at a
+   * fixed nu, so it is D(E_m) / E_m times the integral of E dF), summed over the
+   * phases where the bump layer is homogenized (V7).
    */
   _elastic(mat, Ta, Tb, D, sth) {
-    const MAT = this.MAT, Tm = 0.5 * (Ta + Tb), dF = this._dF || (this._dF = new Float64Array(3));
-    const fromStrain = () => { for (let r = 0; r < 6; r++) sth[r] = D[r * 6] * dF[0] + D[r * 6 + 1] * dF[1] + D[r * 6 + 2] * dF[2]; };
-    const isoStep = (tab, nuMax) => { isoD(gridAt(tab.E, Tm), tab.nu, nuMax, D); dF[0] = dF[1] = dF[2] = gridAt(tab.F, Tb) - gridAt(tab.F, Ta); fromStrain(); };
+    const MAT = this.MAT, e1 = this._e1 || (this._e1 = new Float64Array(1));
+    const meanE = tab => gridMean(tab.E, 1, 1, Ta, Tb, e1)[0];
+    const rowSum = (Dx, r) => Dx[r * 6] + Dx[r * 6 + 1] + Dx[r * 6 + 2];
+    const isoStep = (tab, nuMax) => {
+      const Em = meanE(tab), ef = gridModulusStrainIncrement(tab.E, tab.F, Ta, Tb) / Em;
+      isoD(Em, tab.nu, nuMax, D);
+      for (let r = 0; r < 6; r++) sth[r] = rowSum(D, r) * ef;
+    };
     if (this.opts.uniformMaterial && mat === MAT.UF) {
       // the global bump-layer cell: solder columns (columnD) and underfill superposed with volume fractions fb, 1 - fb
       const fb = this.die.density, st = materialTables(this.solderMat), ut = this.ufTables;
-      const Ds = columnD(gridAt(st.E, Tm), st.nu, this._Ds || (this._Ds = new Float64Array(36)));
-      const Du = isoD(gridAt(ut.E, Tm), ut.nu, CONST.NU_MAX_GLOBAL, this._Du || (this._Du = new Float64Array(36)));
-      const fs = gridAt(st.F, Tb) - gridAt(st.F, Ta), fu = gridAt(ut.F, Tb) - gridAt(ut.F, Ta);
+      const Es = meanE(st), Eu = meanE(ut);
+      const Ds = columnD(Es, st.nu, this._Ds || (this._Ds = new Float64Array(36)));
+      const Du = isoD(Eu, ut.nu, CONST.NU_MAX_GLOBAL, this._Du || (this._Du = new Float64Array(36)));
+      const fs = gridModulusStrainIncrement(st.E, st.F, Ta, Tb) / Es, fu = gridModulusStrainIncrement(ut.E, ut.F, Ta, Tb) / Eu;
       for (let q = 0; q < 36; q++) D[q] = fb * Ds[q] + (1 - fb) * Du[q];
-      for (let r = 0; r < 6; r++) sth[r] = fb * (Ds[r * 6] + Ds[r * 6 + 1] + Ds[r * 6 + 2]) * fs + (1 - fb) * (Du[r * 6] + Du[r * 6 + 1] + Du[r * 6 + 2]) * fu;
+      for (let r = 0; r < 6; r++) sth[r] = fb * rowSum(Ds, r) * fs + (1 - fb) * rowSum(Du, r) * fu;
       return;
     }
-    if (mat === MAT.SI) { D.set(this.siD); dF[0] = dF[1] = dF[2] = gridAt(this.siF, Tb) - gridAt(this.siF, Ta); fromStrain(); return; }
+    if (mat === MAT.SI) { D.set(this.siD); const f = gridAt(this.siF, Tb) - gridAt(this.siF, Ta); for (let r = 0; r < 6; r++) sth[r] = rowSum(D, r) * f; return; }
     if (mat === MAT.UF) { isoStep(this.ufTables, CONST.NU_MAX_SUBMODEL); return; }
     if (mat === MAT.SOLDER) { isoStep(materialTables(this.solderMat), CONST.NU_MAX_SUBMODEL); return; }
     // substrate slice
-    let x = clamp(Tm - CONST.TGRID_MIN, 0, TGRID_N - 1); const i = Math.min(Math.floor(x), TGRID_N - 2), t = x - i;
     if (this.opts.uniformMaterial && this._subZ !== undefined) {
-      // consistency mode: the global band's own sub-layer stiffness at this height
-      const sec = this.topSection;
+      // consistency mode: the global band's own sub-layer stiffness at this height, with the through-thickness
+      // response of the whole band (one thickness strain shared by its sub-layers in the global element): Voigt
+      // thickness modulus and Turner-weighted thermal strain over the band
+      const sec = this.topSection, dF = this._dF || (this._dF = new Float64Array(3));
       let sl = sec.ns - 1;
       for (let q2 = 0; q2 < sec.ns; q2++) if (this._subZ <= sec.subZ[q2][1] + 1e-12) { sl = q2; break; }
-      sectionSubD(sec, sl, Tm, D);
-      sectionSubDF(sec, sl, Ta, Tb, dF);
-      // through-thickness response of the whole band (one thickness strain shared by its sub-layers in the
-      // global element): Voigt thickness modulus and Turner-weighted thermal strain over the band
+      sectionSubMeanD(sec, sl, Ta, Tb, D);
+      const Fs = q2 => sec.F.subarray(q2 * TGRID_N * 3, (q2 + 1) * TGRID_N * 3);
+      for (let c = 0; c < 2; c++) dF[c] = gridAt(Fs(sl), Tb, 3, c) - gridAt(Fs(sl), Ta, 3, c);
       let Ez = 0, EzF = 0, tt = 0;
-      const Dq = this._Dq || (this._Dq = new Float64Array(36)), dFq = this._dFq || (this._dFq = new Float64Array(3));
+      const Dq = this._Dq || (this._Dq = new Float64Array(36)), sq = this._sq || (this._sq = new Float64Array(6));
       for (let q2 = 0; q2 < sec.ns; q2++) {
         const ts = sec.subZ[q2][1] - sec.subZ[q2][0];
-        sectionSubD(sec, q2, Tm, Dq); sectionSubDF(sec, q2, Ta, Tb, dFq);
-        Ez += ts * Dq[14]; EzF += ts * Dq[14] * dFq[2]; tt += ts;
+        sectionSubMeanD(sec, q2, Ta, Tb, Dq);
+        // integral of E_z dF_z of the sub-layer: its zz thermal stress increment without the in-plane coupling
+        const fx = gridAt(Fs(q2), Tb, 3, 0) - gridAt(Fs(q2), Ta, 3, 0), fy = gridAt(Fs(q2), Tb, 3, 1) - gridAt(Fs(q2), Ta, 3, 1);
+        sectionSubStress(sec, q2, Ta, Tb, sq);
+        Ez += ts * Dq[14]; EzF += ts * (sq[2] - Dq[12] * fx - Dq[13] * fy); tt += ts;
       }
       D[14] = Ez / tt; dF[2] = EzF / Ez;
-      fromStrain();
+      for (let r = 0; r < 6; r++) sth[r] = D[r * 6] * dF[0] + D[r * 6 + 1] * dF[1] + D[r * 6 + 2] * dF[2];
       return;
     }
-    for (let q = 0; q < 36; q++) D[q] = this.subD[36 * i + q] + t * (this.subD[36 * (i + 1) + q] - this.subD[36 * i + q]);
-    for (let c = 0; c < 3; c++) dF[c] = gridAt(this.subF, Tb, 3, c) - gridAt(this.subF, Ta, 3, c);
-    fromStrain();
+    gridMean(this.subD, 36, 36, Ta, Tb, D);
+    gridStressIncrement(this.subD, null, this.subF, Ta, Tb, sth);
   }
 
   /** Key and data (D, sth) of an elastic element's material for the current step from Tn to T (cached per step). */
@@ -5733,7 +5795,7 @@ class BumpSubmodel {
       Ke.fill(0); fe.fill(0);
       const isAnand = this.anand[e * 8] !== null;
       if (!isAnand) {
-        // elastic element, incremental: sigma = sigma_n + D(Tm) B (u - u_n) - sth with the committed state at
+        // elastic element, incremental: sigma = sigma_n + D_m B (u - u_n) - sth with the committed state at
         // T_n. K_e and the thermal load f_th depend on the step (T_n, T) only, so they are built once per step and
         // reused across its Newton iterations: f_int = f_n + K_e (u_e - u_n,e) - f_th
         if (!this.eK) { this.eK = new Float64Array(576 * m.ne); this.eF = new Float64Array(24 * m.ne); }
@@ -6580,7 +6642,7 @@ const VERIFICATION_TESTS = [
       boxStrainAt(hx, hy, hz, q125, q125.subarray(24), xi, eta, zeta, eB);
       const dEps = Array.from(eB, (v, c) => v - eA[c]);
       const scale = Math.max(...dEps.map(Math.abs));
-      // the submodel follows the global steps of the up branch (same step midpoints for the stiffness)
+      // the submodel follows the global steps of the up branch (same step means of the stiffness)
       const upTemps = an.path.up.map(k => an.path.steps[k].Tb);
       const march = sm => { let r = null; for (const T of upTemps) { r = sm.stepTo(T, 1); if (!r.converged) break; } return r; };
       // submodel strain at the voxel nearest the site centre, mid-height of the bump layer

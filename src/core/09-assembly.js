@@ -9,9 +9,11 @@
 //
 // Incremental (rate-form) thermoelasticity with element birth (Section 6.5, as
 // amended): d sigma = D(T) (d eps - alpha dT), integrated along the actual
-// temperature path in steps [Ta, Tb] with the stiffness at the step midpoint Tm:
-//   K(Tm) du = integral B^T D(Tm) [F(Tb) - F(Ta)] dV   (born materials only)
-//   sigma   += D(Tm) (B dq - [F(Tb) - F(Ta)])
+// temperature path in steps [Ta, Tb]. With the strain taken linear in T within a
+// step, the step is exact with the mean stiffness D_m over the step and the
+// thermal stress increment s_th = integral of D dF from Ta to Tb:
+//   K(D_m) du = integral B^T s_th dV   (born materials only)
+//   sigma    += D_m B dq - s_th
 // A material is born stress-free at its stage's birth temperature, so it simply
 // starts accumulating at its first step. The stress already present is in
 // equilibrium, so every step is an independent linear solve. A total (secant)
@@ -306,21 +308,6 @@ class FEModel {
     return out;
   }
 
-  groupD(g, T, out) {
-    if (g.Dconst) { out.set(g.Dconst); return out; }
-    let x = clamp(T - CONST.TGRID_MIN, 0, TGRID_N - 1);
-    const i = Math.min(Math.floor(x), TGRID_N - 2), t = x - i;
-    const a = 36 * i, b = a + 36;
-    for (let q = 0; q < 36; q++) out[q] = g.Dgrid[a + q] + t * (g.Dgrid[b + q] - g.Dgrid[a + q]);
-    return out;
-  }
-
-  /** Thermal strain increment F(Tb) - F(Ta) (3 normal components) of a homogeneous group. */
-  groupDF(g, Ta, Tb, out) {
-    for (let c = 0; c < 3; c++) out[c] = gridAt(g.F, Tb, 3, c) - gridAt(g.F, Ta, 3, c);
-    return out;
-  }
-
   _blockMap() {
     const m = this.mesh, P = this.pattern;
     const map = new Int32Array(m.ne * 64);
@@ -345,31 +332,26 @@ class FEModel {
   isBorn(g, stage) { return g.stage <= stage; }
 
   /**
-   * Group data of one step of the thermal path from Ta to Tb in a stage:
-   * stiffness and shape matrices at the midpoint Tm and the thermal stress
-   * D(Tm) [F(Tb) - F(Ta)] of every born group.
+   * Group data of one step of the thermal path from Ta to Tb in a stage: the
+   * mean stiffness over the step with its shape matrices, and the thermal
+   * stress increment (integral of D dF) of every born group.
    */
   prepareStep(Ta, Tb, stage) {
     const key = Ta + '|' + Tb + '|' + stage;
     if (this._prepKey === key) return;
     this._prepKey = key;
-    const Tm = 0.5 * (Ta + Tb);
     for (const g of this.groups) {
       if (g.kind === 'layered') continue;
-      g._D = g._D || new Float64Array(36);
-      this.groupD(g, Tm, g._D);
+      g._D = g.Dconst ? Float64Array.from(g.Dconst) : gridMean(g.Dgrid, 36, 36, Ta, Tb, g._D);
       g._M = shapeMatrices(null, g._D, g._M);
       g._born = this.isBorn(g, stage);
-      g._dF = g._dF || new Float64Array(3);
       g._s0 = g._s0 || new Float64Array(6);
-      this.groupDF(g, Ta, Tb, g._dF);
-      const D = g._D, dF = g._dF;
-      for (let r = 0; r < 6; r++) g._s0[r] = g._born ? D[r * 6] * dF[0] + D[r * 6 + 1] * dF[1] + D[r * 6 + 2] * dF[2] : 0;
+      if (g._born) gridStressIncrement(g.Dconst ? null : g.Dgrid, g.Dconst, g.F, Ta, Tb, g._s0); else g._s0.fill(0);
     }
     for (const sec of this.sections) {
-      sectionW(sec, Tm, this._W);
+      sectionWmean(sec, Ta, Tb, this._W);
       sec._M = shapeMatrices(this._W, null, sec._M);
-      sec._V = sectionVstep(sec, Tm, Ta, Tb, sec._V);
+      sec._V = sectionVstep(sec, Ta, Tb, sec._V);
     }
   }
 
@@ -391,7 +373,7 @@ class FEModel {
   }
 
   /**
-   * Assemble K(Tm) (full block CSR values) and the thermal load of the step
+   * Assemble K with the step's mean stiffness (full block CSR values) and the thermal load of the step
    * from Ta to Tb in a stage. Unborn elements keep UNBORN_SCALE x stiffness
    * and no load.
    */
@@ -456,22 +438,21 @@ class FEModel {
 
   /**
    * Compact per-step data for stress histories (kept for every step of the
-   * path): per group the midpoint stiffness, the incompatible-mode rows
-   * (24..32) of its shape matrices, the thermal stress and strain increments;
-   * per substrate band the same rows, its thermal-stress weights and every
-   * sub-layer's stiffness and thermal strain increment.
+   * path): per group the mean stiffness, the incompatible-mode rows (24..32)
+   * of its shape matrices and the thermal stress increment; per substrate band
+   * the same rows, its thermal-stress weights and every sub-layer's mean
+   * stiffness and thermal stress increment.
    */
   stepRecovery(Ta, Tb, stage) {
     this.prepareStep(Ta, Tb, stage);
     const rows = M => { const r = new Float64Array(6 * 297); for (let p = 0; p < 6; p++) for (let i = 0; i < 9; i++) for (let j = 0; j < 33; j++) r[p * 297 + i * 33 + j] = M[p * 1089 + (24 + i) * 33 + j]; return r; };
-    const Tm = 0.5 * (Ta + Tb);
     return {
       Ta, Tb, stage,
-      groups: this.groups.map(g => g.kind === 'layered' ? null : { D: Float64Array.from(g._D), Ma: rows(g._M), s0: Float64Array.from(g._s0), dF: Float64Array.from(g._dF), born: g._born }),
+      groups: this.groups.map(g => g.kind === 'layered' ? null : { D: Float64Array.from(g._D), Ma: rows(g._M), s0: Float64Array.from(g._s0), born: g._born }),
       sections: this.sections.map(sec => ({
         Ma: rows(sec._M), V: Float64Array.from(sec._V),
-        Ds: Array.from({ length: sec.ns }, (_, s) => sectionSubD(sec, s, Tm)),
-        dFs: Array.from({ length: sec.ns }, (_, s) => sectionSubDF(sec, s, Ta, Tb)),
+        Ds: Array.from({ length: sec.ns }, (_, s) => sectionSubMeanD(sec, s, Ta, Tb)),
+        s0s: Array.from({ length: sec.ns }, (_, s) => sectionSubStress(sec, s, Ta, Tb)),
       })),
     };
   }
@@ -486,9 +467,9 @@ class FEModel {
   /**
    * Add one step of the path to the stress history state of element e:
    * dq = (du at the element nodes, d alpha = K_aa^-1 (f_a - K_au du)) with the
-   * step's midpoint stiffness, q += dq, and per sub-layer
-   * S_m += D(Tm) E_m(dq), S_th += D(Tm) [F(Tb) - F(Ta)] when the material is born
-   * (qOnly: the DOFs only, for strain histories).
+   * step's mean stiffness D_m, q += dq, and per sub-layer S_m += D_m E_m(dq),
+   * S_th += integral of D dF when the material is born (qOnly: the DOFs only,
+   * for strain histories).
    */
   accumulateStep(e, rec, du, state, qOnly) {
     const m = this.mesh, g = this.groups[m.eGroup[e]];
@@ -518,13 +499,13 @@ class FEModel {
     const E = boxStrainPoly(hx, hy, hz, dq, this._E);
     const ns = layered ? gr.Ds.length : 1, blk = 6 * (STRAIN_MONO + 1);
     for (let s = 0; s < ns; s++) {
-      const D = layered ? gr.Ds[s] : gr.D, dF = layered ? gr.dFs[s] : gr.dF, o = 33 + s * blk;
+      const D = layered ? gr.Ds[s] : gr.D, s0 = layered ? gr.s0s[s] : gr.s0, o = 33 + s * blk;
       for (let mo = 0; mo < STRAIN_MONO; mo++) {
         const Em = 6 * mo, so = o + 6 * mo;
         for (let r = 0; r < 6; r++) { let v = 0; const dr = r * 6; for (let t = 0; t < 6; t++) v += D[dr + t] * E[Em + t]; state[so + r] += v; }
       }
       const so = o + 6 * STRAIN_MONO;
-      for (let r = 0; r < 6; r++) state[so + r] += D[r * 6] * dF[0] + D[r * 6 + 1] * dF[1] + D[r * 6 + 2] * dF[2];
+      for (let r = 0; r < 6; r++) state[so + r] += s0[r];
     }
   }
 

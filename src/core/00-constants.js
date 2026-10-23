@@ -36,8 +36,6 @@ const CONST = Object.freeze({
   REFINE_ZONE_FACTOR: 2.0,   // refinement zone = 2 x local die thickness
   MIN_ELEMS_ACROSS_RING: 3,  // lid foot, stiffener ring
   RING_EDGE_ZONE: 0,         // refinement zone at lid foot and stiffener edges (x ring thickness): grading starts at the edge
-  RING_EDGE_SIZES: [1, 1.5, 2, 3], // element size at those edges, x h_min: the finest that fits RING_DOF_MAX_FACTOR is used
-  RING_DOF_MAX_FACTOR: 1.3,  // the ring-edge refinement may raise the DOF to at most this x the preset cap
   SLIVER_FRACTION: 0.125,    // die bands thinner than this x die thickness start at one element layer, others at two
   MIN_ELEMS_ACROSS_FILLET: 6, // underfill fillet width, at most (see FILLET_COL_MIN_FRACTION)
   FILLET_COL_MIN_FRACTION: 0.5, // fillet columns no narrower than this x h_min (at least MIN_ELEMS_ACROSS_RING)

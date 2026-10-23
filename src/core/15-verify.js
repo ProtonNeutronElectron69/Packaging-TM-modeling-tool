@@ -460,17 +460,22 @@ const VERIFICATION_TESTS = [
   {
     id: 'V15', name: 'Timing benchmark of the default package per preset and preconditioner', slow: true, verySlow: true,
     criterion: 'report only; compare with the performance targets',
-    about: 'Times the default package on each mesh preset with both solver preconditioners. It always passes and reports the speeds against the performance targets.',
+    about: 'Times the default package on each mesh preset with both solver preconditioners: the whole process chain with multigrid, and its first step with IC(0), which no longer converges on these meshes and would spend its full iteration budget on every step. It always passes and reports the speeds against the performance targets.',
     run(ctx) {
       const rows = [];
       for (const preset of ctx.presets || ['draft', 'standard']) for (const pc of ['mg', 'ic']) {
         const cfg = presetConfig(ctx.db, 'default');
         const t0 = nowMs();
         const an = new Analysis(cfg, { preset, evaluations: 'preview', precond: pc });
-        an.build(); an.run();
-        rows.push({ preset, pc, dof: an.mesh.info.nDof, ms: nowMs() - t0, solves: an.log.length, iters: an.log.map(r => r.iters), solveMs: an.timings.solve, assembleMs: an.timings.assemble });
+        an.build();
+        if (pc === 'mg') an.run(); else { an.buildPath(); an.solveStep(0); }
+        const r0 = an.log[0];
+        rows.push({ preset, pc, dof: an.mesh.info.nDof, ms: nowMs() - t0, solves: an.log.length, iters: an.log.map(r => r.iters), fallback: r0.fallback, solveMs: an.timings.solve, assembleMs: an.timings.assemble });
       }
-      return { pass: true, measured: rows.map(r => r.preset + '/' + r.pc + ': ' + r.dof + ' DOF, ' + (r.ms / 1000).toFixed(1) + ' s for the process chain to 25 °C (' + r.solves + ' solves, iterations ' + r.iters.join('/') + ')').join('; '), rows };
+      const text = r => r.preset + '/' + r.pc + ': ' + r.dof + ' DOF, ' + (r.ms / 1000).toFixed(1) + ' s ' + (r.pc === 'mg'
+        ? 'for the process chain to 25 °C (' + r.solves + ' solves, iterations ' + r.iters.join('/') + ')'
+        : 'for the first chain step (' + (r.fallback ? 'IC(0) not converged after ' + r.fallback.iters + ' iterations, relative residual ' + r.fallback.relres.toExponential(1) + ', then the multigrid fallback, ' + (r.iters[0] - r.fallback.iters) + ' iterations' : 'IC(0) converged in ' + r.iters[0] + ' iterations') + ')');
+      return { pass: true, measured: rows.map(text).join('; '), rows };
     },
   },
   {

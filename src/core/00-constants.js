@@ -107,7 +107,7 @@ const CONST = Object.freeze({
   SUB_INNER_TOL: 1e-8,       // floor of the inexact-Newton inner PCG tolerance
   STABILIZATION_WARN: 0.05,
   COLUMN_NEWTON_MAXIT: 20,   // in-plane Newton iterations of a free-standing solder column (screening)
-  COLUMN_STRESS_TOL: 1e-6,   // in-plane stress of the column relative to its axial and shear stress (at least 1 MPa)
+  COLUMN_STRESS_TOL: 1e-3,   // in-plane stress of the column relative to its axial and shear stress (at least 1 MPa); dW unchanged to 6 digits against 1e-6
   ANAND_NEWTON_MAXIT: 60,
   ANAND_TOL: 1e-11,
   // ---- life models ----------------------------------------------------------

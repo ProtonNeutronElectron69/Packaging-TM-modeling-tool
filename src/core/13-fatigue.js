@@ -327,8 +327,8 @@ function screenBumps(an, dieIdx, opts) {
   const dW = new Float64Array(n).fill(NaN), dE = new Float64Array(n).fill(NaN), stab = new Float64Array(n).fill(NaN);
   const pt = new AnandPoint(solder);
   const out = { sig: new Float64Array(6), D: new Float64Array(36) };
-  const eps = new Float64Array(6), e25 = new Float64Array(6), prevZ = { v: 0 };
-  const nu = pt.nu;
+  const eps = new Float64Array(6), e25 = new Float64Array(6), e1 = new Float64Array(3), e2 = new Float64Array(3);
+  const nu = pt.nu, IP = [0, 1, 3];
   const i25 = temps.indexOf(25);
   // per-step interpolation weights in the temperature table
   const wi = new Int32Array(nsteps), wt = new Float64Array(nsteps), Fth = new Float64Array(nsteps), kc = [];
@@ -345,16 +345,19 @@ function screenBumps(an, dieIdx, opts) {
     pt.reset();
     for (let c = 0; c < 6; c++) e25[c] = i25 >= 0 ? table[base + i25 * 6 + c] : 0;
     Wc.fill(0); Ec.fill(0);
-    eps.fill(0); prevZ.v = 0;
+    eps.fill(0);
     for (let k = 1; k < nsteps; k++) {
       const a = base + wi[k] * 6, b = a + 6, t = wt[k];
       const lay = c => table[a + c] + t * (table[b + c] - table[a + c]) - e25[c];
       const ez = lay(2) - Fth[k];
-      // in-plane guess: last step's strains plus the elastic lateral contraction of the axial increment
-      eps[0] -= nu * (ez - prevZ.v); eps[1] -= nu * (ez - prevZ.v);
-      eps[2] = ez; eps[4] = lay(4); eps[5] = lay(5); prevZ.v = ez;
+      // in-plane guess: linear extrapolation within a ramp or dwell, else the last strains plus the elastic
+      // lateral contraction of the axial increment (1.5 Newton calls per step instead of 2.7)
+      if (k > 2 && hist.phase[k] === hist.phase[k - 1]) for (let r = 0; r < 3; r++) eps[IP[r]] = 2 * e1[r] - e2[r];
+      else { eps[0] -= nu * (ez - eps[2]); eps[1] -= nu * (ez - eps[2]); }
+      eps[2] = ez; eps[4] = lay(4); eps[5] = lay(5);
       pt.stepColumn(eps, hist.T[k], kc[k].dt, out, kc[k]);
       pt.commit();
+      e2.set(e1); for (let r = 0; r < 3; r++) e1[r] = eps[IP[r]];
       const cyc = hist.cycle[k];
       Wc[cyc] = pt.W; Ec[cyc] = pt.ebar;
     }

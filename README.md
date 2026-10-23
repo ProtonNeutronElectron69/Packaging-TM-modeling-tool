@@ -248,7 +248,7 @@ Sources were read directly where the publisher allows it: manufacturer data shee
 | `src/core/11-analysis.js` | Process stages, evaluation temperatures, sweep ordering, the `Analysis` driver |
 | `src/core/12-post.js` | JEITA warpage with shape class and sign confidence, die stress, bump loads, underfill tractions, cross-section stresses (`sectionStress()`, `layeredPointStress()`), 3D face fields |
 | `src/core/13-fatigue.js` | Anand point integrator, cycle history, screening, `BumpSubmodel`, Syed and Darveaux life models |
-| `src/core/14-sensitivity.js`, `15-verify.js` | Tornado inputs, bounds and cases; verification tests V1 to V15 |
+| `src/core/14-sensitivity.js`, `15-verify.js` | Tornado inputs, bounds and cases; verification tests V1 to V16 |
 | `src/worker.js` | Worker driver and nested helper workers (parallel sweep and submodels); live reports from each helper on a message port of its own |
 | `src/ui/00-app.js`, `00b-tips.js`, `00c-layout.js`, `00d-glossary.js`, `00e-progress.js`, `01-plot.js` | App state, worker client, field helpers, tooltip dictionary and element, resizable panes and plot edge grips, glossary and automatic term linking, run progress (status dot, times, details panel), 2D plots and colour maps |
 | `src/ui/02-floorplan.js`, `03-panels.js`, `04-results.js`, `04b-section.js`, `04c-subsection.js`, `05-main.js` | Floorplan and cross-section editor, the six step panels, results views and report (including the 3D view and its mesh overlay), the cross-section stress view, the submodel cross-section view, shell and wiring |
@@ -302,7 +302,7 @@ See the in-app "Assumptions and limitations" panel for every modeling assumption
 
 ## Verification status
 
-Last headless run (Node 22, 4-core container), 15 of 15 pass. `dist/verification.json` holds the full text of each measurement.
+Last headless run (Node 22, 4-core container), 16 of 16 pass. `dist/verification.json` holds the full text of each measurement.
 
 | ID | Test | Measured | Criterion | Result |
 |---|---|---|---|---|
@@ -310,17 +310,18 @@ Last headless run (Node 22, 4-core container), 15 of 15 pass. `dist/verification
 | V2 | Patch test, incompatible-mode hex, distorted mesh | displacement 6.8e-17, strain 6.5e-16 | 1e-9 | pass |
 | V3 | Bimaterial plate curvature vs Timoshenko | 2.0692e-3 vs 2.0692e-3 1/mm (0.00 %) | 3 % | pass |
 | V4 | Three-layer laminate vs classical lamination theory | kx 0.01 %, ky 0.17 % | 3 % | pass |
-| V5 | Layered integration vs one element per layer | 104.89 vs 105.11 µm (0.21 %) | 1 % | pass |
+| V5 | Layered integration vs one element per layer | 104.25 vs 104.47 µm (0.21 %) | 1 % | pass |
 | V6 | Anand saturation stress vs closed form | 42.04 / 22.81 / 13.02 MPa vs 42.09 / 22.83 / 13.04 | 1 % | pass |
-| V7 | Submodel consistency with homogenized bump layer | 0.24 % (bump-layer domain, uniform phases); 0.25 % with the production domain, reported as information | 2 % | pass |
-| V8 | Symmetry of the warpage field | 2.0e-11 (x), 3.4e-11 (y), 3.6e-11 (diagonal), 1.2e-10 mirrored | 1e-6 | pass |
-| V9 | Physical sanity on the presets | bare RT +235 µm convex; backside +85 MPa tensile; 0.8 mm core 171 vs 310 µm; 795G LH 181 vs 705G 277 µm | all four | pass |
-| V10 | Mesh convergence, Standard vs Fine | warpage 0.39 %, die interior peak 1.46 % (302k vs 563k DOF) | 5 % | pass |
-| V11 | Solver integrity | residual 7.6e-11, reactions 3.6e-11 of the force scale, energy balance 1.5e-13 | 1e-8 / 1e-9 | pass |
+| V7 | Submodel consistency with homogenized bump layer | 0.38 % (bump-layer domain, uniform phases, stepped with the global up branch); 0.83 % with the production domain, reported as information | 2 % | pass |
+| V8 | Symmetry of the warpage field | 2.1e-10 (x), 2.2e-10 (y), 2.2e-11 (diagonal), 1.3e-10 mirrored | 1e-6 | pass |
+| V9 | Physical sanity on the presets | bare RT +220 µm convex; backside +64 MPa tensile; 0.8 mm core 162 vs 280 µm; 795G LH 168 vs 705G 261 µm | all four | pass |
+| V10 | Mesh convergence, Standard vs Fine | warpage 0.31 %, die interior peak 2.49 % (420k vs 734k DOF) | 5 % | pass |
+| V11 | Solver integrity (last process step S3 30 to 25 °C) | residual 8.4e-11, reactions 1.1e-10 of the force scale, energy balance 1.2e-13 | 1e-8 / 1e-9 | pass |
 | V12 | JEITA sign and magnitude on synthetic domes | signs +1 / -1, magnitude error 0.0 | exact / 1e-9 | pass |
 | V13 | Unit checks (Si CTE, rotated Si moduli, SAC305 E, AlSiC-9 strain, Turner, Voigt, Reuss) | all exact | 1e-9 (formulas), printed precision (rounded references) | pass |
 | V14 | JSON save / load round trip | identical hash | identical | pass |
 | V15 | Timing benchmark | see below | report | pass |
+| V16 | Underfill cooled through its Tg (165 to 25 °C) on the thermal path: free block; block held at its sides | free 9.0e-14 × EαΔT; held 45.52 vs 45.52 MPa exact (0.00 %); a secant form gives 125.47 MPa | 1e-8; 0.1 % | pass |
 
 ## Measured performance
 

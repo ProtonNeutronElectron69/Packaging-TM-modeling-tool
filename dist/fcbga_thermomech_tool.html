@@ -7468,21 +7468,22 @@ function setStatus(text, frac) {
   if (runProgress.job) progressStatusbar();
 }
 
-const RUN_S_PER_STEP = 2.5;  // s per step solve of the thermal path per 28k DOF (calibrated on the Draft default package)
+const RUN_S_PER_STEP = 2.7;  // s per step solve of the thermal path per 28k DOF (Draft lidded default, 76.9k DOF: full analysis 187 s on 3 workers, headless Chromium, 4-core container)
 
 /** Estimated DOF, memory and runtime for the current configuration and preset. */
 function estimateRun(cfg, preset) {
   try {
     const mesh = C.buildPackageMesh(cfg, { preset });
     const inf = mesh.info;
-    const perWorkerMB = inf.nDof * 27 * 9 * 8 / 3 / 1e6 * 1.6 + inf.nDof * 8 * 40 / 1e6 + 30;
-    const nw = Math.max(1, app.workers || 1);
-    const memMB = perWorkerMB + (nw - 1) * (perWorkerMB * 0.7);
     // one solve per step of the thermal path, planned here without solving and split over the workers; the preview
     // solves the process chain only
     const plan = new C.Analysis(cfg, { preset, evaluations: 'full' }).setupPath(mesh.groups);
     const nSteps = plan.buildPath().length, nChain = plan.path.chain.length;
-    // s per step solve, measured on the 4-layer z mesh (headless Chromium, 4-core container)
+    const baseMB = inf.nDof * 27 * 9 * 8 / 3 / 1e6 * 1.6 + inf.nDof * 8 * 40 / 1e6 + 30;
+    // the main worker also keeps the displacement increment of every step (single precision) for the stress histories
+    const perWorkerMB = baseMB + inf.nDof * 4 * nSteps / 1e6;
+    const nw = Math.max(1, app.workers || 1);
+    const memMB = perWorkerMB + (nw - 1) * (baseMB * 0.7);
     const perSolve = inf.nDof / 28000 * RUN_S_PER_STEP;
     return { info: inf, warnings: C.meshWarnings(mesh), memMB, perWorkerMB, nSteps, previewS: Math.ceil(nChain / nw) * perSolve, fullS: Math.ceil(nSteps / nw) * perSolve + 8 };
   } catch (e) { return { error: e.message }; }

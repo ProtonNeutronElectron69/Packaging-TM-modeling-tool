@@ -45,7 +45,7 @@ const app = {
   workers: Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1, maxWorkers())), nestedWorkers: true,
   decisions: [], showOverlay: 'warpage', cutDirty: true,
   // submodel cross-section view: submodel key (die:ix:iy), stored moment, cut direction and grid-line index, display options
-  subSection: { key: null, snap: null, axis: 'x', pos: null, qty: 'vm', focus: 'uf', mesh: false },
+  subSection: { key: null, snap: null, axis: 'x', pos: null, qty: 'vm', focus: 'uf', mesh: false, total: false },
   // cross-section stress view: line {axis, c, a0, a1}, first click while drawing, display options, worker results by temperature and line
   section: null, sectionDraft: null, sectionQty: 'vm', sectionPhase: 'uf', sectionMesh: false, sectionExag: 'fit', sectionRange: 'all', sectionResize: false, sectionCache: new Map(), sectionPending: null,
   colorMap: prefs.get('colorMap', 'rainbow') === 'colorblind' ? 'colorblind' : 'rainbow',  // contour colours: rainbow or colorblind-safe
@@ -246,19 +246,24 @@ function setStatus(text, frac) {
   if (runProgress.job) progressStatusbar();
 }
 
+const RUN_S_PER_STEP = 2.7;  // s per step solve of the thermal path per 28k DOF (Draft lidded default, 76.9k DOF: full analysis 187 s on 3 workers, headless Chromium, 4-core container)
+
 /** Estimated DOF, memory and runtime for the current configuration and preset. */
 function estimateRun(cfg, preset) {
   try {
     const mesh = C.buildPackageMesh(cfg, { preset });
     const inf = mesh.info;
-    const perWorkerMB = inf.nDof * 27 * 9 * 8 / 3 / 1e6 * 1.6 + inf.nDof * 8 * 40 / 1e6 + 30;
+    // one solve per step of the thermal path, planned here without solving and split over the workers; the preview
+    // solves the process chain only
+    const plan = new C.Analysis(cfg, { preset, evaluations: 'full' }).setupPath(mesh.groups);
+    const nSteps = plan.buildPath().length, nChain = plan.path.chain.length;
+    const baseMB = inf.nDof * 27 * 9 * 8 / 3 / 1e6 * 1.6 + inf.nDof * 8 * 40 / 1e6 + 30;
+    // the main worker also keeps the displacement increment of every step (single precision) for the stress histories
+    const perWorkerMB = baseMB + inf.nDof * 4 * nSteps / 1e6;
     const nw = Math.max(1, app.workers || 1);
-    const memMB = perWorkerMB + (nw - 1) * (perWorkerMB * 0.7);
-    // s per solve and sweep factor, measured on the 4-layer z mesh (headless Chromium, 4-core container): Draft 74k DOF
-    // preview 22 s, full 163 s; Standard 302k DOF full 867 s with 3 workers (sweep solves take about 1.9x the stage solves)
-    const perSolve = inf.nDof / 28000 * 2.5;
-    const nEval = 41;
-    return { info: inf, warnings: C.meshWarnings(mesh), memMB, perWorkerMB, previewS: 4 * perSolve /* stage solves, 25 °C and the chip-join state */, fullS: (4 + 1.9 * nEval / nw) * perSolve + 8 };
+    const memMB = perWorkerMB + (nw - 1) * (baseMB * 0.7);
+    const perSolve = inf.nDof / 28000 * RUN_S_PER_STEP;
+    return { info: inf, warnings: C.meshWarnings(mesh), memMB, perWorkerMB, nSteps, previewS: Math.ceil(nChain / nw) * perSolve, fullS: Math.ceil(nSteps / nw) * perSolve + 8 };
   } catch (e) { return { error: e.message }; }
 }
 

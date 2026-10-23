@@ -128,7 +128,8 @@ function sensitivityOutputs(an) {
   const peakT = cfg.reflow.peak;
   const wPeak = an.fields.has(peakT) ? warpageJEITA(an.mesh, g, an.fields.get(peakT), cfg).signed : NaN;
   let sPeak = -Infinity;
-  for (let d = 0; d < g.dies.length; d++) sPeak = Math.max(sPeak, dieSurfaceStress(an.model, g, d, 'top', 25, an.finalStage, u25).peakInterior);
+  const view25 = an.view(25);
+  for (let d = 0; d < g.dies.length; d++) sPeak = Math.max(sPeak, dieSurfaceStress(view25, g, d, 'top').peakInterior);
   let dW = -Infinity;
   if (an.temps.cycling.length > 1) for (let d = 0; d < g.dies.length; d++) { const sc = screenBumps(an, d); if (sc.top.length) dW = Math.max(dW, sc.top[0].dW); }
   return { warpRT: w25, warpPeak: wPeak, dieStress: sPeak, dW };

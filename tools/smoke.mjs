@@ -27,10 +27,10 @@ await page.waitForSelector('#floorplan', { timeout: 20000 });
 console.log('page loaded; steps:', await page.locator('.step').count(), 'errors so far:', errors.length);
 // Draft preview (the step 6 Quick preview path)
 const t0 = Date.now();
-const preview = await page.evaluate(() => new Promise((resolve, reject) => {
+const preview = await page.evaluate(workers => new Promise((resolve, reject) => {
   const t = performance.now();
-  worker.send({ type: 'run', cfg: app.cfg, preset: 'draft', evaluations: 'preview' }).then(r => resolve({ ms: performance.now() - t, dof: r.meshInfo.nDof, w: r.at25.warpage.signed * 1000, iters: r.solverLog.map(x => x.iters) })).catch(e => reject(e.message));
-}));
+  worker.send({ type: 'run', cfg: app.cfg, preset: 'draft', evaluations: 'preview', workers }).then(r => resolve({ ms: performance.now() - t, dof: r.meshInfo.nDof, w: r.at25.warpage.signed * 1000, iters: r.solverLog.map(x => x.iters) })).catch(e => reject(e.message));
+}), workers);
 console.log('Draft preview:', JSON.stringify(preview));
 if (args.includes('--full')) {
   // through startRun, as the Run button does, sampling the progress record (status dot, live worker rows) once a second
@@ -51,20 +51,23 @@ if (args.includes('--full')) {
       worker.send({ type: 'submodels', jobs, nxy: app.cfg.submodel.nxy, nz: app.cfg.submodel.nz, workers }).then(r => { app.submodels = r; resolve({ ms: performance.now() - t, n: r.length, dW: r.map(x => x.dW), life: r.map(x => x.life.syedEnergy), steps: r.map(x => x.steps), perBumpMs: r.map(x => x.ms), snapshots: r.map(x => x.section ? x.section.snaps.length : 0) }); }).catch(e => reject(e.message));
     }), workers);
     console.log('submodels:', JSON.stringify(sub));
-    // submodel cross-section: every moment, both cut directions, all three material focus choices
+    // submodel cross-section: every moment, both cut directions, all three material focus choices, change and total stress
     await page.evaluate(() => { app.resultsView = 'subSection'; setCenterTab('results'); });
     await page.waitForTimeout(300);
     const ss = await page.evaluate(async () => {
       const st = app.subSection, out = [];
-      for (const axis of ['x', 'y']) for (const focus of ['uf', 'solder', 'all']) {
-        st.axis = axis; st.focus = focus; st.pos = null; st.mesh = focus === 'all';
+      for (const total of [false, true]) for (const axis of ['x', 'y']) for (const focus of ['uf', 'solder', 'all']) {
+        st.total = total; st.axis = axis; st.focus = focus; st.pos = null; st.mesh = focus === 'all';
         for (let k = 0; k < app.submodels[0].section.snaps.length; k++) { st.snap = k; renderCenter(); await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); }
-        out.push(axis + '/' + focus);
+        out.push(axis + '/' + focus + (total ? '/total' : ''));
       }
-      const sec = C.submodelSection(app.submodels[0], st.snap, st.axis, st.pos);
-      return { combos: out.length, plots: document.querySelectorAll('#center-body canvas.map').length, quads: sec.n, finite: sec.sig.every(Number.isFinite), stats: document.querySelectorAll('#center-body table tr').length - 1 };
+      const sm = app.submodels[0], sec = C.submodelSection(sm, st.snap, st.axis, st.pos), tot = C.submodelSection(sm, st.snap, st.axis, st.pos, true);
+      let dmax = 0;
+      for (let q = 0; q < sec.sig.length; q++) dmax = Math.max(dmax, Math.abs(tot.sig[q] - sec.sig[q]));
+      return { combos: out.length, plots: document.querySelectorAll('#center-body canvas.map').length, quads: sec.n, finite: sec.sig.every(Number.isFinite), residual: !!sm.section.residual, totalFinite: tot.sig.every(Number.isFinite), totalIsTotal: tot.total, residualMaxMPa: +dmax.toFixed(2), stats: document.querySelectorAll('#center-body table tr').length - 1 };
     });
     console.log('submodel section:', JSON.stringify(ss));
+    if (!ss.residual || !ss.totalFinite || !ss.totalIsTotal || !(ss.residualMaxMPa > 0)) errors.push('error: submodel total stress: ' + JSON.stringify(ss));
   }
   // render results views
   await page.evaluate(() => { app.section = { axis: 'x', c: 0, a0: -20, a1: 20 }; app.sectionMesh = true; });

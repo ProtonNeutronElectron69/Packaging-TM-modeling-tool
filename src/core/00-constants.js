@@ -22,6 +22,11 @@ const CONST = Object.freeze({
   CTE_SMOOTH_DELTA: 3,       // degC, logistic smoothing of the bilinear CTE
   SOLDER_MOLTEN_FRACTION: 0.01, // solder E above solidus = 1 % of E(solidus)
   LAYERED_PLANE_STRESS: true,   // continuum-shell sub-layer stiffness in the layered substrate bands
+  COLUMN_INPLANE_FRACTION: 1e-3, // in-plane stiffness of the solder column phase, fraction of its axial stiffness (numerical floor)
+  // ---- incremental thermoelastic path (Section 6.5, as amended) -----------
+  INC_DT_MAX: 30,            // degC, largest temperature step of the thermal path
+  INC_DT_TG: 10,             // degC, largest step within INC_TG_BAND of any Tg
+  INC_TG_BAND: 15,           // degC half-width of the refined window around each Tg
   GPA: 1000,                 // MPa per GPa
   PPM: 1e-6,
   // ---- mesher -------------------------------------------------------------
@@ -30,6 +35,7 @@ const CONST = Object.freeze({
   GROWTH_RATIO_MAX: 1.3,
   REFINE_ZONE_FACTOR: 2.0,   // refinement zone = 2 x local die thickness
   MIN_ELEMS_ACROSS_RING: 3,  // lid foot, stiffener ring
+  RING_EDGE_ZONE: 0,         // refinement zone at lid foot and stiffener edges (x ring thickness): grading starts at the edge
   SLIVER_FRACTION: 0.125,    // die bands thinner than this x die thickness start at one element layer, others at two
   MIN_ELEMS_ACROSS_FILLET: 6, // underfill fillet width, at most (see FILLET_COL_MIN_FRACTION)
   FILLET_COL_MIN_FRACTION: 0.5, // fillet columns no narrower than this x h_min (at least MIN_ELEMS_ACROSS_RING)
@@ -50,8 +56,10 @@ const CONST = Object.freeze({
   PCG_TOL: 1e-8,
   PCG_MAXIT: 2000,
   WARM_START_MAX: 20,
-  REBUILD_FACTOR: 2,
+  REBUILD_FACTOR: 2,         // rebuild the preconditioner when a solve needs this many times its iterations per decade of residual reduction right after the build
   REBUILD_MIN_ITERS: 30,     // never rebuild before this many iterations of a stale preconditioner
+  SWEEP_BLOCKS_PER_WORKER: 3, // thermal-path steps go to the workers in about this many blocks each, taken from a shared queue
+  SWEEP_BLOCK_MIN: 2,        // steps per block at least (consecutive steps warm-start each other)
   // ---- live progress (run details panel and status dot) -------------------
   LIVE_INTERVAL_MS: 1000,    // solvers and submodels report their state at most this often
   LIVE_HIST_POINTS: 100,     // residual history points sent with each report
@@ -100,6 +108,8 @@ const CONST = Object.freeze({
   SUB_DU_TOL: 1e-8,
   SUB_INNER_TOL: 1e-8,       // floor of the inexact-Newton inner PCG tolerance
   STABILIZATION_WARN: 0.05,
+  COLUMN_NEWTON_MAXIT: 20,   // in-plane Newton iterations of a free-standing solder column (screening)
+  COLUMN_STRESS_TOL: 1e-3,   // in-plane stress of the column relative to its axial and shear stress (at least 1 MPa); dW unchanged to 6 digits against 1e-6
   ANAND_NEWTON_MAXIT: 60,
   ANAND_TOL: 1e-11,
   // ---- life models ----------------------------------------------------------

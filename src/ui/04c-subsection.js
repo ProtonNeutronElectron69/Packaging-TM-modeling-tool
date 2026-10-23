@@ -89,17 +89,19 @@ function renderSubmodelSectionView(root) {
   if (st.snap === null || st.snap >= S.snaps.length) st.snap = S.snaps.length - 1;  // default: end of the cold dwell
   const nAcross = (st.axis === 'y' ? S.xs : S.ys).length - 1;
   if (st.pos === null || st.pos > nAcross) st.pos = Math.round(nAcross / 2);  // default: through the bump axis
-  const sec = C.submodelSection(sm, st.snap, st.axis, st.pos);
+  const total = st.total && !!S.residual;
+  const sec = C.submodelSection(sm, st.snap, st.axis, st.pos, total);
   const snap = S.snaps[st.snap];
+  const what = total ? 'total stress (as-assembled 25 °C stress plus the change)' : 'change from the as-assembled 25 °C state';
   const sName = st.axis === 'x' ? 'x − x_bump' : 'y − y_bump', cName = st.axis === 'x' ? 'y − y_bump' : 'x − x_bump';
   sec.labels = {
-    title: sectionQtyLabel(st.qty) + ', MPa, change from the as-assembled 25 °C state; ' + subSecMoment(snap),
+    title: sectionQtyLabel(st.qty) + ', MPa, ' + what + '; ' + subSecMoment(snap),
     s: sName + ', µm (cut at ' + cName + ' = ' + fmt(sec.c, 1) + ' µm, seen from the ' + (st.axis === 'x' ? '−y' : '+x') + ' side)',
     z: 'z above the substrate top, µm', unit: 'µm', sName, zName: 'z',
   };
   const ax = st.axis === 'x' ? 'x' : 'y', cx = st.axis === 'x' ? 'y' : 'x';
   sec.csv = {
-    header: '# bump submodel ' + sm.die + ' at (' + sm.site.x + ', ' + sm.site.y + ') mm, ' + subSecMoment(snap) + '; stress change from the as-assembled 25 degC state; cut along ' + ax + ' at ' + cx + ' - ' + cx + '_bump = ' + sec.c + ' um; corner values averaged within each material; MPa',
+    header: '# bump submodel ' + sm.die + ' at (' + sm.site.x + ', ' + sm.site.y + ') mm, ' + subSecMoment(snap) + (total ? '; total stress (as-assembled 25 degC stress of the global model per voxel plus the change)' : '; stress change from the as-assembled 25 degC state') + '; cut along ' + ax + ' at ' + cx + ' - ' + cx + '_bump = ' + sec.c + ' um; corner values averaged within each material; MPa',
     columns: 'x_mm,y_mm,z_mm,material,sxx,syy,szz,txy,tyz,txz',
     point: (s, z) => { const a = s / 1000, c = sec.c / 1000, zz = z / 1000 + S.zt; return st.axis === 'x' ? [+(S.cx + a).toFixed(6), +(S.cy + c).toFixed(6), +zz.toFixed(6)] : [+(S.cx + c).toFixed(6), +(S.cy + a).toFixed(6), +zz.toFixed(6)]; },
     file: '_submodel_' + sm.die.replace(/[^\w.-]+/g, '_') + '_' + sm.site.ix + '_' + sm.site.iy + '_' + snap.phase.replace(/ /g, '_') + '_' + fmt(snap.T, 0) + 'C',
@@ -115,7 +117,9 @@ function renderSubmodelSectionView(root) {
     ...SECTION_QTY.map(([g, items]) => h('optgroup', { label: g }, ...items.map(([k, l]) => h('option', { value: k, selected: k === st.qty ? '' : null }, l)))));
   const focusSel = h('select', tip('subSecFocus', { onchange: e => { st.focus = e.target.value; renderCenter(); } }), ...SUBSEC_FOCUS.map(([k, l]) => h('option', { value: k, selected: k === st.focus ? '' : null }, l)));
   const meshBox = h('label', tip('subSecMesh', { class: 'small' }), h('input', { type: 'checkbox', checked: st.mesh ? '' : null, onchange: e => { st.mesh = e.target.checked; renderCenter(); } }), ' voxel mesh');
-  root.append(h('div', { class: 'row' }, h('span', null, 'submodel ', smSel), h('span', null, 'moment ', snapSel)),
+  const totalSel = h('select', tip('subSecTotal', { disabled: S.residual ? null : '', onchange: e => { st.total = e.target.value === 'total'; renderCenter(); } }),
+    h('option', { value: 'change', selected: total ? null : '' }, 'change from 25 °C'), h('option', { value: 'total', selected: total ? '' : null }, 'total stress'));
+  root.append(h('div', { class: 'row' }, h('span', null, 'submodel ', smSel), h('span', null, 'moment ', snapSel), h('span', null, 'stress ', totalSel)),
     h('div', { class: 'row' }, h('span', null, 'cut ', axisSel), h('span', { class: 'grow row' }, 'position ', posIn, h('span', { class: 'small muted' }, fmt(sec.c, 1) + ' µm from the bump axis')), h('span', null, 'quantity ', qtySel), h('span', null, 'show ', focusSel), meshBox,
       h('button', tip('subSecCsv', { class: 'small', onclick: () => exportSectionCSV(sec) }), 'Export section CSV')));
   // values: all corners, or the focused material only
@@ -140,7 +144,7 @@ function renderSubmodelSectionView(root) {
     h('div', { class: 'small muted' }, sectionQtyLabel(st.qty) + ' at the voxel corners on the cut (values averaged within each material, never across interfaces), ' + subSecMoment(snap) + '.'),
     h('details', null, h('summary', null, 'What this means'),
       h('p', { class: 'small' }, 'The bump submodel resolves one solder joint as a truncated sphere surrounded by underfill, between a slice of the die and a slice of the substrate, in a voxel grid of one bump pitch. It is driven by the global displacements on its cut faces and steps through the temperature cycles with the Anand solder model. This view shows the stress on a vertical plane through that cell at the end of each ramp and dwell of the last cycle, so the underfill stress next to the joint, at the joint neck and at the pad edges becomes visible, which the homogenized bump layer of the global model cannot show.'),
-      h('p', { class: 'small' }, 'The submodel works relative to the as-assembled state at 25 °C: the stresses shown are the change caused by the temperature cycle, not the total stress. The residual assembly stress of the underfill (from its cure temperature down to 25 °C) comes on top; the Cross-section stress tab shows its homogenized value. The solder starts stress-free at 25 °C, assuming room-temperature relaxation.'),
+      h('p', { class: 'small' }, 'The submodel works relative to the as-assembled state at 25 °C: by default the stresses shown are the change caused by the temperature cycle. "Total stress" adds the residual assembly stress at 25 °C from the global model (the underfill from its cure temperature down to 25 °C, the silicon and the substrate layer at each voxel), constant within each voxel, so the underfill shows its full tension or compression; the global model gives that residual for the homogenized layer, not around the joint itself. The solder starts stress-free at 25 °C, assuming room-temperature relaxation.'),
       h('p', { class: 'small' }, 'The joint is stair-stepped on the voxel grid, so the corners where the solder meets the pads and the underfill are singular and mesh dependent: compare peak values between designs and bump locations, do not read them as strengths. A cut that runs along a voxel face between two materials shows the voxel nearer the bump axis.'))));
   root.append(h('div', { class: 'grid2' }, left, right));
   // contour across the full width
@@ -155,7 +159,7 @@ function renderSubmodelSectionView(root) {
   cv.addEventListener('pointermove', e => { readout.textContent = sectionReadout(cv, sec, F, st.qty, e) || hint; });
   const sign = st.qty === 'vm' ? 'always positive' : ['s1', 's3', 'hyd', 'sxx', 'syy', 'szz', 'sss', 'snn'].includes(st.qty) ? 'tension positive' : 'sign follows the axes named';
   const focusName = focusGrp === undefined ? '' : '; colours for the ' + S.groups[focusGrp].name.toLowerCase() + ' only, other materials grey';
-  root.append(cv, legendRow(scale, sectionQtyLabel(st.qty) + ', MPa, change from the as-assembled 25 °C state (' + sign + ')' + focusName), readout,
+  root.append(cv, legendRow(scale, sectionQtyLabel(st.qty) + ', MPa, ' + what + ' (' + sign + ')' + focusName), readout,
     lineKey([{ label: 'material boundary', color: cssVar('--text') }].concat(st.mesh ? [{ label: 'voxel edge', color: 'rgba(0,0,0,0.45)' }] : [])));
   requestAnimationFrame(() => { const draw = () => drawSectionPlot(cv, sec, F, scale, { qty: st.qty, phase: 'all', mesh: st.mesh, grey }); autoRedraw(cv, draw); draw(); });
 }

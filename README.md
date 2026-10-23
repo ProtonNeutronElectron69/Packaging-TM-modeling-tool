@@ -267,11 +267,11 @@ Sources were read directly where the publisher allows it: manufacturer data shee
 
 ```
 node tools/build.mjs                       # writes dist/fcbga_thermomech_tool.html (always rebuild after editing src/)
-node tools/verify.mjs                      # full verification suite headless in Node, V1 to V15 (about 28 min: V1 to V14 about 8, V15 about 20)
+node tools/verify.mjs                      # full verification suite headless in Node, V1 to V16 (about 1 h: V10 about 21 min, V15 about 17, V8 and V9 about 8 each)
 node tools/verify.mjs V1,V2,V13            # selected tests
 node tools/verify.mjs --presets draft      # V15 timing presets (default draft,standard)
 node tools/smoke.mjs                       # Chromium: page load and Draft preview, zero console errors
-node tools/smoke.mjs --full [--standard] [--workers 3] [--submodels]   # full analysis, every results view, 3D view, submodels (Draft about 3 min, Standard about 15 min)
+node tools/smoke.mjs --full [--standard] [--workers 3] [--submodels]   # full analysis, every results view, 3D view, submodels (Draft about 5 min, Standard about 17 min; the four submodels about 21 min more)
 cd desktop && npm install                  # desktop app: Electron, electron-builder, three.js (Electron itself downloads on first use)
 npm start                                  # (in desktop/) run the desktop app from the sources (stages dist/ into desktop/app/ first)
 npm run dist                               # (in desktop/, on Windows) build the portable app into desktop/release/
@@ -337,8 +337,8 @@ Headless Chromium on a 4-core cloud container with 3 workers, Section 13 targets
 | Four bump submodels of the default package, 16×16×14, 3 cycles | 1243 s on 3 workers, 650 s per corner bump with 1485 adaptive steps (286 s, 145 s per bump): the corner joints creep more (ΔW 0.40 MPa per cycle), so the step control on the inelastic strain increment takes about 2.5 times the steps | 120 s |
 | Sensitivity (Draft, default input set, worker pool) | not re-measured | 3 min |
 | Peak memory at Standard | not re-measured; the run panel estimates 710 MB for the main worker at 420k DOF (about 850 MB measured at 320k before, Node RSS) | 600 MB |
-| V15, stage chain + 25 °C, Draft 74k DOF | multigrid 24.6 s; IC(0) does not converge in 2000 iterations (159 s, then the multigrid fallback) | report |
-| V15, stage chain + 25 °C, Standard 302k DOF | multigrid 118 s; IC(0) does not converge in 2000 iterations (862 s) | report |
+| V15, process chain to 25 °C (15 steps), Draft 77k DOF | multigrid 81.7 s (iterations 22 to 97); IC(0) on the first step does not converge in 2000 iterations (53 s, residual 3.2e-6, then the multigrid fallback) | report |
+| V15, process chain to 25 °C (15 steps), Standard 420k DOF | multigrid 455 s (iterations 18 to 116); IC(0) on the first step does not converge in 2000 iterations (411 s, residual 8.6e-6) | report |
 
 Multigrid is the default preconditioner; on the refined meshes IC(0) no longer converges within 2000 iterations and is kept only as the first fallback. Multigrid PCG iterations per step of the thermal path on the lidded default at Standard: 0 to 116, 33 on average, with a fresh preconditioner per step and the warm start from the previous steps (before the incremental path: 37 to 74 for the stage solves and 30 to 180 in the temperature sweep).
 

@@ -4370,10 +4370,11 @@ class Analysis {
     const ta = nowMs();
     this.model.assembleStep(s.Ta, s.Tb, s.stage, this.rhs);
     const tb = nowMs();
-    // preconditioner key: process stage and solder regime (the solidus changes the matrix abruptly)
-    const key = s.stage + (0.5 * (s.Ta + s.Tb) > this.solidus ? 'm' : 's');
+    // a fresh preconditioner for every step: the polymer moduli change from step to step, and a build costs a few
+    // iterations' worth (0.6 s against 3 to 14 s per Draft solve), far less than a stale one adds (2.8x the
+    // iterations on the bare-die chain)
     const label = stepLabel(s);
-    const res = this.solver.solve(this.rhs, label, key);
+    const res = this.solver.solve(this.rhs, label, k);
     res.assembleMs = tb - ta;
     res.T = s.Tb; res.stage = s.stage; res.step = k;
     this.timings.assemble = (this.timings.assemble || 0) + res.assembleMs;

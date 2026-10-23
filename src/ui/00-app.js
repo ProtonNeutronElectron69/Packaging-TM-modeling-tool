@@ -256,12 +256,13 @@ function estimateRun(cfg, preset) {
     const perWorkerMB = inf.nDof * 27 * 9 * 8 / 3 / 1e6 * 1.6 + inf.nDof * 8 * 40 / 1e6 + 30;
     const nw = Math.max(1, app.workers || 1);
     const memMB = perWorkerMB + (nw - 1) * (perWorkerMB * 0.7);
-    // one solve per step of the thermal path, planned here without solving; the preview solves the process chain only
+    // one solve per step of the thermal path, planned here without solving and split over the workers; the preview
+    // solves the process chain only
     const plan = new C.Analysis(cfg, { preset, evaluations: 'full' }).setupPath(mesh.groups);
     const nSteps = plan.buildPath().length, nChain = plan.path.chain.length;
     // s per step solve, measured on the 4-layer z mesh (headless Chromium, 4-core container)
     const perSolve = inf.nDof / 28000 * RUN_S_PER_STEP;
-    return { info: inf, warnings: C.meshWarnings(mesh), memMB, perWorkerMB, nSteps, previewS: nChain * perSolve, fullS: nSteps / nw * perSolve + 8 };
+    return { info: inf, warnings: C.meshWarnings(mesh), memMB, perWorkerMB, nSteps, previewS: Math.ceil(nChain / nw) * perSolve, fullS: Math.ceil(nSteps / nw) * perSolve + 8 };
   } catch (e) { return { error: e.message }; }
 }
 

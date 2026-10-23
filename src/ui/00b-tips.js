@@ -121,10 +121,10 @@ const TIPS = {
   K3: 'Darveaux crack growth: da/dN = K3 ΔW^K4. No default: K3 depends on element size and averaging scheme.',
   K4: 'Darveaux crack growth exponent.',
   // ---- step 6 ----
-  workers: 'The temperature sweep, the bump submodels and the sensitivity cases are split over this many workers. Each holds its own copy of the model, so memory scales with the count; 1 keeps everything in one worker. The most offered is your CPU core count divided by 1.5, rounded down. In a browser all workers share one tab, whose memory the browser limits; the desktop app runs them as separate processes limited only by the computer\'s memory.',
+  workers: 'The steps of the thermal path (process chain and temperature sweep, also for the quick preview), the bump submodels and the sensitivity cases are split over this many workers. Each holds its own copy of the model, so memory scales with the count; 1 keeps everything in one worker. The most offered is your CPU core count divided by 1.5, rounded down. In a browser all workers share one tab, whose memory the browser limits; the desktop app runs them as separate processes limited only by the computer\'s memory.',
   computeEngine: 'Where the analysis runs. In a browser every worker lives inside this tab, and the browser stops a tab that uses more than its memory allowance (around 10 GB has been seen in Edge and Brave), which ends the run. The desktop app runs each worker as a separate process on this computer, so large meshes and many workers can use all of its memory and cores.',
   runFull: 'The thermal path (process chain to 25 °C, heating to the reflow peak, cooling to the cycling minimum, chip-join state), bump screening and 3D fields, at the selected fidelity.',
-  quickPreview: 'Draft mesh, stages and the 25 °C state only; fast look at the warpage overlay. Edits never start an analysis on their own.',
+  quickPreview: 'Draft mesh, the process chain down to the 25 °C state only (its steps split over the parallel workers); a quicker look at the warpage overlay. Edits never start an analysis on their own.',
   pinBaseline: 'Keep the current results as the baseline; later runs show deltas and ratios against it.',
   clearBaseline: 'Remove the pinned baseline.',
   meshCheck: 'Rerun the current case at the next finer preset and compare RT warpage, die interior peak stress and worst-bump force.',

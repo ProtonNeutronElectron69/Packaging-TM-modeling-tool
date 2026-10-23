@@ -121,7 +121,7 @@ function runFull() {
 }
 function runPreview() {
   if (app.validation.errors.length) return;
-  const request = { type: 'run', cfg: structuredClone(app.cfg), preset: 'draft', evaluations: 'preview' };
+  const request = { type: 'run', cfg: structuredClone(app.cfg), preset: 'draft', evaluations: 'preview', workers: app.workers };
   startRun(Object.assign({}, request), 'Draft preview').then(res => {
     res.preview = true; res.request = request; app.analysisLost = false;
     app.results = res; app.fieldsCache.clear(); app.sectionCache.clear(); app.sectionDraft = null; app.currentFields = res.at25; app.selectedT = 25;
@@ -726,7 +726,7 @@ function limitationsList(res) {
     'Layered substrate bands use the continuum-shell form of each sub-layer stiffness (plane-stress in-plane block, uncoupled thickness modulus), because one thickness strain shared by all sub-layers of a band over-constrains the Poisson expansion (0.7 % warpage bias against lamination theory).',
     'No automatic analysis after editing: dragging or releasing a die (or any other edit) starts no solve, and the floorplan overlay is hidden while the geometry differs from the last analysis. The analysis runs only from step 6 (Run full global analysis, or Quick preview on the Draft mesh).',
     'Contour colours default to a rainbow scale (purple low to red high). It is not colorblind safe or perceptually uniform: bright yellow and cyan bands can suggest features that are not there. Switch to the colorblind-safe scales with the "colors" dropdown in the Results bar.',
-    'Parallel workers: the temperature sweep and the bump submodels can be split over several workers; each holds its own copy of the model, so peak memory grows with the worker count (shown in the run panel). In a browser they share one tab, whose memory the browser limits; the desktop app runs them as separate processes limited only by the computer\'s memory.',
+    'Parallel workers: the steps of the thermal path (also those of the quick preview) and the bump submodels can be split over several workers; each holds its own copy of the model, so peak memory grows with the worker count (shown in the run panel). In a browser they share one tab, whose memory the browser limits; the desktop app runs them as separate processes limited only by the computer\'s memory.',
     'Build decisions: the multigrid coarse space uses per-column shell aggregates (rigid-body plus thickness modes of each stiff stack) because plain nodal interpolation stalls on thin layered structures; the full symmetric block matrix is stored (instead of the upper triangle) for faster smoothing; single-material elements use a closed-form 12-point rule that reproduces 2×2×2 Gauss exactly.',
   ];
   if (res && res.notes) L.push(...res.notes);

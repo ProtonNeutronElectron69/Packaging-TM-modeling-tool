@@ -315,7 +315,7 @@ Last headless run (Node 22, 4-core container), 16 of 16 pass. `dist/verification
 | V7 | Submodel consistency with homogenized bump layer | 0.38 % (bump-layer domain, uniform phases, stepped with the global up branch); 0.83 % with the production domain, reported as information | 2 % | pass |
 | V8 | Symmetry of the warpage field | 2.1e-10 (x), 2.2e-10 (y), 2.2e-11 (diagonal), 1.3e-10 mirrored | 1e-6 | pass |
 | V9 | Physical sanity on the presets | bare RT +220 µm convex; backside +64 MPa tensile; 0.8 mm core 162 vs 280 µm; 795G LH 168 vs 705G 261 µm | all four | pass |
-| V10 | Mesh convergence, Standard vs Fine | warpage 0.31 %, die interior peak 2.49 % (420k vs 734k DOF) | 5 % | pass |
+| V10 | Mesh convergence, Standard vs Fine | warpage 0.31 %, die interior peak 2.49 % (506k vs 910k DOF) | 5 % | pass |
 | V11 | Solver integrity (last process step S3 30 to 25 °C) | residual 8.4e-11, reactions 1.1e-10 of the force scale, energy balance 1.2e-13 | 1e-8 / 1e-9 | pass |
 | V12 | JEITA sign and magnitude on synthetic domes | signs +1 / -1, magnitude error 0.0 | exact / 1e-9 | pass |
 | V13 | Unit checks (Si CTE, rotated Si moduli, SAC305 E, AlSiC-9 strain, Turner, Voigt, Reuss) | all exact | 1e-9 (formulas), printed precision (rounded references) | pass |
@@ -331,14 +331,14 @@ Headless Chromium on a 4-core cloud container with 3 workers, Section 13 targets
 |---|---|---|
 | Quick preview (Draft, step 6 button: the 15 process-chain steps; the drag preview was removed) | 58 s at 77k DOF on 3 workers (22 s for 4 solves at 74k on one) | none (drag preview target 2 s no longer applies) |
 | Full Draft analysis (thermal path of 67 steps: process chain, chip-join branch, sweep to 260 °C and down to the cycling minimum) | 187 s at 77k DOF (163 s at 74k) | none |
-| Full Standard analysis | 913 s at 420k DOF, including the lid foot refinement (867 s at 302k) | 90 s |
-| Full Fine analysis | not run end to end; at 734k DOF expect well over 30 min | 10 min |
+| Full Standard analysis | 912 s at 506k DOF with the lid foot refined to h_min, in the desktop compute process on 3 workers (867 s at 302k); 913 s in Chromium with the edges at 1.5 × h_min (420k DOF) | 90 s |
+| Full Fine analysis | not run end to end; at 910k DOF expect well over 30 min | 10 min |
 | Screening over all 17,424 bumps of the default die (free-standing column, deviation 16) | 14 s (9 s) | 10 s |
 | Four bump submodels of the default package, 16×16×14, 3 cycles | 1243 s on 3 workers, 650 s per corner bump with 1485 adaptive steps (286 s, 145 s per bump): the corner joints creep more (ΔW 0.40 MPa per cycle), so the step control on the inelastic strain increment takes about 2.5 times the steps | 120 s |
 | Sensitivity (Draft, default input set, worker pool) | not re-measured | 3 min |
-| Peak memory at Standard | not re-measured; the run panel estimates 710 MB for the main worker at 420k DOF (about 850 MB measured at 320k before, Node RSS) | 600 MB |
+| Peak memory at Standard | 3.6 GB for the desktop compute process with its two helper threads at 506k DOF, about 1.2 GB per worker (about 850 MB per worker at 320k before) | 600 MB |
 | V15, process chain to 25 °C (15 steps), Draft 77k DOF | multigrid 81.7 s (iterations 22 to 97); IC(0) on the first step does not converge in 2000 iterations (53 s, residual 3.2e-6, then the multigrid fallback) | report |
-| V15, process chain to 25 °C (15 steps), Standard 420k DOF | multigrid 455 s (iterations 18 to 116); IC(0) on the first step does not converge in 2000 iterations (411 s, residual 8.6e-6) | report |
+| V15, process chain to 25 °C (15 steps), Standard 420k DOF (measured with the lid foot edges at 1.5 × h_min; 506k DOF now) | multigrid 455 s (iterations 18 to 116); IC(0) on the first step does not converge in 2000 iterations (411 s, residual 8.6e-6) | report |
 
 Multigrid is the default preconditioner; on the refined meshes IC(0) no longer converges within 2000 iterations and is kept only as the first fallback. Multigrid PCG iterations per step of the thermal path on the lidded default at Standard: 0 to 116, 33 on average, with a fresh preconditioner per step and the warm start from the previous steps (before the incremental path: 37 to 74 for the stage solves and 30 to 180 in the temperature sweep).
 
@@ -368,7 +368,7 @@ Each is also listed in the in-app "Assumptions and limitations" panel.
 
 ## Known issues and next steps
 
-- **Performance targets are missed** by about 10× at Standard (913 s at 420k DOF against 90 s) and by about 10× for the submodels (1243 s for four corner bumps against 120 s); Fine has not been run end to end. The thermal path solves 67 steps on the default package; candidates: steps that do not stop at every evaluation temperature (fields interpolated within a step, which the step's linear strain assumption already implies), a coarse space that treats each compliant layer as a shear layer between its two stiff stacks, WebAssembly or SIMD kernels for the matrix-vector product and the column smoother, a sparse direct solver for the 13k-DOF submodel, and the bump screening split over the workers (14 s against the 10 s target).
+- **Performance targets are missed** by about 10× at Standard (912 s at 506k DOF against 90 s) and by about 10× for the submodels (1243 s for four corner bumps against 120 s); Fine has not been run end to end. The thermal path solves 67 steps on the default package; candidates: steps that do not stop at every evaluation temperature (fields interpolated within a step, which the step's linear strain assumption already implies), a coarse space that treats each compliant layer as a shear layer between its two stiff stacks, WebAssembly or SIMD kernels for the matrix-vector product and the column smoother, a sparse direct solver for the 13k-DOF submodel, and the bump screening split over the workers (14 s against the 10 s target).
 - **Fine preset** full analysis has not been timed; V10 covers its accuracy against Standard. Its in-plane elements are about 30 % larger than before the refinement because the 600k cap keeps it within browser memory.
 - **JEITA sign on ring and saddle surfaces** is inherently fragile (the lidded default at 25 °C is a ring profile); the shape class, the sign-confidence metric and the magnitude curve are shown so the user can judge. A customer-specific sign rule could be added as an option.
 - **Peak memory grows with the worker count** (each helper holds its own model copy); the run panel shows the estimate, which counts each extra worker at 70 % of the first and may be low. In a browser the whole tab is bounded by the browser's per-tab allowance; the desktop app removes that bound, leaving the computer's memory.

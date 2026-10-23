@@ -108,15 +108,15 @@ function mergeFeatures(feats, tol) {
 
 /**
  * Subdivide [lo, hi] between merged feature lines with the size function
- * s(x) = min(hmax, min over refined edges of hmin + (r - 1) max(0, |x - e| - zone))
- * (geometric growth at ratio r, Section 5.2; zone = 2 t at a die edge) and
- * per-interval minimum counts.
+ * s(x) = min(hmax, min over refined edges of f hmin + (r - 1) max(0, |x - e| - zone))
+ * (geometric growth at ratio r, Section 5.2; zone = 2 t and f = 1 at a die edge)
+ * and per-interval minimum counts.
  */
 function gridLines(lines, edges, hmin, hmax, spans) {
   const r = CONST.GROWTH_RATIO_MAX;
   const size = x => {
     let s = hmax;
-    for (const e of edges) s = Math.min(s, hmin + (r - 1) * Math.max(0, Math.abs(x - e.v) - e.zone));
+    for (const e of edges) s = Math.min(s, (e.f || 1) * hmin + (r - 1) * Math.max(0, Math.abs(x - e.v) - e.zone));
     return Math.max(s, 1e-6);
   };
   // minimum element count per interval from ring spans
@@ -357,9 +357,9 @@ function presetParams(cfg, override) {
 /**
  * Build the package mesh at a fidelity preset, enlarging h_min and h_max
  * proportionally until the DOF estimate is under the cap (Section 5.2). The
- * lid foot or stiffener ring edges are then refined to the same h_min on top
- * of that grid, so the ring refinement never coarsens the dies (the DOF can end
- * above the cap by that refinement).
+ * lid foot or stiffener ring edges are then refined on top of that grid, from
+ * the finest of RING_EDGE_SIZES x h_min that keeps the DOF within
+ * RING_DOF_MAX_FACTOR x the cap, so the ring refinement never coarsens the dies.
  */
 function buildPackageMesh(cfg, override) {
   const t0 = nowMs();
@@ -370,20 +370,29 @@ function buildPackageMesh(cfg, override) {
   const zp = zPlanes(g);
   const { groups, G } = packageGroups(cfg, g);
   let hmin = pre.hmin, hmax = pre.hmax, mesh = null, scaled = false, capDof = 0;
-  const build = ring => {
-    const xs = gridLines(mx.lines, ring ? fx.edges.concat(fx.ringEdges) : fx.edges, hmin, hmax, fx.spans);
-    const ys = gridLines(my.lines, ring ? fy.edges.concat(fy.ringEdges) : fy.edges, hmin, hmax, fy.spans);
+  // f: element size at the ring edges as a multiple of h_min (0: no ring refinement)
+  const build = f => {
+    const ring = e => e.map(r => Object.assign({ f }, r));
+    const xs = gridLines(mx.lines, f ? fx.edges.concat(ring(fx.ringEdges)) : fx.edges, hmin, hmax, fx.spans);
+    const ys = gridLines(my.lines, f ? fy.edges.concat(ring(fy.ringEdges)) : fy.edges, hmin, hmax, fy.spans);
     return buildStructuredMesh(xs, ys, zp.zs, groups, makePackageAssign(g, xs, ys, zp.zs, G, zp.layerBand));
   };
   for (let it = 0; it < CONST.CAP_MAX_ITER; it++) {
-    mesh = build(false);
+    mesh = build(0);
     capDof = 3 * mesh.nn;
     if (capDof <= pre.cap || override && override.noCap) break;
     const f = Math.sqrt(capDof / pre.cap) * CONST.CAP_GROWTH_PAD;
     hmin *= f; hmax *= f; scaled = true;
   }
   const ringRefined = fx.ringEdges.length > 0;
-  if (ringRefined) mesh = build(true);
+  let ringFactor = null;
+  if (ringRefined) {
+    const sizes = override && override.noCap ? [1] : CONST.RING_EDGE_SIZES;
+    for (const f of sizes) {
+      const m = build(f);
+      if (3 * m.nn <= CONST.RING_DOF_MAX_FACTOR * pre.cap || f === sizes[sizes.length - 1]) { mesh = m; ringFactor = f; break; }
+    }
+  }
   mesh.layerBand = Int32Array.from(zp.layerBand);
   // indices of the in-plane feature lines (kept at every multigrid coarse level)
   // (structural lines only: die edges and lid foot or stiffener ring edges)
@@ -407,7 +416,7 @@ function buildPackageMesh(cfg, override) {
     if (a > CONST.ASPECT_WARN) nwarn++;
   }
   mesh.info = {
-    preset: pre.label, hmin, hmax, hminPreset: pre.hmin, hmaxPreset: pre.hmax, cap: pre.cap, scaled, capDof, ringRefined, ringLabel: g.lid ? 'lid foot' : (g.stiff ? 'stiffener ring' : null),
+    preset: pre.label, hmin, hmax, hminPreset: pre.hmin, hmaxPreset: pre.hmax, cap: pre.cap, scaled, capDof, ringRefined, ringFactor, ringLabel: g.lid ? 'lid foot' : (g.stiff ? 'stiffener ring' : null),
     snappedX: mx.snapped, snappedY: my.snapped, snappedZ: zp.snapped,
     nx: mesh.nx, ny: mesh.ny, nz: mesh.nz, nNodes: mesh.nn, nElem: mesh.ne, nDof: 3 * mesh.nn,
     aspectMax: amax, nAspectWarn: nwarn, planeLabels: zp.baseLabels, basePlanes: zp.basePlanes,
@@ -422,7 +431,7 @@ function meshWarnings(mesh) {
   const inf = mesh.info;
   if (inf.nAspectWarn > 0) w.push({ level: 'warning', text: inf.nAspectWarn + ' elements have aspect ratio above ' + CONST.ASPECT_WARN + ' (max ' + inf.aspectMax.toFixed(0) + '); thin layers are handled by the incompatible-mode element but check mesh sensitivity.' });
   if (inf.capDof > inf.cap) w.push({ level: 'warning', text: 'DOF ' + inf.capDof + ' above the ' + inf.preset + ' cap ' + inf.cap + '.' });
-  else if (inf.ringRefined && inf.nDof > inf.cap) w.push({ level: 'info', text: 'The refinement at the ' + inf.ringLabel + ' edges adds ' + (inf.nDof - inf.capDof) + ' DOF to the grid sized for the ' + inf.preset + ' cap of ' + inf.cap + ' (total ' + inf.nDof + ').' });
+  else if (inf.ringRefined && inf.nDof > inf.cap) w.push({ level: 'info', text: 'The refinement at the ' + inf.ringLabel + ' edges (elements from ' + (1000 * inf.ringFactor * inf.hmin).toFixed(0) + ' µm, ' + inf.ringFactor + ' x h_min) adds ' + (inf.nDof - inf.capDof) + ' DOF to the grid sized for the ' + inf.preset + ' cap of ' + inf.cap + ' (total ' + inf.nDof + ').' });
   if (inf.scaled) w.push({ level: 'info', text: 'Mesh sizes enlarged to h_min ' + inf.hmin.toFixed(3) + ' mm and h_max ' + inf.hmax.toFixed(3) + ' mm to stay under the ' + inf.preset + ' DOF cap.' });
   const sn = inf.snappedX.concat(inf.snappedY);
   if (sn.length) w.push({ level: 'info', text: sn.length + ' in-plane feature lines closer than 10 µm were merged (' + sn.slice(0, 3).map(s => s.a + ' / ' + s.b).join('; ') + (sn.length > 3 ? '; ...' : '') + ').' });

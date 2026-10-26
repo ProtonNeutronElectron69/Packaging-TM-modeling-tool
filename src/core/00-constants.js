@@ -50,7 +50,7 @@ const CONST = Object.freeze({
   MESH_PRESETS: {
     draft:    { label: 'Draft',    hmin: 0.6,  hmax: 3.0, cap: 75000 },
     standard: { label: 'Standard', hmin: 0.25, hmax: 1.5, cap: 330000 },
-    fine:     { label: 'Fine',     hmin: 0.10, hmax: 0.6, cap: 600000 },
+    fine:     { label: 'Fine',     hmin: 0.10, hmax: 0.6, cap: 850000 },
   },
   // ---- solver -------------------------------------------------------------
   PCG_TOL: 1e-8,

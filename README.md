@@ -272,7 +272,7 @@ Sources were read directly where the publisher allows it: manufacturer data shee
 
 ```
 node tools/build.mjs                       # writes dist/fcbga_thermomech_tool.html (always rebuild after editing src/)
-node tools/verify.mjs                      # full verification suite headless in Node, V1 to V16 (about 1.5 h: V10 about 45 min with Fine at 1.18M DOF, V15 about 17, V8 and V9 about 8 each)
+node tools/verify.mjs                      # full verification suite headless in Node, V1 to V17 (about 1.5 h: V10 about 45 min with Fine at 1.18M DOF, V15 about 17, V8 and V9 about 8 each)
 node tools/verify.mjs V1,V2,V13            # selected tests
 node tools/verify.mjs --presets draft      # V15 timing presets (default draft,standard)
 node tools/smoke.mjs                       # Chromium: page load and Draft preview, zero console errors
@@ -307,7 +307,7 @@ See the in-app "Assumptions and limitations" panel for every modeling assumption
 
 ## Verification status
 
-Last headless run (Node 22, 4-core container), 16 of 16 pass. `dist/verification.json` holds the full text of each measurement.
+Last headless run (Node 22, 4-core container), 17 of 17 pass (V17 run on its own when it was added). `dist/verification.json` holds the full text of each measurement.
 
 | ID | Test | Measured | Criterion | Result |
 |---|---|---|---|---|

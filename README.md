@@ -37,7 +37,7 @@ The same tool also comes as a Windows desktop app, for runs that need more memor
 - **First start.** The app is not code-signed, so Windows SmartScreen shows "Windows protected your PC"; choose More info, then Run anyway. A signing certificate would remove the warning.
 - **What is the same.** Every screen, input and result: the app loads the built page (`dist/fcbga_thermomech_tool.html`) and its compute processes run the page's own physics code, so results match the browser version (the checks compare them).
 - **What is different.** The run panel shows "Compute engine: desktop app" with the computer's memory and core count, and warns when the memory estimate approaches the computer's memory. The 3D view uses a bundled three.js, so it works offline. Saving a configuration or a CSV asks where to save it. File > Print and File > Save as PDF print the focused window (the main window or the report). Web links (material sources) open in the default browser. If a compute process stops unexpectedly (most often when the computer runs out of memory), the results already shown stay, a notice offers Restore analysis, and the next job starts a fresh process.
-- **Limits.** The computer's memory is still the ceiling: plan for about 1 GB per worker at Standard, more at Fine. WebGL (graphics acceleration) is needed for the 3D view, as in a browser.
+- **Limits.** The computer's memory is still the ceiling: on the default lidded package a full analysis takes about 2.1 GB for the main worker and 0.76 GB per helper at Standard (3.6 GB on 3 workers), and an estimated 4.9 GB and 1.6 GB at Fine (8 GB on 3 workers); the run panel shows the estimate for the current package before every run. WebGL (graphics acceleration) is needed for the 3D view, as in a browser.
 
 ## Project status
 
@@ -336,7 +336,7 @@ Headless Chromium on a 4-core cloud container with 3 workers, Section 13 targets
 | Screening over all 17,424 bumps of the default die (free-standing column, deviation 16) | 14 s (9 s) | 10 s |
 | Four bump submodels of the default package, 16×16×14, 3 cycles | 1243 s on 3 workers, 650 s per corner bump with 1485 adaptive steps (286 s, 145 s per bump): the corner joints creep more (ΔW 0.40 MPa per cycle), so the step control on the inelastic strain increment takes about 2.5 times the steps | 120 s |
 | Sensitivity (Draft, default input set, worker pool) | not re-measured | 3 min |
-| Peak memory at Standard | 3.6 GB for the desktop compute process with its two helper threads at 506k DOF, about 1.2 GB per worker (about 850 MB per worker at 320k before) | 600 MB |
+| Peak memory at Standard | 3.6 GB for the desktop compute process with its two helper threads at 506k DOF (2.9 GB on 2 workers): 2.1 GB for the main worker, 0.76 GB per helper; Draft 367 MB on 1 worker, 811 MB on 3. The run panel estimate is fitted to these four runs | 600 MB |
 | V15, process chain to 25 °C (15 steps), Draft 77k DOF | multigrid 81.7 s (iterations 22 to 97); IC(0) on the first step does not converge in 2000 iterations (53 s, residual 3.2e-6, then the multigrid fallback) | report |
 | V15, process chain to 25 °C (15 steps), Standard 420k DOF (measured with the lid foot edges at 1.5 × h_min; 506k DOF now) | multigrid 455 s (iterations 18 to 116); IC(0) on the first step does not converge in 2000 iterations (411 s, residual 8.6e-6) | report |
 

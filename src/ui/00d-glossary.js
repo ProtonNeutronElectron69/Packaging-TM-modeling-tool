@@ -103,7 +103,6 @@ const GLOSSARY = [
 ];
 
 // ---- matcher ----
-const GLOSSARY_BY_ID = new Map(GLOSSARY.map(g => [g.id, g]));
 const GLOSSARY_EXACT = new Map();
 const GLOSSARY_PIECES = new Map();
 for (const g of GLOSSARY) {

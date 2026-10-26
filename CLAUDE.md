@@ -43,9 +43,29 @@ Current state on `main`:
 
 - Verification suite: **17/17 pass** headless in Node (README "Verification status" records the measured values; `dist/verification.json` is written by each run but is gitignored, so a fresh clone has none).
 - Performance (4-core container, 3 workers), since the incremental thermal path of PR 31 (67 steps on the default package): full Standard analysis 912 s at 506k DOF in the desktop compute process (target 90 s; 867 s at 302k before), full Draft 187 s and Quick preview 58 s in Chromium, screening 14 s (target 10 s), four corner submodels 1243 s (target 120 s), peak memory 3.6 GB at Standard (target 600 MB). Solver speed is the main open item; see README "Known issues and next steps". The drag preview and auto-solve of Section 4.3 were removed at the user's request (README deviations).
-- Deliverable: `dist/fcbga_thermomech_tool.html` (about 827 kB, committed; rebuilt from `src/` by `node tools/build.mjs`). The Windows desktop app (portable exe only, about 100 MB; the installer was dropped after desktop-v1.0.2 at the user's request) is built from it by the "Desktop app (Windows)" workflow; its compute processes gave the same results as the browser in every check (full Draft analysis 143.6 s on 2 workers on the Windows runner).
+- Deliverable: `dist/fcbga_thermomech_tool.html` (about 821 kB, committed; rebuilt from `src/` by `node tools/build.mjs`). The Windows desktop app (portable exe only, about 100 MB; the installer was dropped after desktop-v1.0.2 at the user's request) is built from it by the "Desktop app (Windows)" workflow, which also runs `tools/desktop-check.mjs` on the Windows runner, and publishes a release on every merge that changes the app (the newest is at the top of the repository's Releases page). Its compute processes give the same results as a direct run in every check.
 
 `README.md` carries the detailed status: verification table, measured timings, every deviation from the specification, known issues, repository layout and development workflow.
+
+Before the next major update (a change to the physics, the mesh, the thermal path or the solver):
+
+- **Reference values** to compare against (lidded default unless noted; RT = 25 °C as assembled). A change that moves them should be intended and explained in its PR:
+
+  | Case | Quantity | Value |
+  |---|---|---|
+  | Default, Draft full (77k DOF) | RT signed warpage | −68.58 µm |
+  | Default, Standard full (506k DOF) | RT signed warpage | −69.08 µm |
+  | Default, Standard vs Fine preview (V10) | RT warpage; die interior peak | −69.1 vs −69.4 µm; 68.1 vs 70.0 MPa |
+  | Bare die, Draft (V9) | RT warpage; die backside interior | +220 µm; +64 MPa |
+  | Core study, Draft (V9) | RT warpage, 0.4 mm vs 0.8 mm core | 280 vs 162 µm |
+  | Default, four corner submodels | ΔW per cycle (worst) | 0.40 MPa |
+  | V16 held underfill block | in-plane stress at 25 °C | 45.52 MPa (exact 45.52) |
+
+- **Results files** (`.fcbgares`) store the step increments of the analysis that wrote them. `restoreAnalysisState()` refuses them when the mesh fingerprint or the step plan differs, so a file saved before a mesh or path change opens with its results only (Restore analysis re-runs it). Raise `CONST.RESULTS_FILE_VERSION` when a saved field changes meaning or layout; older versions are read, newer ones refused, so keep reading the old version or say in the release notes that it no longer opens.
+- **Fitted constants** to refit after a speed or storage change: `RUN_S_PER_STEP` (runtime estimate) and `MEM_MAIN_MB*` / `MEM_HELPER_MB*` (memory estimate) in `src/ui/00-app.js`, from desktop compute-process runs: `node tools/desktop-run.mjs <preset> <package> <workers>` prints the wall time, DOF, PCG iterations and the process's peak resident memory (the current fit uses Draft on 1 and 3 workers and Standard on 2 and 3).
+- **Desktop version**: raise `desktop/package.json` to 1.1.0 (or 2.0.0 when old results files no longer open) in the PR so the release says so; without it the next release is a patch step past the latest `desktop-v*` tag.
+- **Checks**: the full suite (about 1.5 hours), `node tools/smoke.mjs --full --workers 3 --submodels`, `--full --standard --workers 3`, and the two desktop checks. Start long runs detached and update the verification and performance tables in the same PR.
+- **Housekeeping done in PR 33**: unused code removed (`boxElement`, `layeredBoxElement`, `elementK33` and the BCSR helpers of the earlier assembly path, `R_GAS`, `workerPool`), documentation brought up to date. The remote branches of PRs 5, 14 and 24 (`claude/keen-heisenberg-qn17kn`, `claude/kind-dirac-4co4n9`, `claude/optimistic-heisenberg-egirf7`) are fully merged and can be deleted on GitHub.
 
 Where to pick up (open items, most important first; details in README "Known issues and next steps"):
 

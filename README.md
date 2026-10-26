@@ -43,7 +43,7 @@ The same tool also comes as a Windows desktop app, for runs that need more memor
 
 ## Project status
 
-The specification in `CLAUDE.md` is implemented in full. Thirty-two pull requests are merged on `main`:
+The specification in `CLAUDE.md` is implemented in full. Thirty-three pull requests are merged on `main`:
 
 | PR | Merged | Content |
 |---|---|---|
@@ -79,6 +79,7 @@ The specification in `CLAUDE.md` is implemented in full. Thirty-two pull request
 | [#30](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/30) | 2026-10-21 | Desktop app built and released as the portable exe only (the installer is no longer built; desktop-v1.0.0 to v1.0.2 keep theirs) |
 | [#31](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/31) | 2026-10-26 | Incremental thermoelasticity dσ = D(T)(dε − α dT) along the temperature path in place of the secant form (steps of at most 30 °C, 10 °C near a Tg, one solve each with a fresh preconditioner, spread over the workers; stresses from per-element histories; submodel elastic parts incremental too); column solder phase (axial and shear stiffness only) and free-standing column screening; lid foot and stiffener ring edges refined to h_min after the DOF cap (lidded default 506k DOF at Standard); submodel cross-section total-stress option; Fine cap 850k (1.18M DOF, h_min 0.138 mm); run-panel memory estimate fitted to measured peaks; V16 (suite 16/16); full Standard 912 s, 3.6 GB on 3 workers |
 | [#32](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/32) | 2026-10-26 | Results file (.fcbgares): one binary file holds the configuration, every result in memory (temperatures viewed, cross-sections, screening, bump submodels, baseline, sensitivity, verification), the view settings and the analysis behind them (every thermal-path step increment, Float32), so reopening rebuilds the analysis without solving; Save and Open in steps 1 and 6, drop on the window, desktop File menu (Ctrl+O, Ctrl+S) and a file on the command line; increments sent in 64 MB blocks; V17 round-trip test (suite 17/17); submodel plan view no longer draws before layout |
+| [#33](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/33) | 2026-10-26 | Cleanup before the next major update: unused code removed (the earlier assembly path's element and BCSR helpers, R_GAS, workerPool; page 827 to 821 kB); tools/desktop-run.mjs (one full analysis in a desktop compute process with time and peak memory, for refitting the run panel estimates); CLAUDE.md checklist for the next major update (reference values, results file compatibility, fitted constants, desktop version, checks); README brought up to date (desktop app as the way the tool is used, memory, helper scheduling, repository layout) |
 
 Open items are listed under "Known issues and next steps" below. The largest is performance against the Section 13 targets.
 

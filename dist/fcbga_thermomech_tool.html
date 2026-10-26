@@ -10818,6 +10818,7 @@ function subSecPlan(sm, st, nAcross) {
     const { ctx, w, h: H } = setupCanvas(cv);
     ctx.clearRect(0, 0, w, H);
     const pad = 26, sc = Math.min((w - 2 * pad) / px, (H - 2 * pad) / py);
+    if (!(sc > 0)) return;  // not laid out yet (a results file opens straight into this view); drawn again on resize
     const X = x => w / 2 + (x - S.cx) * sc, Y = y => H / 2 - (y - S.cy) * sc;
     tx = { X, Y, sc, w, H };
     const grid = cssVar('--grid'), text = cssVar('--text'), muted = cssVar('--muted');

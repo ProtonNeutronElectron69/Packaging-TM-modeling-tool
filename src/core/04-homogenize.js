@@ -182,41 +182,40 @@ function buildBandSection(band, lib, nuMax) {
   return { z0: band.z0, z1: band.z1, ns, Ls, D, F, W, subZ: band.subs.map(s => [s.z0, s.z1]) };
 }
 
-/** W_j(T) (3 x 36) of a band section by linear interpolation in the grid. */
-function sectionW(sec, T, out) {
-  out = out || new Float64Array(108);
+/** Stiffness D_s(T) (36) of sub-layer s of a band section by linear interpolation in the grid. */
+function sectionSubD(sec, s, T, out) {
+  out = out || new Float64Array(36);
   let x = clamp(T - CONST.TGRID_MIN, 0, TGRID_N - 1);
   const i = Math.min(Math.floor(x), TGRID_N - 2), t = x - i;
-  const a = i * 108, b = (i + 1) * 108;
-  for (let q = 0; q < 108; q++) out[q] = sec.W[a + q] + t * (sec.W[b + q] - sec.W[a + q]);
+  const da = (s * TGRID_N + i) * 36, db = da + 36;
+  for (let q = 0; q < 36; q++) out[q] = sec.D[da + q] + t * (sec.D[db + q] - sec.D[da + q]);
   return out;
 }
 
+/** Mean stiffness (36) of sub-layer s over the step [Ta, Tb]. */
+function sectionSubMeanD(sec, s, Ta, Tb, out) {
+  return gridMean(sec.D.subarray(s * TGRID_N * 36, (s + 1) * TGRID_N * 36), 36, 36, Ta, Tb, out);
+}
+
+/** Thermal stress increment (6) of sub-layer s over the step: integral from Ta to Tb of D_s dF_s. */
+function sectionSubStress(sec, s, Ta, Tb, out) {
+  return gridStressIncrement(sec.D.subarray(s * TGRID_N * 36, (s + 1) * TGRID_N * 36), null, sec.F.subarray(s * TGRID_N * 3, (s + 1) * TGRID_N * 3), Ta, Tb, out);
+}
+
+/** Weight matrices W_j (3 x 36) of a band section averaged over the step [Ta, Tb]. */
+function sectionWmean(sec, Ta, Tb, out) { return gridMean(sec.W, 108, 108, Ta, Tb, out); }
+
 /**
- * Thermal-stress weight vectors V_j(T) = sum_s D_s(T) [F_s(T) - F_s(Tb)] int L_j
- * (3 x 6) for a band born stress-free at Tb.
+ * Thermal-stress weight vectors of one step of the thermal path from Ta to Tb:
+ *   V_j = sum_s [integral of D_s dF_s] int L_j   (3 x 6).
  */
-function sectionV(sec, T, Tb, out) {
+function sectionVstep(sec, Ta, Tb, out) {
   out = out || new Float64Array(18);
   out.fill(0);
-  let x = clamp(T - CONST.TGRID_MIN, 0, TGRID_N - 1);
-  const i = Math.min(Math.floor(x), TGRID_N - 2), t = x - i;
-  const eps = new Float64Array(6);
+  const s0 = new Float64Array(6);
   for (let s = 0; s < sec.ns; s++) {
-    const fb = s * TGRID_N * 3;
-    for (let c = 0; c < 3; c++) {
-      const Fi = sec.F[fb + i * 3 + c] + t * (sec.F[fb + (i + 1) * 3 + c] - sec.F[fb + i * 3 + c]);
-      eps[c] = Fi - gridAt(sec.F.subarray(fb, fb + TGRID_N * 3), Tb, 3, c);
-    }
-    const da = (s * TGRID_N + i) * 36, db = (s * TGRID_N + i + 1) * 36;
-    for (let r = 0; r < 6; r++) {
-      let sig = 0;
-      for (let c = 0; c < 3; c++) {
-        const d = sec.D[da + r * 6 + c] + t * (sec.D[db + r * 6 + c] - sec.D[da + r * 6 + c]);
-        sig += d * eps[c];
-      }
-      for (let j = 0; j < 3; j++) out[j * 6 + r] += sig * sec.Ls[s][j];
-    }
+    sectionSubStress(sec, s, Ta, Tb, s0);
+    for (let r = 0; r < 6; r++) for (let j = 0; j < 3; j++) out[j * 6 + r] += s0[r] * sec.Ls[s][j];
   }
   return out;
 }

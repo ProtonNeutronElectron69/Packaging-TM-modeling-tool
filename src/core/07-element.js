@@ -176,17 +176,6 @@ function boxStrainAt(hx, hy, hz, u, alpha, xi, eta, zeta, eps) {
   return eps;
 }
 
-/** alpha = xf * dF - X du (recovery after condensation, thermal factor dF). */
-function recoverAlpha(rec, du, dF, alpha) {
-  alpha = alpha || new Float64Array(9);
-  for (let i = 0; i < 9; i++) {
-    let s = rec.xf ? rec.xf[i] * dF : 0;
-    for (let j = 0; j < 24; j++) s -= rec.X[i * 24 + j] * du[j];
-    alpha[i] = s;
-  }
-  return alpha;
-}
-
 function matVec6(D, e, out) {
   out = out || new Float64Array(6);
   for (let r = 0; r < 6; r++) { let s = 0; for (let c = 0; c < 6; c++) s += D[r * 6 + c] * e[c]; out[r] = s; }

@@ -249,6 +249,23 @@ function isoD(E, nu, nuMax, out) {
 }
 
 /**
+ * Stiffness of the solder phase of the homogenized bump layer seen as an array
+ * of separate columns between two pads (Section 6.3, as amended): axial modulus
+ * E along z and transverse shear G = E / (2 (1 + nu)) in the xz and yz planes,
+ * with no lateral Poisson coupling and only a numerical floor
+ * (COLUMN_INPLANE_FRACTION) in the in-plane terms, since separate joints carry
+ * no in-plane membrane force and do not follow the die's in-plane strain.
+ */
+function columnD(E, nu, out) {
+  out = out || new Float64Array(36);
+  out.fill(0);
+  const G = E / (2 * (1 + nu)), fl = CONST.COLUMN_INPLANE_FRACTION;
+  out[0] = out[7] = fl * E; out[21] = fl * G;
+  out[14] = E; out[28] = G; out[35] = G;
+  return out;
+}
+
+/**
  * Cubic stiffness of (100) silicon rotated by theta about z (theta = 45 deg puts
  * the x axis along <110>). Full tensor rotation C'_ijkl = R_ip R_jq R_kr R_ls C_pqrs.
  */
@@ -335,6 +352,69 @@ function gridAt(arr, T, stride, comp) {
   const i = Math.floor(x), t = x - i;
   const a = arr[i * stride + comp], b = arr[(i + 1) * stride + comp];
   return a + t * (b - a);
+}
+
+/** out[c] += w * component c (0..n-1) at T of a grid table with stride values per 1 degC point (linear interpolation). */
+function gridAddAt(grid, T, stride, n, w, out) {
+  const x = clamp(T - CONST.TGRID_MIN, 0, TGRID_N - 1), i = Math.min(Math.floor(x), TGRID_N - 2), t = x - i;
+  const a = i * stride, b = a + stride;
+  for (let c = 0; c < n; c++) out[c] += w * (grid[a + c] + t * (grid[b + c] - grid[a + c]));
+}
+
+/**
+ * Step integrals of the thermal path over [Ta, Tb] (either order) for tables on the
+ * 1 degC grid: on every grid interval a stiffness is linear in T and a thermal strain
+ * F is linear (dF/dT constant), so the midpoint rule per interval integrates the
+ * interpolated tables exactly. fn(Tmid, T0, T1) is called for each piece of the step.
+ */
+function forGridSegments(Ta, Tb, fn) {
+  const lo = Math.min(Ta, Tb), hi = Math.max(Ta, Tb);
+  for (let t0 = lo; t0 < hi - 1e-12;) {
+    const t1 = Math.min(hi, CONST.TGRID_MIN + Math.floor(t0 - CONST.TGRID_MIN + 1e-9) + 1);
+    fn(0.5 * (t0 + t1), t0, t1);
+    t0 = t1;
+  }
+}
+
+/** Mean over the step [Ta, Tb] of components 0..n-1 of a grid table (stride values per point). */
+function gridMean(grid, stride, n, Ta, Tb, out) {
+  out = out || new Float64Array(n);
+  out.fill(0, 0, n);
+  const L = Math.abs(Tb - Ta);
+  if (L < 1e-12) { gridAddAt(grid, Ta, stride, n, 1, out); return out; }
+  forGridSegments(Ta, Tb, (tm, t0, t1) => gridAddAt(grid, tm, stride, n, (t1 - t0) / L, out));
+  return out;
+}
+
+/**
+ * Thermal stress increment of a step, integral from Ta to Tb of D(T) dF(T) (6), for a
+ * stiffness grid Dg (36 per point) or a constant stiffness Dc, and a thermal strain grid
+ * Fg (3 normal components per point).
+ */
+function gridStressIncrement(Dg, Dc, Fg, Ta, Tb, out) {
+  out = out || new Float64Array(6);
+  out.fill(0);
+  if (!Dg) {
+    const f0 = gridAt(Fg, Tb, 3, 0) - gridAt(Fg, Ta, 3, 0), f1 = gridAt(Fg, Tb, 3, 1) - gridAt(Fg, Ta, 3, 1), f2 = gridAt(Fg, Tb, 3, 2) - gridAt(Fg, Ta, 3, 2);
+    for (let r = 0; r < 6; r++) out[r] = Dc[6 * r] * f0 + Dc[6 * r + 1] * f1 + Dc[6 * r + 2] * f2;
+    return out;
+  }
+  const sg = Tb >= Ta ? 1 : -1, D = gridStressIncrement._D;
+  forGridSegments(Ta, Tb, (tm, t0, t1) => {
+    D.fill(0); gridAddAt(Dg, tm, 36, 36, 1, D);
+    const f0 = gridAt(Fg, t1, 3, 0) - gridAt(Fg, t0, 3, 0), f1 = gridAt(Fg, t1, 3, 1) - gridAt(Fg, t0, 3, 1), f2 = gridAt(Fg, t1, 3, 2) - gridAt(Fg, t0, 3, 2);
+    for (let r = 0; r < 6; r++) out[r] += sg * (D[6 * r] * f0 + D[6 * r + 1] * f1 + D[6 * r + 2] * f2);
+  });
+  return out;
+}
+gridStressIncrement._D = new Float64Array(36);
+
+/** Integral from Ta to Tb of E(T) dF(T) for a scalar modulus grid E and a scalar thermal strain grid F. */
+function gridModulusStrainIncrement(E, F, Ta, Tb) {
+  const sg = Tb >= Ta ? 1 : -1;
+  let s = 0;
+  forGridSegments(Ta, Tb, (tm, t0, t1) => { s += gridAt(E, tm) * (gridAt(F, t1) - gridAt(F, t0)); });
+  return sg * s;
 }
 
 /**

@@ -11,9 +11,27 @@ function testMaterial(id, EGPa, nu, cte) {
 function boxModel(lib, xs, ys, zs, groups, assign, tol) {
   const mesh = buildStructuredMesh(xs, ys, zs, groups, (i, j, k) => [{ group: assign(i, j, k), scale: 1, part: 0 }]);
   mesh.constraints = constraints321(mesh, 0.4 * Math.min((xs[xs.length - 1] - xs[0]) / 2, (ys[ys.length - 1] - ys[0]) / 2));
-  const model = new FEModel(mesh, { materials: lib }, { birthT: [25, 25, 25, 25] });
+  const model = new FEModel(mesh, { materials: lib });
   const solver = new LinearSolver(model, { precond: 'mg', tol: tol || 1e-12 });
   return { mesh, model, solver };
+}
+
+/** One step of the thermal path from Ta to Tb (stage 0) on a box model: assemble, solve. Returns u. */
+function boxStep(model, solver, Ta, Tb, label) {
+  const rhs = new Float64Array(model.ndof);
+  model.assembleStep(Ta, Tb, 0, rhs);
+  return solver.solve(rhs, label).u;
+}
+
+/** Stress history states of every element of a box model after the steps [[Ta, Tb, du], ...]. */
+function boxStates(model, steps) {
+  const states = [];
+  for (let e = 0; e < model.mesh.ne; e++) states.push(new Float64Array(model.stateSize(e)));
+  for (const [Ta, Tb, du] of steps) {
+    const rec = model.stepRecovery(Ta, Tb, 0);
+    for (let e = 0; e < model.mesh.ne; e++) model.accumulateStep(e, rec, du, states[e]);
+  }
+  return states;
 }
 
 /** Quadratic fit curvature of a nodal w field over |x|,|y| <= half. */
@@ -54,7 +72,7 @@ function quickCase(cfg, preset, extra) {
   an.build(); an.run();
   const g = an.mesh.geom, u = an.fields.get(25);
   const w = warpageJEITA(an.mesh, g, u, cfg);
-  const ds = dieSurfaceStress(an.model, g, 0, 'top', 25, an.finalStage, u);
+  const ds = dieSurfaceStress(an.view(25), g, 0, 'top');
   return { an, w, ds };
 }
 
@@ -66,15 +84,14 @@ const VERIFICATION_TESTS = [
     run(ctx) {
       const lib = [testMaterial('A', 130, 0.28, 2.6)];
       const { mesh, model, solver } = boxModel(lib, linspace(0, 10, 6), linspace(0, 8, 5), linspace(0, 2, 2), [{ name: 'A', kind: 'homog', mat: 'A', stage: 0, part: 0 }], () => 0, 1e-14);
-      const rhs = new Float64Array(model.ndof);
-      model.assemble(125, 0, rhs);
-      const u = solver.solve(rhs, 'V1').u;
+      const u = boxStep(model, solver, 25, 125, 'V1');
       const n0 = mesh.constraints.nodes[0], a = 2.6e-6 * 100;
       let dispErr = 0;
       for (let n = 0; n < mesh.nn; n++) for (let c = 0; c < 3; c++) dispErr = Math.max(dispErr, Math.abs(u[3 * n + c] - a * (mesh.coords[3 * n + c] - mesh.coords[3 * n0 + c])));
       dispErr /= a * 10;
-      const q = new Float64Array(33); let smax = 0;
-      for (let e = 0; e < mesh.ne; e++) { model.elementState(e, 125, 0, u, q); const o = model.pointStress(e, 125, 0, q, 0.3, -0.2, 0.5); for (let i = 0; i < 6; i++) smax = Math.max(smax, Math.abs(o.sig[i])); }
+      const states = boxStates(model, [[25, 125, u]]);
+      let smax = 0;
+      for (let e = 0; e < mesh.ne; e++) { const o = model.stateStress(e, states[e], 0.3, -0.2, 0.5); for (let i = 0; i < 6; i++) smax = Math.max(smax, Math.abs(o.sig[i])); }
       const sRel = smax / (130000 * a);
       return { pass: dispErr < 1e-9 && sRel < 1e-8, measured: 'displacement error ' + dispErr.toExponential(2) + ' relative, stress ' + sRel.toExponential(2) + ' x E alpha dT' };
     },
@@ -152,9 +169,7 @@ const VERIFICATION_TESTS = [
       const lib = [testMaterial('A', 130, 0.28, 2.6), testMaterial('B', 110, 0.34, 16.4)];
       const n = 28;
       const { mesh, model, solver } = boxModel(lib, linspace(-20, 20, n), linspace(-20, 20, n), [0, 0.25, 0.5, 0.75, 1.0], [{ name: 'B', kind: 'homog', mat: 'B', stage: 0, part: 0 }, { name: 'A', kind: 'homog', mat: 'A', stage: 0, part: 1 }], (i, j, k) => k < 2 ? 0 : 1, 1e-10);
-      const rhs = new Float64Array(model.ndof);
-      model.assemble(-75, 0, rhs);
-      const u = solver.solve(rhs, 'V3').u;
+      const u = boxStep(model, solver, 25, -75, 'V3');
       const c = centreCurvature(mesh, u, 0, 5);
       const kappa = -c.kxx;
       const MA = 130000 / (1 - 0.28), MB = 110000 / (1 - 0.34);
@@ -175,9 +190,7 @@ const VERIFICATION_TESTS = [
       const zs = [0, 0.15, 0.3, 0.4, 0.5, 0.75, 1.0];
       const n = 28;
       const { mesh, model, solver } = boxModel(lib, linspace(-20, 20, n), linspace(-20, 20, n), zs, [{ name: 'O', kind: 'homog', mat: 'O', stage: 0, part: 0 }, { name: 'Cu', kind: 'homog', mat: 'Cu', stage: 0, part: 1 }, { name: 'Si', kind: 'homog', mat: 'Si', stage: 0, part: 2 }], (i, j, k) => k < 2 ? 0 : (k < 4 ? 1 : 2), 1e-10);
-      const rhs = new Float64Array(model.ndof);
-      model.assemble(-75, 0, rhs);
-      const u = solver.solve(rhs, 'V4').u;
+      const u = boxStep(model, solver, 25, -75, 'V4');
       const c = centreCurvature(mesh, u, 0, 5);
       const clt = cltCurvature([
         { t: 0.3, E1: 36000, E2: 20000, nu12: 0.15, G12: 8000, a1: 4e-6, a2: 4e-6 },
@@ -206,9 +219,7 @@ const VERIFICATION_TESTS = [
         model.sections = sb.bands.map(b => buildBandSection(b, lib, CONST.NU_MAX_GLOBAL));
         mesh.subBand = new Int32Array(zs.length - 1);
         for (let k = 0; k + 1 < zs.length; k++) { const zc = 0.5 * (zs[k] + zs[k + 1]); mesh.subBand[k] = sb.bands.findIndex(b => zc > b.z0 && zc < b.z1); }
-        const rhs = new Float64Array(model.ndof);
-        model.assemble(125, 0, rhs);
-        const u = solver.solve(rhs, 'V5').u;
+        const u = boxStep(model, solver, 25, 125, 'V5');
         const c = centreCurvature(mesh, u, 0, 5);
         const w = warpageOfGrid(mesh, u);
         return { kxx: c.kxx, w, dof: model.ndof };
@@ -239,11 +250,9 @@ const VERIFICATION_TESTS = [
     criterion: 'submodel strains within 2 % of the global strains',
     about: 'Runs the detailed bump submodel with the same smeared bump-layer properties as the global model. It must then reproduce the global strains at that bump, which checks that the two models are linked correctly.',
     run(ctx) {
-      // The submodel is a perturbation from the as-assembled 25 degC state with sigma = D(T)(eps - [F(T) - F(25)]).
-      // With temperature-dependent moduli this coincides with the global total formulation only when the global
-      // 25 degC state is stress-free, so the consistency case uses 25 degC for every process temperature.
+      // Both models are incremental from the as-assembled 25 degC state, so the strain change 25 -> 125 degC
+      // of the global bump layer at the site must be reproduced by a submodel made of the same homogenized layer.
       const cfg = presetConfig(ctx.db, 'bare');
-      cfg.process.Tsub = cfg.process.Tjoin = cfg.process.Tuf = cfg.process.Tattach = 25;
       const an = new Analysis(cfg, { preset: 'draft', evaluations: 'preview' });
       an.build();
       an.evaluationTemperatures = () => ({ all: [25, 125], cycling: [25, 125], reflow: [25, 125] });
@@ -263,13 +272,17 @@ const VERIFICATION_TESTS = [
       const site = { x: sites.x[q], y: sites.y[q], ix: sites.ix[q], iy: sites.iy[q] };
       // global strain change 25 -> 125 degC at the site (nodal plus incompatible-mode contributions)
       const e = elementInCell(mesh, findInterval(mesh.xs, site.x), findInterval(mesh.ys, site.y), kb, PART.SOLDER);
-      const qv = new Float64Array(33), eA = new Float64Array(6), eB = new Float64Array(6);
+      const eA = new Float64Array(6), eB = new Float64Array(6);
       const [hx, hy, hz] = model.elementDims(e);
       const [xi, eta, zeta] = naturalCoords(mesh, e, site.x, site.y, zmid);
-      model.elementState(e, 25, an.finalStage, an.fields.get(25), qv); boxStrainAt(hx, hy, hz, qv, qv.subarray(24), xi, eta, zeta, eA);
-      model.elementState(e, 125, an.finalStage, an.fields.get(125), qv); boxStrainAt(hx, hy, hz, qv, qv.subarray(24), xi, eta, zeta, eB);
+      const qs = an.qAlong(e, [25, 125]), q25 = qs.get(25), q125 = qs.get(125);
+      boxStrainAt(hx, hy, hz, q25, q25.subarray(24), xi, eta, zeta, eA);
+      boxStrainAt(hx, hy, hz, q125, q125.subarray(24), xi, eta, zeta, eB);
       const dEps = Array.from(eB, (v, c) => v - eA[c]);
       const scale = Math.max(...dEps.map(Math.abs));
+      // the submodel follows the global steps of the up branch (same step means of the stiffness)
+      const upTemps = an.path.up.map(k => an.path.steps[k].Tb);
+      const march = sm => { let r = null; for (const T of upTemps) { r = sm.stepTo(T, 1); if (!r.converged) break; } return r; };
       // submodel strain at the voxel nearest the site centre, mid-height of the bump layer
       const subStrain = sm => {
         const m = sm.mesh;
@@ -284,11 +297,11 @@ const VERIFICATION_TESTS = [
       const errOf = es => { let err = 0; for (let c = 0; c < 6; c++) err = Math.max(err, Math.abs(es[c] - dEps[c]) / scale); return err; };
       // (a) the consistency case: domain = the bump layer, every voxel = the homogenized bump-layer phases, solder elastic
       const smA = new BumpSubmodel(an, 0, site, { nxy: 8, nz: 8, elasticSolder: true, uniformMaterial: true, layerOnly: true });
-      const resA = smA.stepTo(125, 1);
+      const resA = march(smA);
       const esA = subStrain(smA), errA = errOf(esA);
       // (b) information: the production domain (50 um into Si and substrate) with materially consistent slices
       const smB = new BumpSubmodel(an, 0, site, { nxy: 8, nz: 8, elasticSolder: true, uniformMaterial: true });
-      smB.stepTo(125, 1);
+      march(smB);
       const errB = errOf(subStrain(smB));
       const f = v => v.toExponential(3);
       return { pass: errA < 0.02 && resA.converged, measured: 'global strain change [xx, yy, zz, xy, yz, zx] ' + dEps.map(f).join(', ') + '; submodel (bump-layer domain, uniform homogenized phases) ' + Array.from(esA).map(f).join(', ') + ': max error ' + (100 * errA).toFixed(2) + ' % of the largest component; with the production domain and materially consistent Si / substrate slices the difference is ' + (100 * errB).toFixed(2) + ' % (coarse single-element layers versus the refined submodel)' };
@@ -361,11 +374,13 @@ const VERIFICATION_TESTS = [
       an.build();
       an.solver.opts.tol = 1e-10; // the reaction criterion (1e-9) needs a tighter residual than the production 1e-8
       an.run();
-      const rec = an.log.find(r => r.label.startsWith('as-assembled'));
-      const u = an.fields.get(25), model = an.model;
-      // reactions and energy balance from the unconstrained system
+      // the last step of the process chain (to 25 degC): its log record, then its displacement increment in double
+      // precision (a re-solve that starts from the stored solution) and the unconstrained system of that step
+      const k = an.path.chain[an.path.chain.length - 1], step = an.path.steps[k];
+      const rec = an.log.find(r => r.label === stepLabel(step));
+      const u = an.solveStep(k).u, model = an.model;
       const f = new Float64Array(model.ndof);
-      model.assemble(25, an.finalStage, f, true);
+      model.assembleStep(step.Ta, step.Tb, step.stage, f, true);
       const Ku = new Float64Array(model.ndof);
       fullMatVec(model.pattern, model.val, u, Ku);
       let fscale = 0, reac = 0;
@@ -374,7 +389,7 @@ const VERIFICATION_TESTS = [
       const uKu = dot(u, Ku), fu = dot(f, u);
       const eb = Math.abs(uKu - fu) / Math.abs(fu);
       const pass = rec.relres < 1e-8 && reac / fscale < 1e-9;
-      return { pass, measured: 'relative residual ' + rec.relres.toExponential(2) + ' (' + rec.iters + ' iterations, ' + rec.precond + ', solved to 1e-10); max reaction ' + (reac / fscale).toExponential(2) + ' of the internal force scale (max entry of K u and f); energy balance |uKu - fu| / |fu| = ' + eb.toExponential(2) };
+      return { pass, measured: 'last process step ' + stepLabel(step) + ': relative residual ' + rec.relres.toExponential(2) + ' (' + rec.iters + ' iterations, ' + rec.precond + ', solved to 1e-10); max reaction ' + (reac / fscale).toExponential(2) + ' of the internal force scale (max entry of K u and f); energy balance |uKu - fu| / |fu| = ' + eb.toExponential(2) };
     },
   },
   {
@@ -445,17 +460,61 @@ const VERIFICATION_TESTS = [
   {
     id: 'V15', name: 'Timing benchmark of the default package per preset and preconditioner', slow: true, verySlow: true,
     criterion: 'report only; compare with the performance targets',
-    about: 'Times the default package on each mesh preset with both solver preconditioners. It always passes and reports the speeds against the performance targets.',
+    about: 'Times the default package on each mesh preset with both solver preconditioners: the whole process chain with multigrid, and its first step with IC(0), which no longer converges on these meshes and would spend its full iteration budget on every step. It always passes and reports the speeds against the performance targets.',
     run(ctx) {
       const rows = [];
       for (const preset of ctx.presets || ['draft', 'standard']) for (const pc of ['mg', 'ic']) {
         const cfg = presetConfig(ctx.db, 'default');
         const t0 = nowMs();
         const an = new Analysis(cfg, { preset, evaluations: 'preview', precond: pc });
-        an.build(); an.run();
-        rows.push({ preset, pc, dof: an.mesh.info.nDof, ms: nowMs() - t0, solves: an.log.length, iters: an.log.map(r => r.iters), solveMs: an.timings.solve, assembleMs: an.timings.assemble });
+        an.build();
+        if (pc === 'mg') an.run(); else { an.buildPath(); an.solveStep(0); }
+        const r0 = an.log[0];
+        rows.push({ preset, pc, dof: an.mesh.info.nDof, ms: nowMs() - t0, solves: an.log.length, iters: an.log.map(r => r.iters), fallback: r0.fallback, solveMs: an.timings.solve, assembleMs: an.timings.assemble });
       }
-      return { pass: true, measured: rows.map(r => r.preset + '/' + r.pc + ': ' + r.dof + ' DOF, ' + (r.ms / 1000).toFixed(1) + ' s for stages + 25 °C (' + r.solves + ' solves, iterations ' + r.iters.join('/') + ')').join('; '), rows };
+      const text = r => r.preset + '/' + r.pc + ': ' + r.dof + ' DOF, ' + (r.ms / 1000).toFixed(1) + ' s ' + (r.pc === 'mg'
+        ? 'for the process chain to 25 °C (' + r.solves + ' solves, iterations ' + r.iters.join('/') + ')'
+        : 'for the first chain step (' + (r.fallback ? 'IC(0) not converged after ' + r.fallback.iters + ' iterations, relative residual ' + r.fallback.relres.toExponential(1) + ', then the multigrid fallback, ' + (r.iters[0] - r.fallback.iters) + ' iterations' : 'IC(0) converged in ' + r.iters[0] + ' iterations') + ')');
+      return { pass: true, measured: rows.map(text).join('; '), rows };
+    },
+  },
+  {
+    id: 'V16', name: 'Stress through a glass transition, incremental thermoelasticity', slow: false,
+    criterion: 'free block stress below 1e-8 x E alpha dT; laterally held block within 0.1 % of -integral E / (1 - nu) alpha dT',
+    about: 'Cools a block of underfill from its cure temperature through its glass transition along the thermal path the tool uses. Left free it must stay stress-free; held at its sides its in-plane stress must equal the exact sum of modulus times thermal contraction over each degree of cooling, which a single room-temperature modulus would overstate several times.',
+    run(ctx) {
+      const cfg = defaultConfig(ctx.db), lib = cfg.materials, mat = findMaterial(lib, cfg.underfill.mat), tab = materialTables(mat);
+      const nu = Math.min(tab.nu, CONST.NU_MAX_GLOBAL), Ta = 165, Tb = 25;
+      const pts = thermalPathPoints(Ta, Tb, materialTgs(mat).map(t => t.T), []);
+      const run = held => {
+        const { mesh, model, solver } = boxModel(lib, linspace(0, 1, 2), linspace(0, 1, 2), linspace(0, 0.5, 2), [{ name: 'UF', kind: 'homog', mat: mat.id, stage: 0, part: 0 }], () => 0, 1e-13);
+        if (held) {
+          // roller supports: ux = 0 on both x faces, uy = 0 on both y faces, uz = 0 at one node
+          const dofs = [];
+          for (let n = 0; n < mesh.nn; n++) {
+            const x = mesh.coords[3 * n], y = mesh.coords[3 * n + 1];
+            if (x < 1e-9 || x > 1 - 1e-9) dofs.push(3 * n);
+            if (y < 1e-9 || y > 1 - 1e-9) dofs.push(3 * n + 1);
+          }
+          dofs.push(2);
+          model.constraints = Int32Array.from(dofs);
+        }
+        const steps = [];
+        for (let i = 1; i < pts.length; i++) steps.push([pts[i - 1], pts[i], boxStep(model, solver, pts[i - 1], pts[i], 'V16')]);
+        const states = boxStates(model, steps);
+        let sx = 0, sz = 0, smax = 0;
+        for (let e = 0; e < mesh.ne; e++) { const o = model.stateStress(e, states[e], 0, 0, 0); sx += o.sig[0] / mesh.ne; sz = Math.max(sz, Math.abs(o.sig[2])); for (let c = 0; c < 6; c++) smax = Math.max(smax, Math.abs(o.sig[c])); }
+        return { sx, sz, smax };
+      };
+      // exact in-plane stress of the held block: -integral of E(T) / (1 - nu) dF(T), on 0.01 degC steps
+      let exact = 0;
+      for (let T = Ta; T > Tb + 1e-9; T -= 0.01) exact -= gridAt(tab.E, T - 0.005) / (1 - nu) * (gridAt(tab.F, T - 0.01) - gridAt(tab.F, T));
+      const secant = -gridAt(tab.E, Tb) / (1 - nu) * (gridAt(tab.F, Tb) - gridAt(tab.F, Ta));
+      const free = run(false), held = run(true);
+      const sref = gridAt(tab.E, Tb) * Math.abs(gridAt(tab.F, Tb) - gridAt(tab.F, Ta));
+      const err = Math.abs(held.sx / exact - 1);
+      const pass = free.smax < 1e-8 * sref && err < 0.001 && held.sz < 1e-6 * Math.abs(exact);
+      return { pass, measured: pts.length - 1 + ' steps from ' + Ta + ' to ' + Tb + ' °C: free block ' + (free.smax / sref).toExponential(2) + ' x E alpha dT; held block ' + held.sx.toFixed(2) + ' MPa vs exact ' + exact.toFixed(2) + ' MPa (' + (100 * err).toFixed(2) + ' %); a secant (total) form would give ' + secant.toFixed(2) + ' MPa' };
     },
   },
 ];

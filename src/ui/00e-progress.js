@@ -14,14 +14,10 @@ const runProgress = { job: null, open: prefs.get('progOpen', false), timer: null
 
 /** Step list of a global analysis, matched against its progress messages in order. */
 function analysisSteps(msg) {
-  const full = msg.evaluations !== 'preview', bare = msg.cfg && msg.cfg.packageType === 'bare';
+  const full = msg.evaluations !== 'preview';
   return [
     { label: 'Mesh and stiffness model', re: /^Meshing|^Mesh:/ },
-    { label: 'Stage S0: substrate at T_join', re: /^Stage S0/ },
-    { label: 'Stage S1: chip join at T_UF', re: /^Stage S1/ },
-    bare ? null : { label: 'Stage S2: underfilled at T_attach', re: /^Stage S2/ },
-    { label: full ? 'Temperature sweep' : 'As-assembled state at 25 °C', re: /^As-assembled state/, count: true },
-    { label: 'Chip-join state at 25 °C (CPI)', re: /^Chip-join state/ },
+    { label: full ? 'Thermal path: process chain, sweep, chip-join state' : 'Thermal path: process chain to 25 °C', re: /^Thermal path/, count: true },
     { label: 'Post-processing', re: /^Post-processing/ },
     full ? { label: '3D view fields', re: /^Boundary faces/ } : null,
     full ? { label: 'Bump screening', re: /^Screening/ } : null,

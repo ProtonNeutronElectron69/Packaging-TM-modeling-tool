@@ -806,6 +806,9 @@ function liveReport(info, throttled) {
   LIVE.post(info);
 }
 
+/** PCG iterations per decade of residual reduction of one run. */
+function pcgRate(res) { return res.iters / Math.max(Math.log10(res.iters0 / Math.max(res.relres, 1e-300)), 0.5); }
+
 class LinearSolver {
   constructor(model, opts) {
     this.model = model;
@@ -813,7 +816,7 @@ class LinearSolver {
     this.n = model.ndof;
     this.s = new Float64Array(this.n);
     this.pc = null;
-    this.itersAtBuild = 0;
+    this.ratePerDecade = 0;
     this.needRebuild = true;
     this.basis = [];
     this.log = [];
@@ -932,16 +935,16 @@ class LinearSolver {
     if (!this.pc || this.needRebuild) { pcMs = this._buildPC(this.opts.precond); rebuilt = true; }
     this._warmStart(fs, x);
     this._liveCtx = live ? { label, base: 0, maxit: this.opts.maxit, r0: null } : null;
-    // iteration budget before a rebuild: twice the count right after the last build
-    let budget = rebuilt ? this.opts.maxit : Math.max(2 * this.itersAtBuild, CONST.REBUILD_MIN_ITERS);
-    let res = this._pcg(fs, x, tol, Math.min(budget, this.opts.maxit));
-    let fallback = null, totalIters = res.iters, itersAfterBuild = rebuilt ? res.iters : 0;
+    // iteration budget of a stale preconditioner: REBUILD_FACTOR x its iterations per decade of residual reduction
+    // right after its build, times the decades this solve needs (the warm start changes the decades, not the rate)
+    let res = this._pcg(fs, x, tol, this.opts.maxit, rebuilt ? 0 : CONST.REBUILD_FACTOR * this.ratePerDecade);
+    let fallback = null, totalIters = res.iters;
     if (!res.converged && !rebuilt) {
       // stale preconditioner (e.g. a material event between evaluations): rebuild the preferred kind and continue
       if (live) { liveReport({ event: 'rebuild', label, iters: totalIters, relres: res.relres, precond: this.opts.precond }); this._liveCtx.base = totalIters; }
       pcMs += this._buildPC(this.opts.precond); rebuilt = true;
       res = this._pcg(fs, x, tol, this.opts.maxit);
-      totalIters += res.iters; itersAfterBuild = res.iters;
+      totalIters += res.iters;
     }
     if (!res.converged) {
       // rebuild with the other method once (keep the current iterate)
@@ -953,11 +956,16 @@ class LinearSolver {
       totalIters += res.iters;
       this.needRebuild = true; // return to the preferred preconditioner on the next solve
     }
+    // the rate of a preconditioner is measured on the first run after its build that reduces the residual by at
+    // least a decade (a warm start can leave less to do); later solves slower by REBUILD_FACTOR ask for a rebuild
+    if (!fallback && res.converged) {
+      const known = this.ratePerDecade > 0 && !rebuilt;
+      if (known) { if (pcgRate(res) > CONST.REBUILD_FACTOR * this.ratePerDecade) this.needRebuild = true; }
+      else this.ratePerDecade = Math.log10(res.iters0 / Math.max(res.relres, 1e-300)) >= 1 ? pcgRate(res) : 0;
+    }
     res.iters = totalIters;
     const u = new Float64Array(n);
     for (let q = 0; q < n; q++) u[q] = x[q] * s[q];
-    if (rebuilt && !fallback) this.itersAtBuild = Math.max(itersAfterBuild, 1);
-    else if (!fallback && res.iters > CONST.REBUILD_FACTOR * this.itersAtBuild) this.needRebuild = true;
     if (res.converged) this._storeSolution(u);
     const rec = { label, iters: res.iters, relres: res.relres, converged: res.converged, ms: nowMs() - t0, pcMs, precond: this.pcKind, rebuilt, warm: this.basis.length, iters0: res.iters0, fallback };
     this.log.push(rec); this.lastResult = rec;
@@ -967,7 +975,12 @@ class LinearSolver {
     return Object.assign({ u }, rec);
   }
 
-  _pcg(b, x, tol, maxit) {
+  /**
+   * PCG on the scaled system from the initial guess x. perDecade > 0 caps the
+   * iterations at perDecade x the decades of residual reduction still needed
+   * (at least REBUILD_MIN_ITERS), the budget of a stale preconditioner.
+   */
+  _pcg(b, x, tol, maxit, perDecade) {
     const P = this.model.pattern, val = this.model.val, n = this.n;
     const r = this._r, z = this._z, p = this._p, q = this._q;
     const isC = this.model.isConstrained;
@@ -978,6 +991,7 @@ class LinearSolver {
     let rnorm = norm2(r);
     const r0 = rnorm / bnorm;
     if (rnorm / bnorm < tol) return { iters: 0, relres: rnorm / bnorm, converged: true, iters0: r0 };
+    if (perDecade > 0) maxit = Math.min(maxit, Math.max(CONST.REBUILD_MIN_ITERS, Math.ceil(perDecade * Math.log10(r0 / tol))));
     const lc = this._liveCtx;
     let hist = null;
     if (lc) {

@@ -29,6 +29,7 @@ function renderRunPanel(root) {
   const canRun = !app.validation.errors.length;
   root.append(h('div', { class: 'row' }, h('button', tip('runFull', { class: 'primary', disabled: canRun ? null : '', onclick: () => runFull() }), '▶ Run full global analysis'), h('button', tip('quickPreview', { disabled: canRun ? null : '', onclick: () => runPreview() }), 'Quick preview (Draft, 25 °C)')));
   root.append(h('div', { class: 'row' }, h('button', tip('pinBaseline', { disabled: app.results ? null : '', onclick: pinBaseline }), 'Pin as baseline'), h('button', tip('clearBaseline', { disabled: app.baseline ? null : '', onclick: () => { app.baseline = null; renderContext(); } }), 'Clear baseline'), h('button', tip('meshCheck', { disabled: canRun ? null : '', onclick: checkMeshSensitivity }), 'Check mesh sensitivity'), h('button', tip('exportCsv', { disabled: app.results ? null : '', onclick: exportCSV }), 'Export CSV'), h('button', tip('report', { disabled: app.results ? null : '', onclick: openReport }), 'Report (print / PDF)')));
+  root.append(h('div', { class: 'row' }, h('button', tip('saveResults', { disabled: app.results ? null : '', onclick: saveResultsFile }), 'Save results (' + C.CONST.RESULTS_FILE_EXT + ')'), h('button', tip('openResults', { onclick: pickResultsFile }), 'Open results file')));
   if (cfg.name && cfg.name.startsWith('Core thickness study')) root.append(h('div', { class: 'row' }, h('button', tip('coreStudy', { onclick: runCoreStudy }), 'Run both core variants and compare')));
   root.append(h('div', { class: 'small muted' }, 'Tip: pin a baseline, then compare variants. Ratios and deltas against the baseline are the most trustworthy outputs of a screening model.'));
   root.append(estimatedInputsCard(cfg));
@@ -134,17 +135,24 @@ function runPreview() {
  * The main worker holds the analysis behind app.results, which the temperature selector and the submodels read.
  * Jobs that neither produce nor read it (opts.side: verification, mesh check, core study) run on a one-shot
  * worker instead, so that running or cancelling them never discards it. opts.onPartial receives streamed results.
+ * msg may also be a function (send, progress) => Promise for a job of several messages, where send(m) posts one
+ * message and progress(frac, text) reports. opts.cancel replaces the restart of the main worker on cancel, for jobs that
+ * only read from it.
  */
 function startRun(msg, label, opts) {
   opts = opts || {};
   if (app.job) cancelRunning();
   const side = !!opts.side, client = side ? new WorkerClient() : worker;
-  const job = { label, cancel: side ? () => client.stop() : null };
+  const job = { label, cancel: side ? () => client.stop() : (opts.cancel || null) };
   app.job = job;
   const t0 = performance.now();
-  progressBegin(label, { kind: msg.type === 'run' ? 'analysis' : msg.type, msg, preset: msg.preset ? (C.CONST.MESH_PRESETS[msg.preset] || { label: msg.preset }).label : (msg.type === 'submodels' ? (msg.nxy + ' x ' + msg.nxy + ' x ' + msg.nz + ' voxels') : '') });
+  const one = typeof msg === 'function' ? {} : msg;
+  progressBegin(label, { kind: one.type === 'run' ? 'analysis' : (one.type || 'other'), msg: one, preset: one.preset ? (C.CONST.MESH_PRESETS[one.preset] || { label: one.preset }).label : (one.type === 'submodels' ? (one.nxy + ' x ' + one.nxy + ' x ' + one.nz + ' voxels') : '') });
   setStatus(label + ' starting…', 0);
-  const p = client.send(msg, (frac, m) => { if (app.job === job) { progressMsg(frac, m); setStatus(label + ': ' + m, frac); } }, opts.onPartial);
+  const onProgress = (frac, m) => { if (app.job === job) { progressMsg(frac, m); setStatus(label + ': ' + m, frac); } };
+  const p = typeof msg === 'function'
+    ? msg(m => { if (app.job !== job) return Promise.reject(new Error('cancelled')); return client.send(m, onProgress, opts.onPartial); }, onProgress)
+    : client.send(msg, onProgress, opts.onPartial);
   const settle = () => { if (side) client.stop(); if (app.job !== job) return false; app.job = null; progressEnd(); return true; };
   p.then(() => { if (settle()) setStatus(label + ' done in ' + fmt((performance.now() - t0) / 1000, 1) + ' s', null); }, () => { if (settle()) setStatus('Ready', null); });
   return p;
@@ -169,7 +177,7 @@ function restoreAnalysis() {
   const old = app.results;
   if (!old || !old.request) return;
   startRun(Object.assign({}, old.request), 'Restoring the analysis').then(res => {
-    res.request = old.request; res.preview = old.preview; app.analysisLost = false;
+    res.request = old.request; res.preview = old.preview; app.analysisLost = false; app.analysisLostWhy = null;
     app.results = res;
     if (res.screening) app.screening = res.screening;
     renderAll();
@@ -179,10 +187,18 @@ function restoreAnalysis() {
 /** Notice above the results while the analysis behind them is not in the worker (null otherwise). */
 function analysisLostNotice() {
   if (!app.analysisLost || !app.results) return null;
+  if (app.analysisLost === 'loading') return h('div', { class: 'msg info' }, 'Loading the analysis behind these results from the results file; other temperatures, cross-sections and the bump submodels are available once it is back (see the status bar).');
   const est = app.results.totalMs ? ' (about ' + fmt(app.results.totalMs / 1000, 0) + ' s, like the original run)' : '';
-  const why = app.analysisLost === 'stopped' ? 'The compute process stopped unexpectedly (most likely the computer ran out of memory)' : 'A cancelled job restarted the worker';
-  return h('div', { class: 'msg warning' }, why + ', so the analysis behind these results is no longer in memory. The states already loaded stay visible; other temperatures and the bump submodels need it again. ',
+  const why = {
+    stopped: 'The compute process stopped unexpectedly (most likely the computer ran out of memory), so the analysis behind these results is no longer in memory',
+    file: app.analysisLostWhy ? 'The analysis saved in the results file could not be loaded (' + app.analysisLostWhy + ')' : 'The results file was saved without the analysis behind its results',
+  }[app.analysisLost] || 'A cancelled job restarted the worker, so the analysis behind these results is no longer in memory';
+  return h('div', { class: 'msg warning' }, why + '. The states already loaded stay visible; other temperatures and the bump submodels need the analysis. ',
     h('button', tip('restoreAnalysis', { class: 'small', onclick: restoreAnalysis }), 'Restore analysis' + est));
+}
+/** Message for a view that needs the analysis while it is not in the worker (app.analysisLost set). */
+function analysisMissing(what) {
+  return what + (app.analysisLost === 'loading' ? ' the analysis, which is still loading from the results file; try again when it is back.' : ' the analysis, which is not in memory; use Restore analysis above the results first.');
 }
 function pinBaseline() { app.baseline = app.results; toast('Baseline pinned: ' + (app.cfg.name || 'current configuration') + ' at ' + app.results.preset + '.', 'ok'); renderContext(); }
 
@@ -238,7 +254,7 @@ function renderResults(root) {
 function selectTemperature(T) {
   app.selectedT = T;
   if (app.fieldsCache.has(T)) { app.currentFields = app.fieldsCache.get(T); renderCenter(); floorplan.draw(); return; }
-  if (app.analysisLost) { app.selectedT = app.currentFields ? app.currentFields.T : 25; toast('The ' + T + ' °C state needs the analysis, which is no longer in memory; use Restore analysis above the results first.', 'warn', 7000); renderCenter(); return; }
+  if (app.analysisLost) { app.selectedT = app.currentFields ? app.currentFields.T : 25; toast(analysisMissing('The ' + T + ' °C state needs'), 'warn', 7000); renderCenter(); return; }
   setStatus('Evaluating fields at ' + T + ' °C', 0.5);
   worker.send({ type: 'fieldsAt', T }).then(f => { app.fieldsCache.set(T, f); app.currentFields = f; setStatus('Ready', null); renderCenter(); floorplan.draw(); }).catch(e => { setStatus('Ready', null); toast(e.message, 'error'); });
 }
@@ -400,7 +416,7 @@ function defaultSubmodelSelection(res) {
 function runSubmodels(res) {
   const keys = Array.from(app.submodelSelection);
   if (!keys.length) { toast('Select at least one site.', 'warn'); return; }
-  if (app.analysisLost) { toast('The submodels need the analysis, which is no longer in memory; use Restore analysis above the results first.', 'warn', 7000); return; }
+  if (app.analysisLost) { toast(analysisMissing('The submodels need'), 'warn', 7000); return; }
   const cfg = app.cfg;
   const jobs = keys.map(k => { const [die, q] = k.split(':').map(Number); const s = res.screening[die]; return { die, site: { x: s.x[q], y: s.y[q], ix: s.ix[q], iy: s.iy[q] } }; });
   const onPartial = r => { app.submodels = app.submodels.filter(x => !(x.dieIdx === r.dieIdx && x.site.ix === r.site.ix && x.site.iy === r.site.iy)); app.submodels.push(r); renderCenter(); };

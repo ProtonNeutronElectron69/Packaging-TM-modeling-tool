@@ -59,7 +59,7 @@ function renderPackagePanel(root) {
   const cfg = app.cfg;
   root.append(h('h2', null, '1. Package'));
   root.append(h('div', { class: 'row' }, h('label', null, 'Preset package '), h('select', tip('presetPkg', { onchange: e => { if (e.target.value) loadPreset(e.target.value); e.target.value = ''; } }), h('option', { value: '' }, 'Load a preset...'), ...C.PRESET_LIST.map(p => h('option', { value: p.id }, p.label)))));
-  root.append(h('div', { class: 'row' }, h('button', tip('saveCfg', { onclick: saveConfigFile }), 'Save configuration (JSON)'), h('button', tip('loadCfg', { onclick: loadConfigFile }), 'Load configuration'), h('input', tip('cfgName', { type: 'text', value: cfg.name, placeholder: 'configuration name', style: 'flex:1', onchange: e => { cfg.name = e.target.value; } }))));
+  root.append(h('div', { class: 'row' }, h('button', tip('saveCfg', { onclick: saveConfigFile }), 'Save configuration (JSON)'), h('button', tip('loadCfg', { onclick: loadConfigFile }), 'Load configuration'), h('button', tip('openResults', { onclick: pickResultsFile }), 'Open results file'), h('input', tip('cfgName', { type: 'text', value: cfg.name, placeholder: 'configuration name', style: 'flex:1', onchange: e => { cfg.name = e.target.value; } }))));
   root.append(h('h3', null, 'Substrate outline'));
   root.append(numField('Size x', () => cfg.substrate.sx, v => { cfg.substrate.sx = v; }, { unit: 'mm', min: 1, max: 150, plo: 5, phi: 110, help: 'sx' }));
   root.append(numField('Size y', () => cfg.substrate.sy, v => { cfg.substrate.sy = v; }, { unit: 'mm', min: 1, max: 150, plo: 5, phi: 110, help: 'sy' }));

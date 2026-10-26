@@ -365,6 +365,12 @@ const CONST = Object.freeze({
   // ---- sensitivity ----------------------------------------------------------
   SENS_REL: 0.10,
   SENS_DT: 10,
+  // ---- results file (.fcbgares) ---------------------------------------------
+  RESULTS_FILE_MAGIC: 'FCBGARES',  // first 8 bytes of a results file
+  RESULTS_FILE_VERSION: 1,         // format version; a file from a newer version is refused
+  RESULTS_FILE_ALIGN: 8,           // bytes; alignment of each typed array in the data block
+  RESULTS_FILE_EXT: '.fcbgares',
+  RESULTS_FILE_CHUNK_BYTES: 64 * 1048576,  // step increments per message between the page and a worker (the desktop app's page-to-process channel limits one message)
   // ---- guard rails (hard bounds) ---------------------------------------------
   BOUNDS: {
     dieT: [0.05, 1.5], standoff: [0.020, 0.200], coreT: [0.1, 2.0],
@@ -4394,6 +4400,21 @@ class Analysis {
   }
 
   /**
+   * A thermal path saved in a results file: the same steps, then the saved increments in place of the solves.
+   * Throws when this tool version plans the path of the configuration differently.
+   */
+  restorePath(du, plan) {
+    const steps = this.buildPath(), n = this.model.ndof;
+    const same = steps.length === plan.length && steps.every((s, k) => s.Ta === plan[k][0] && s.Tb === plan[k][1] && s.stage === plan[k][2] && s.branch === plan[k][3]);
+    if (!same) throw new Error('this version of the tool plans the thermal path of the saved configuration differently');
+    for (let k = 0; k < steps.length; k++) {
+      if (!du[k] || du[k].length !== n) throw new Error('the thermal path in the results file is incomplete');
+      this.du[k] = du[k];
+    }
+    return this.finishPath();
+  }
+
+  /**
    * Totals from the solved steps: displacement fields at every evaluation
    * temperature and in the chip-join state; the increments are then kept in
    * single precision for the stress histories.
@@ -4413,7 +4434,7 @@ class Analysis {
       for (const k of P.chainJoin.concat(P.cpi)) add(c, k);
       this.uCPI = c;
     } else this.uCPI = null;
-    for (let k = 0; k < this.du.length; k++) this.du[k] = Float32Array.from(this.du[k]);
+    for (let k = 0; k < this.du.length; k++) if (!(this.du[k] instanceof Float32Array)) this.du[k] = Float32Array.from(this.du[k]);
     this.ck25 = new Map();
     this.timings.total = nowMs() - (this.tAll || nowMs());
     this.progress(0.92, 'Post-processing');
@@ -6881,6 +6902,48 @@ const VERIFICATION_TESTS = [
       return { pass, measured: pts.length - 1 + ' steps from ' + Ta + ' to ' + Tb + ' °C: free block ' + (free.smax / sref).toExponential(2) + ' x E alpha dT; held block ' + held.sx.toFixed(2) + ' MPa vs exact ' + exact.toFixed(2) + ' MPa (' + (100 * err).toFixed(2) + ' %); a secant (total) form would give ' + secant.toFixed(2) + ' MPa' };
     },
   },
+  {
+    id: 'V17', name: 'Results file round trip', slow: true,
+    criterion: 'restored results within 1e-6 relative; values, Maps, Sets, typed arrays (shared ones once) and non-finite numbers kept exactly; a changed mesh and a truncated file refused',
+    about: 'Runs a small bare-die package through the full thermal path, writes the analysis and a sample of results to a results file and reads it back. The reloaded analysis must give the same warpage, die stress, cross-section and bump strain history as the original without solving again, and a file whose mesh no longer matches must be refused.',
+    run(ctx) {
+      // a small bare-die package with an offset die, meshed to a DOF cap of its own (about 8k DOF, which the file
+      // must bring back too), so the round trip takes about a minute
+      const cfg = presetConfig(ctx.db, 'bare');
+      cfg.substrate.sx = cfg.substrate.sy = 12;
+      Object.assign(cfg.dies[0], { sx: 5, sy: 5, x: 0.5, y: -0.3 });
+      const an = new Analysis(cfg, { preset: 'draft', evaluations: 'full', cap: 6000 });
+      an.build(); an.run();
+      const sample = a => {
+        const g = a.mesh.geom, hot = a.cfg.cycling.Tmax, e = a.mesh.ne >> 1;
+        const q = a.qAlong(e, a.temps.cycling);
+        return {
+          w25: warpageJEITA(a.mesh, g, a.fields.get(25), a.cfg).signed, wHot: warpageJEITA(a.mesh, g, a.fieldAt(hot - 2.5), a.cfg).signed,
+          die: dieSurfaceStress(a.view(25), g, 0, 'top').smax, cpi: bumpLoads(a.view(25, 'cpi'), g, 0).worstV,
+          sec: sectionStress(a.view(hot), g, { axis: 'x', c: 0.2, a0: -5, a1: 5 }).sig, q: q.get(a.temps.cycling[0]),
+        };
+      };
+      const A = sample(an);
+      const shared = Float64Array.of(0.1, 2);
+      const extra = { nan: NaN, inf: -Infinity, map: new Map([[25, Int32Array.of(-3, 7)], [-40, 'x']]), set: new Set(['a:1', 2]), nested: [{ f: Float32Array.of(1.5, NaN) }, null, true, shared], shared };
+      const enc = encodeResultsFile({ analysis: exportAnalysisState(an), extra });
+      const back = decodeResultsFile(joinParts(enc.parts, enc.size));
+      const bn = restoreAnalysisState(back.analysis);
+      const B = sample(bn);
+      const rel = (a, b) => Math.abs(a - b) / Math.max(Math.abs(a), 1e-30);
+      const arel = (a, b) => { let m = 0, s = 0; for (let i = 0; i < a.length; i++) { m = Math.max(m, Math.abs(a[i] - b[i])); s = Math.max(s, Math.abs(a[i])); } return a.length === b.length ? m / s : Infinity; };
+      const errs = { 'warpage 25 °C': rel(A.w25, B.w25), 'warpage near Tmax (interpolated)': rel(A.wHot, B.wHot), 'die backside stress map': arel(A.die, B.die), 'CPI worst shear': rel(A.cpi, B.cpi), 'cross-section at Tmax': arel(A.sec, B.sec), 'bump strain history': arel(A.q, B.q) };
+      const x = back.extra, m = x.map;
+      const kept = Number.isNaN(x.nan) && x.inf === -Infinity && m instanceof Map && m.get(25) instanceof Int32Array && m.get(25)[1] === 7 && m.get(-40) === 'x' && x.nested[0].f instanceof Float32Array && Number.isNaN(x.nested[0].f[1]) && x.nested[1] === null && x.nested[2] === true
+        && x.set instanceof Set && x.set.has('a:1') && x.set.has(2) && x.shared === x.nested[3] && x.shared[0] === 0.1;
+      let refused = false;
+      try { restoreAnalysisState(Object.assign({}, back.analysis, { fingerprint: '0' })); } catch (e) { refused = true; }
+      let damaged = false;
+      try { decodeResultsFile(joinParts(enc.parts, enc.size).slice(0, enc.size - 8)); } catch (e) { damaged = true; }
+      const worst = Math.max(...Object.values(errs));
+      return { pass: worst < 1e-6 && kept && refused && damaged, measured: an.path.steps.length + ' steps, ' + an.model.ndof + ' DOF, file ' + (enc.size / 1048576).toFixed(1) + ' MB; ' + Object.entries(errs).map(([k, v]) => k + ' ' + v.toExponential(1)).join(', ') + '; special values ' + (kept ? 'kept' : 'changed') + '; changed mesh ' + (refused ? 'refused' : 'accepted') + '; truncated file ' + (damaged ? 'refused' : 'accepted') };
+    },
+  },
 ];
 
 /** Run selected verification tests. */
@@ -6899,6 +6962,156 @@ function runVerification(ids, ctx) {
   return out;
 }
 
+// ===== Results file (.fcbgares): every result of a session in one file ==========
+//
+// Layout (little endian):
+//   bytes 0-7    RESULTS_FILE_MAGIC ("FCBGARES")
+//   bytes 8-11   format version (uint32)
+//   bytes 12-15  manifest length in bytes (uint32)
+//   manifest     UTF-8 JSON: {tree, blobs}
+//   data         the typed arrays of the tree, each at an 8-byte aligned offset from the start of the data
+// The tree is the saved value with every typed array replaced by {__ta: index} (blobs[index] gives its
+// type, offset and length; an array referenced twice is stored once), every Map by {__map: [[key, value],
+// ...]}, every Set by {__set: [...]} and every non-finite number by {__num: 'NaN' | 'Infinity' |
+// '-Infinity'}, so that JSON carries the rest exactly.
+
+const RESULTS_TYPED = { Float64Array, Float32Array, Int32Array, Uint32Array, Int16Array, Uint16Array, Int8Array, Uint8Array };
+
+/**
+ * Replace the typed arrays, Maps, Sets and non-finite numbers of a value tree by references (typed arrays go
+ * to blobs; `seen` maps an array already stored to its index).
+ */
+function packTree(v, blobs, seen) {
+  if (typeof v === 'number') return isFinite(v) ? v : { __num: String(v) };
+  if (v === null || typeof v !== 'object') return v;
+  if (ArrayBuffer.isView(v)) {
+    if (!RESULTS_TYPED[v.constructor.name]) throw new Error('Cannot save a ' + v.constructor.name + '.');
+    if (!seen.has(v)) { blobs.push(v); seen.set(v, blobs.length - 1); }
+    return { __ta: seen.get(v) };
+  }
+  if (v instanceof Map) return { __map: Array.from(v, ([k, x]) => [packTree(k, blobs, seen), packTree(x, blobs, seen)]) };
+  if (v instanceof Set) return { __set: Array.from(v, x => packTree(x, blobs, seen)) };
+  if (Array.isArray(v)) return v.map(x => packTree(x, blobs, seen));
+  const o = {};
+  for (const k of Object.keys(v)) if (v[k] !== undefined && typeof v[k] !== 'function') o[k] = packTree(v[k], blobs, seen);
+  return o;
+}
+
+/** Inverse of packTree, with the typed arrays already read. */
+function unpackTree(v, arrays) {
+  if (v === null || typeof v !== 'object') return v;
+  if (Array.isArray(v)) return v.map(x => unpackTree(x, arrays));
+  if (v.__ta !== undefined) return arrays[v.__ta];
+  if (v.__num !== undefined) return Number(v.__num);
+  if (v.__map !== undefined) return new Map(v.__map.map(([k, x]) => [unpackTree(k, arrays), unpackTree(x, arrays)]));
+  if (v.__set !== undefined) return new Set(v.__set.map(x => unpackTree(x, arrays)));
+  const o = {};
+  for (const k of Object.keys(v)) o[k] = unpackTree(v[k], arrays);
+  return o;
+}
+
+const alignUp = (n, a) => Math.ceil(n / a) * a;
+
+/**
+ * Encode a value tree as a results file. Returns {parts, size}: the byte chunks in order (for a Blob,
+ * or joinParts in Node) and the total size in bytes.
+ */
+function encodeResultsFile(value) {
+  const blobs = [], tree = packTree(value, blobs, new Map()), A = CONST.RESULTS_FILE_ALIGN;
+  let off = 0;
+  const table = blobs.map(b => { off = alignUp(off, A); const e = { type: b.constructor.name, offset: off, length: b.length }; off += b.byteLength; return e; });
+  const json = new TextEncoder().encode(JSON.stringify({ tree, blobs: table }));
+  const head = new ArrayBuffer(16), hv = new DataView(head);
+  for (let i = 0; i < 8; i++) hv.setUint8(i, CONST.RESULTS_FILE_MAGIC.charCodeAt(i));
+  hv.setUint32(8, CONST.RESULTS_FILE_VERSION, true);
+  hv.setUint32(12, json.length, true);
+  const dataStart = alignUp(16 + json.length, A);
+  const parts = [new Uint8Array(head), json, new Uint8Array(dataStart - 16 - json.length)];
+  let pos = 0;
+  blobs.forEach((b, i) => {
+    if (table[i].offset > pos) parts.push(new Uint8Array(table[i].offset - pos));
+    parts.push(new Uint8Array(b.buffer, b.byteOffset, b.byteLength));
+    pos = table[i].offset + b.byteLength;
+  });
+  return { parts, size: dataStart + pos };
+}
+
+/** The parts of encodeResultsFile as one ArrayBuffer. */
+function joinParts(parts, size) {
+  const out = new Uint8Array(size);
+  let p = 0;
+  for (const x of parts) { out.set(x, p); p += x.length; }
+  return out.buffer;
+}
+
+/** Decode a results file (ArrayBuffer) into its value tree; typed arrays are copied out of the file buffer. */
+function decodeResultsFile(buffer) {
+  if (buffer.byteLength < 16) throw new Error('Not a results file (too short).');
+  const hv = new DataView(buffer);
+  let magic = '';
+  for (let i = 0; i < 8; i++) magic += String.fromCharCode(hv.getUint8(i));
+  if (magic !== CONST.RESULTS_FILE_MAGIC) throw new Error('Not an FCBGA screening tool results file.');
+  const version = hv.getUint32(8, true);
+  if (version > CONST.RESULTS_FILE_VERSION) throw new Error('This results file was written by a newer version of the tool (format ' + version + ').');
+  const len = hv.getUint32(12, true);
+  const { tree, blobs } = JSON.parse(new TextDecoder().decode(new Uint8Array(buffer, 16, len)));
+  const dataStart = alignUp(16 + len, CONST.RESULTS_FILE_ALIGN);
+  const arrays = blobs.map(b => {
+    const T = RESULTS_TYPED[b.type];
+    if (!T || dataStart + b.offset + b.length * T.BYTES_PER_ELEMENT > buffer.byteLength) throw new Error('The results file is damaged or incomplete.');
+    return new T(buffer, dataStart + b.offset, b.length).slice();
+  });
+  return unpackTree(tree, arrays);
+}
+
+/**
+ * Fingerprint of a mesh (grid lines, element groups, parts and fill fractions): a results file's step
+ * increments belong to exactly this mesh, so a tool version that meshes the same configuration
+ * differently cannot reuse them.
+ */
+function meshFingerprint(mesh) {
+  let h1 = 0xdeadbeef ^ mesh.nn, h2 = 0x41c6ce57 ^ mesh.ne;
+  for (const a of [mesh.xs, mesh.ys, mesh.zs, mesh.eGroup, mesh.ePart, mesh.eScale]) {
+    const b = new Uint8Array(a.buffer, a.byteOffset, a.byteLength);
+    for (let i = 0; i < b.length; i++) { h1 = Math.imul(h1 ^ b[i], 2654435761); h2 = Math.imul(h2 ^ b[i], 1597334677); }
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16).padStart(14, '0');
+}
+
+/**
+ * What a results file needs to bring an analysis back without solving: its configuration and run
+ * options, the mesh fingerprint, the plan of the thermal path and (unless `withoutSteps`) every step's
+ * displacement increment, single precision as the analysis keeps them.
+ */
+function exportAnalysisState(an, withoutSteps) {
+  const st = {
+    cfg: an.cfg, preset: an.opts.preset, evaluations: an.opts.evaluations, precond: an.opts.precond,
+    meshOverride: { hmin: an.opts.hmin, hmax: an.opts.hmax, cap: an.opts.cap },
+    fingerprint: meshFingerprint(an.mesh), nDof: an.model.ndof,
+    plan: an.path.steps.map(s => [s.Ta, s.Tb, s.stage, s.branch]),
+  };
+  if (!withoutSteps) st.du = an.du;
+  return st;
+}
+
+/** Steps of the thermal path per message when a results file's increments travel between the page and a worker. */
+function resultsChunkSteps(nDof) { return Math.max(1, Math.floor(CONST.RESULTS_FILE_CHUNK_BYTES / (4 * nDof))); }
+
+/**
+ * Rebuild an analysis from exportAnalysisState: mesh and model from the configuration, then the saved
+ * step increments in place of the solves. Throws when this tool version meshes the configuration or
+ * plans the thermal path differently.
+ */
+function restoreAnalysisState(st, opts) {
+  const an = new Analysis(st.cfg, Object.assign({ preset: st.preset, evaluations: st.evaluations, precond: st.precond }, st.meshOverride, opts || {}));
+  an.build();
+  if (an.model.ndof !== st.nDof || meshFingerprint(an.mesh) !== st.fingerprint) throw new Error('this version of the tool meshes the saved configuration differently');
+  an.restorePath(st.du, st.plan);
+  return an;
+}
+
 </script>
 <script type="text/plain" id="worker-driver">
 // ===== Web Worker driver (appended to the core block in the worker Blob) =====
@@ -6908,7 +7121,7 @@ function runVerification(ids, ctx) {
 // from the helpers while this worker is busy with a solve of its own.
 
 (function () {
-  const state = { an: null, hashes: null, db: null, screening: null, src: null, w: 0, livePort: null, helper: false };
+  const state = { an: null, hashes: null, db: null, screening: null, restoreDu: null, src: null, w: 0, livePort: null, helper: false };
   const post = m => self.postMessage(m);
   const progress = (id, frac, msg) => post({ type: 'progress', id, frac, msg });
   LIVE.post = info => {
@@ -7102,6 +7315,22 @@ function runVerification(ids, ctx) {
     return result;
   }
 
+  /**
+   * An analysis from a results file: the state from exportState, with the step increments sent before in
+   * restoreSteps; mesh and model rebuilt from the configuration, the saved increments in place of the solves,
+   * then held like a finished run.
+   */
+  function restoreFromFile(msg) {
+    const du = state.restoreDu || [];
+    state.restoreDu = null;
+    progress(msg.id, 0, 'Meshing and building the model');
+    const an = restoreAnalysisState(Object.assign({}, msg.state, { du }), { progress: (f, m) => progress(msg.id, f, m) });
+    if (an.opts.evaluations !== 'preview') { progress(msg.id, 0.95, 'Boundary faces'); an.faces = boundaryFaces(an.mesh); }
+    state.an = an;
+    state.hashes = configHashes(an.cfg);
+    return { nDof: an.model.ndof, steps: an.path.steps.length };
+  }
+
   /** Submodels for several sites: on helpers when possible, else sequentially here. */
   async function runSubmodels(msg, id) {
     const an = state.an;
@@ -7169,6 +7398,22 @@ function runVerification(ids, ctx) {
           post({ type: 'result', id, payload: withResidual(state.an, sm.run()) });
           break;
         }
+        case 'exportState': {
+          // the analysis for a results file: its state first, then the step increments in blocks (k0, k1)
+          const an = state.an;
+          if (!an) throw new Error('No analysis in memory; run the analysis first.');
+          if (msg.k0 === undefined) post({ type: 'result', id, payload: { state: exportAnalysisState(an, true), hashes: state.hashes, nSteps: an.du.length, chunk: resultsChunkSteps(an.model.ndof) } });
+          else post({ type: 'result', id, payload: { du: an.du.slice(msg.k0, msg.k1) } });
+          break;
+        }
+        case 'restoreSteps':
+          // step increments of a results file ahead of 'restore'; the first block drops the analysis held so far
+          if (msg.k0 === 0) { state.an = null; state.restoreDu = []; }
+          if (!state.restoreDu) throw new Error('Results file steps arrived out of order.');
+          msg.du.forEach((d, i) => { state.restoreDu[msg.k0 + i] = d; });
+          post({ type: 'result', id, payload: { ok: true } });
+          break;
+        case 'restore': state.an = null; post({ type: 'result', id, payload: restoreFromFile(msg) }); break;
         case 'sensitivityCase': {
           const r = runSensitivityCase(msg.cfg, { progress: (f, m) => progress(id, f, m) });
           post({ type: 'result', id, payload: r });
@@ -7257,7 +7502,7 @@ const maxWorkers = () => Math.max(1, Math.floor((navigator.hardwareConcurrency |
 const app = {
   cfg: null, results: null, baseline: null, fieldsCache: new Map(), screening: null, submodels: [], sensitivity: null, verification: null,
   step: 1, centerTab: 'floorplan', selectedDie: 0, resultsView: 'warpage', selectedT: 25, exaggeration: 5, cutLine: { axis: 'x', pos: 0 },
-  job: null, analysisLost: false, desktop: null, mesh: null, validation: { errors: [], warnings: [] }, geom: null, dirty: true,
+  job: null, analysisLost: false, analysisLostWhy: null, desktop: null, mesh: null, validation: { errors: [], warnings: [] }, geom: null, dirty: true,
   workers: Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1, maxWorkers())), nestedWorkers: true,
   decisions: [], showOverlay: 'warpage', cutDirty: true,
   // submodel cross-section view: submodel key (die:ix:iy), stored moment, cut direction and grid-line index, display options
@@ -7672,6 +7917,8 @@ const TIPS = {
   viewSens: 'Shows which inputs drive the results most: each input is moved to the low and high end of its plausible range and the resulting change in warpage, die stress and bump fatigue is drawn as a tornado chart, biggest effect on top.',
   viewVerify: 'Runs built-in benchmark tests (V1 to V15) that check the solver against textbook solutions, independent calculations and common-sense trends, so you can confirm the physics engine works correctly in your browser.',
   viewReport: 'Printable report and CSV export.',
+  saveResults: 'Save every result in memory as one results file (.fcbgares): the configuration, the analysis and the temperatures already viewed, cross-sections, bump screening and submodels, baseline, sensitivity and verification, plus the analysis behind them, so the file opens later with other temperatures, sections and new submodels available without solving again. Size: the analysis takes 4 bytes per DOF per thermal-path step (about 140 MB for the default package at Standard), plus the results (25 MB in all at Draft).',
+  openResults: 'Open a results file (.fcbgares) saved earlier: it replaces the current configuration and results, shows the saved views at once and then loads the analysis behind them into the worker. You can also drop the file on the window (desktop app: File > Open results, Ctrl+O).',
   restoreAnalysis: 'Re-runs the analysis behind these results with the configuration, mesh preset and worker count they were computed with, so other temperatures and the bump submodels work again.',
   tempSelect: 'Evaluation temperature of the displayed state. States between computed samples are interpolated linearly in temperature.',
   overlay: 'Field drawn on the floorplan: warpage of the substrate bottom or top, die stress, bump forces at chip join or as assembled, or the fatigue screening index.',
@@ -9099,7 +9346,7 @@ function renderPackagePanel(root) {
   const cfg = app.cfg;
   root.append(h('h2', null, '1. Package'));
   root.append(h('div', { class: 'row' }, h('label', null, 'Preset package '), h('select', tip('presetPkg', { onchange: e => { if (e.target.value) loadPreset(e.target.value); e.target.value = ''; } }), h('option', { value: '' }, 'Load a preset...'), ...C.PRESET_LIST.map(p => h('option', { value: p.id }, p.label)))));
-  root.append(h('div', { class: 'row' }, h('button', tip('saveCfg', { onclick: saveConfigFile }), 'Save configuration (JSON)'), h('button', tip('loadCfg', { onclick: loadConfigFile }), 'Load configuration'), h('input', tip('cfgName', { type: 'text', value: cfg.name, placeholder: 'configuration name', style: 'flex:1', onchange: e => { cfg.name = e.target.value; } }))));
+  root.append(h('div', { class: 'row' }, h('button', tip('saveCfg', { onclick: saveConfigFile }), 'Save configuration (JSON)'), h('button', tip('loadCfg', { onclick: loadConfigFile }), 'Load configuration'), h('button', tip('openResults', { onclick: pickResultsFile }), 'Open results file'), h('input', tip('cfgName', { type: 'text', value: cfg.name, placeholder: 'configuration name', style: 'flex:1', onchange: e => { cfg.name = e.target.value; } }))));
   root.append(h('h3', null, 'Substrate outline'));
   root.append(numField('Size x', () => cfg.substrate.sx, v => { cfg.substrate.sx = v; }, { unit: 'mm', min: 1, max: 150, plo: 5, phi: 110, help: 'sx' }));
   root.append(numField('Size y', () => cfg.substrate.sy, v => { cfg.substrate.sy = v; }, { unit: 'mm', min: 1, max: 150, plo: 5, phi: 110, help: 'sy' }));
@@ -9439,6 +9686,7 @@ function renderRunPanel(root) {
   const canRun = !app.validation.errors.length;
   root.append(h('div', { class: 'row' }, h('button', tip('runFull', { class: 'primary', disabled: canRun ? null : '', onclick: () => runFull() }), '▶ Run full global analysis'), h('button', tip('quickPreview', { disabled: canRun ? null : '', onclick: () => runPreview() }), 'Quick preview (Draft, 25 °C)')));
   root.append(h('div', { class: 'row' }, h('button', tip('pinBaseline', { disabled: app.results ? null : '', onclick: pinBaseline }), 'Pin as baseline'), h('button', tip('clearBaseline', { disabled: app.baseline ? null : '', onclick: () => { app.baseline = null; renderContext(); } }), 'Clear baseline'), h('button', tip('meshCheck', { disabled: canRun ? null : '', onclick: checkMeshSensitivity }), 'Check mesh sensitivity'), h('button', tip('exportCsv', { disabled: app.results ? null : '', onclick: exportCSV }), 'Export CSV'), h('button', tip('report', { disabled: app.results ? null : '', onclick: openReport }), 'Report (print / PDF)')));
+  root.append(h('div', { class: 'row' }, h('button', tip('saveResults', { disabled: app.results ? null : '', onclick: saveResultsFile }), 'Save results (' + C.CONST.RESULTS_FILE_EXT + ')'), h('button', tip('openResults', { onclick: pickResultsFile }), 'Open results file')));
   if (cfg.name && cfg.name.startsWith('Core thickness study')) root.append(h('div', { class: 'row' }, h('button', tip('coreStudy', { onclick: runCoreStudy }), 'Run both core variants and compare')));
   root.append(h('div', { class: 'small muted' }, 'Tip: pin a baseline, then compare variants. Ratios and deltas against the baseline are the most trustworthy outputs of a screening model.'));
   root.append(estimatedInputsCard(cfg));
@@ -9544,17 +9792,24 @@ function runPreview() {
  * The main worker holds the analysis behind app.results, which the temperature selector and the submodels read.
  * Jobs that neither produce nor read it (opts.side: verification, mesh check, core study) run on a one-shot
  * worker instead, so that running or cancelling them never discards it. opts.onPartial receives streamed results.
+ * msg may also be a function (send, progress) => Promise for a job of several messages, where send(m) posts one
+ * message and progress(frac, text) reports. opts.cancel replaces the restart of the main worker on cancel, for jobs that
+ * only read from it.
  */
 function startRun(msg, label, opts) {
   opts = opts || {};
   if (app.job) cancelRunning();
   const side = !!opts.side, client = side ? new WorkerClient() : worker;
-  const job = { label, cancel: side ? () => client.stop() : null };
+  const job = { label, cancel: side ? () => client.stop() : (opts.cancel || null) };
   app.job = job;
   const t0 = performance.now();
-  progressBegin(label, { kind: msg.type === 'run' ? 'analysis' : msg.type, msg, preset: msg.preset ? (C.CONST.MESH_PRESETS[msg.preset] || { label: msg.preset }).label : (msg.type === 'submodels' ? (msg.nxy + ' x ' + msg.nxy + ' x ' + msg.nz + ' voxels') : '') });
+  const one = typeof msg === 'function' ? {} : msg;
+  progressBegin(label, { kind: one.type === 'run' ? 'analysis' : (one.type || 'other'), msg: one, preset: one.preset ? (C.CONST.MESH_PRESETS[one.preset] || { label: one.preset }).label : (one.type === 'submodels' ? (one.nxy + ' x ' + one.nxy + ' x ' + one.nz + ' voxels') : '') });
   setStatus(label + ' starting…', 0);
-  const p = client.send(msg, (frac, m) => { if (app.job === job) { progressMsg(frac, m); setStatus(label + ': ' + m, frac); } }, opts.onPartial);
+  const onProgress = (frac, m) => { if (app.job === job) { progressMsg(frac, m); setStatus(label + ': ' + m, frac); } };
+  const p = typeof msg === 'function'
+    ? msg(m => { if (app.job !== job) return Promise.reject(new Error('cancelled')); return client.send(m, onProgress, opts.onPartial); }, onProgress)
+    : client.send(msg, onProgress, opts.onPartial);
   const settle = () => { if (side) client.stop(); if (app.job !== job) return false; app.job = null; progressEnd(); return true; };
   p.then(() => { if (settle()) setStatus(label + ' done in ' + fmt((performance.now() - t0) / 1000, 1) + ' s', null); }, () => { if (settle()) setStatus('Ready', null); });
   return p;
@@ -9579,7 +9834,7 @@ function restoreAnalysis() {
   const old = app.results;
   if (!old || !old.request) return;
   startRun(Object.assign({}, old.request), 'Restoring the analysis').then(res => {
-    res.request = old.request; res.preview = old.preview; app.analysisLost = false;
+    res.request = old.request; res.preview = old.preview; app.analysisLost = false; app.analysisLostWhy = null;
     app.results = res;
     if (res.screening) app.screening = res.screening;
     renderAll();
@@ -9589,10 +9844,18 @@ function restoreAnalysis() {
 /** Notice above the results while the analysis behind them is not in the worker (null otherwise). */
 function analysisLostNotice() {
   if (!app.analysisLost || !app.results) return null;
+  if (app.analysisLost === 'loading') return h('div', { class: 'msg info' }, 'Loading the analysis behind these results from the results file; other temperatures, cross-sections and the bump submodels are available once it is back (see the status bar).');
   const est = app.results.totalMs ? ' (about ' + fmt(app.results.totalMs / 1000, 0) + ' s, like the original run)' : '';
-  const why = app.analysisLost === 'stopped' ? 'The compute process stopped unexpectedly (most likely the computer ran out of memory)' : 'A cancelled job restarted the worker';
-  return h('div', { class: 'msg warning' }, why + ', so the analysis behind these results is no longer in memory. The states already loaded stay visible; other temperatures and the bump submodels need it again. ',
+  const why = {
+    stopped: 'The compute process stopped unexpectedly (most likely the computer ran out of memory), so the analysis behind these results is no longer in memory',
+    file: app.analysisLostWhy ? 'The analysis saved in the results file could not be loaded (' + app.analysisLostWhy + ')' : 'The results file was saved without the analysis behind its results',
+  }[app.analysisLost] || 'A cancelled job restarted the worker, so the analysis behind these results is no longer in memory';
+  return h('div', { class: 'msg warning' }, why + '. The states already loaded stay visible; other temperatures and the bump submodels need the analysis. ',
     h('button', tip('restoreAnalysis', { class: 'small', onclick: restoreAnalysis }), 'Restore analysis' + est));
+}
+/** Message for a view that needs the analysis while it is not in the worker (app.analysisLost set). */
+function analysisMissing(what) {
+  return what + (app.analysisLost === 'loading' ? ' the analysis, which is still loading from the results file; try again when it is back.' : ' the analysis, which is not in memory; use Restore analysis above the results first.');
 }
 function pinBaseline() { app.baseline = app.results; toast('Baseline pinned: ' + (app.cfg.name || 'current configuration') + ' at ' + app.results.preset + '.', 'ok'); renderContext(); }
 
@@ -9648,7 +9911,7 @@ function renderResults(root) {
 function selectTemperature(T) {
   app.selectedT = T;
   if (app.fieldsCache.has(T)) { app.currentFields = app.fieldsCache.get(T); renderCenter(); floorplan.draw(); return; }
-  if (app.analysisLost) { app.selectedT = app.currentFields ? app.currentFields.T : 25; toast('The ' + T + ' °C state needs the analysis, which is no longer in memory; use Restore analysis above the results first.', 'warn', 7000); renderCenter(); return; }
+  if (app.analysisLost) { app.selectedT = app.currentFields ? app.currentFields.T : 25; toast(analysisMissing('The ' + T + ' °C state needs'), 'warn', 7000); renderCenter(); return; }
   setStatus('Evaluating fields at ' + T + ' °C', 0.5);
   worker.send({ type: 'fieldsAt', T }).then(f => { app.fieldsCache.set(T, f); app.currentFields = f; setStatus('Ready', null); renderCenter(); floorplan.draw(); }).catch(e => { setStatus('Ready', null); toast(e.message, 'error'); });
 }
@@ -9810,7 +10073,7 @@ function defaultSubmodelSelection(res) {
 function runSubmodels(res) {
   const keys = Array.from(app.submodelSelection);
   if (!keys.length) { toast('Select at least one site.', 'warn'); return; }
-  if (app.analysisLost) { toast('The submodels need the analysis, which is no longer in memory; use Restore analysis above the results first.', 'warn', 7000); return; }
+  if (app.analysisLost) { toast(analysisMissing('The submodels need'), 'warn', 7000); return; }
   const cfg = app.cfg;
   const jobs = keys.map(k => { const [die, q] = k.split(':').map(Number); const s = res.screening[die]; return { die, site: { x: s.x[q], y: s.y[q], ix: s.ix[q], iy: s.iy[q] } }; });
   const onPartial = r => { app.submodels = app.submodels.filter(x => !(x.dieIdx === r.dieIdx && x.site.ix === r.site.ix && x.site.iy === r.site.iy)); app.submodels.push(r); renderCenter(); };
@@ -10500,7 +10763,7 @@ function renderSectionView(root, res, f, Tsel) {
       h('div', { class: 'small muted' }, sectionQtyLabel(qty) + ' at the element corners (nodal values averaged within each material; never across interfaces).'),
       h('details', null, h('summary', null, 'What this means'), h('p', { class: 'small' }, 'The plot shows the stress on the vertical plane under the line, from the bottom of the top solder resist to the package top, at the selected temperature in the as-assembled state. In each element the plane cuts, stresses are evaluated at the 2 × 2 Gauss positions of the cut face, extrapolated to its corners and averaged with neighbouring elements of the same material only, so jumps at material interfaces are real and kept. The bump layer is homogenized: the underfill phase shows the underfill stress between the bumps, the solder phase shows the stress in the bumps themselves (iso-strain mixture), not the stress field around an individual joint. The solder resist lies inside one element together with the top build-up layers: as in laminate theory, its in-plane stresses come from that element\'s in-plane strain with the solder resist\'s own stiffness, and its through-thickness stresses (σzz, τxz, τyz) are the element\'s averages over the band. Polymers that pass their glass transition on cooling (solder resist, underfill, adhesives) carry the full mismatch from their stress-free temperature at their glassy modulus, because the model has no viscoelastic relaxation, so their stresses are upper bounds. Values at die corners, fillet edges and material interfaces are singular and mesh dependent: compare them between designs, do not read them as strengths.'))));
   } else if (sec && sec.error) right.append(h('div', { class: 'msg err' }, sec.error));
-  else if (app.analysisLost) right.append(h('div', { class: 'msg warn' }, 'This section needs the analysis, which is no longer in memory; use Restore analysis above the results first.'));
+  else if (app.analysisLost) right.append(h('div', { class: 'msg warn' }, analysisMissing('This section needs')));
   else { right.append(h('div', { class: 'msg info' }, 'Evaluating the section…')); requestSection(); }
   root.append(h('div', { class: 'grid2' }, left, right));
   if (!ready) return;
@@ -10689,6 +10952,180 @@ function renderSubmodelSectionView(root) {
   requestAnimationFrame(() => { const draw = () => drawSectionPlot(cv, sec, F, scale, { qty: st.qty, phase: 'all', mesh: st.mesh, grey }); autoRedraw(cv, draw); draw(); });
 }
 
+// ===== UI: results file (.fcbgares): save every result of the session, open it again later ====
+//
+// A results file holds the configuration, the results in memory (analysis, temperatures already evaluated,
+// cross-sections, screening, bump submodels, baseline, sensitivity, verification), the view settings and,
+// while the main worker still has it, the analysis behind the results: the thermal path's step increments,
+// from which the worker rebuilds it without solving, so other temperatures, sections and submodels work
+// again after opening. The format is in src/core/16-results-file.js.
+
+/** View settings saved with the results, so the file opens where the user left off. */
+const RESULTS_VIEW_KEYS = ['selectedT', 'resultsView', 'selectedDie', 'dirty', 'section', 'sectionQty', 'sectionPhase', 'sectionMesh', 'sectionExag', 'sectionRange',
+  'subSection', 'bumpState', 'bumpComp', 'dieStressFace', 'showOverlay', 'exaggeration', 'cutLine', 'view3dOpts', 'submodelSelection', 'sensInputs'];
+
+function resultsFileName() {
+  const r = app.results;
+  return ((app.cfg.name || 'fcbga').replace(/[^\w.-]+/g, '_') + '_' + String(r.preset || '').toLowerCase() + (r.preview ? '_preview' : '')).replace(/_+$/, '') + C.CONST.RESULTS_FILE_EXT;
+}
+const fmtMB = bytes => fmt(bytes / 1048576, bytes < 10 * 1048576 ? 1 : 0) + ' MB';
+
+/** Everything a results file holds, as one value tree (analysis: the worker's state with its step increments, or null). */
+function resultsFileTree(analysis) {
+  const view = {};
+  for (const k of RESULTS_VIEW_KEYS) if (app[k] !== undefined && app[k] !== null) view[k] = app[k];
+  return {
+    kind: 'fcbga-results', savedAt: new Date().toISOString(),
+    config: app.cfg, results: app.results, baseline: app.baseline && app.baseline === app.results ? 'results' : app.baseline,
+    screening: app.screening, submodels: app.submodels, sensitivity: app.sensitivity, verification: app.verification,
+    fieldsCache: app.fieldsCache, sectionCache: app.sectionCache, view, analysis,
+  };
+}
+
+/**
+ * Save the results in memory as one .fcbgares file, with the analysis behind them while the main worker still
+ * holds it (its step increments travel in blocks, since the desktop app limits the size of one message).
+ */
+function saveResultsFile() {
+  if (!app.results) { toast('No results to save yet; run the analysis first.', 'warn'); return; }
+  if (app.job) { toast('Wait for the running job to finish, or cancel it, before saving the results.', 'warn', 7000); return; }
+  const res = app.results, name = resultsFileName();
+  const why = app.analysisLost ? 'the analysis behind these results is no longer in memory' : '';
+  // cancelling stops the collection only: the worker and its analysis stay
+  startRun(async (send, progress) => {
+    let analysis = null, note = why;
+    if (!app.analysisLost) {
+      progress(0, 'Collecting the analysis');
+      const head = await send({ type: 'exportState' });
+      if (!head.hashes || !res.hashes || head.hashes.all !== res.hashes.all) note = 'the worker holds a different analysis than these results';
+      else {
+        const du = [];
+        for (let k = 0; k < head.nSteps; k += head.chunk) {
+          progress(0.8 * k / head.nSteps, 'Collecting the thermal path (' + k + ' of ' + head.nSteps + ' steps)');
+          du.push(...(await send({ type: 'exportState', k0: k, k1: Math.min(head.nSteps, k + head.chunk) })).du);
+        }
+        analysis = Object.assign(head.state, { du });
+      }
+    }
+    progress(0.85, 'Writing ' + name);
+    const enc = C.encodeResultsFile(resultsFileTree(analysis));
+    const a = h('a', { href: URL.createObjectURL(new Blob(enc.parts, { type: 'application/octet-stream' })), download: name });
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 120000);
+    return { size: enc.size, analysis: !!analysis, note };
+  }, 'Saving the results', { cancel: () => {} }).then(r => {
+    if (r.analysis) toast('Results file ' + name + ' (' + fmtMB(r.size) + ') written, with the analysis behind the results: opening it brings back every view, other temperatures, sections and submodels without solving again.', 'ok', 9000);
+    else toast('Results file ' + name + ' (' + fmtMB(r.size) + ') written without the analysis (' + r.note + '): opening it shows these results, and Restore analysis re-runs the analysis for other temperatures and submodels.', 'warn', 11000);
+  }).catch(err => { if (err.message !== 'cancelled') toast('Saving the results failed: ' + err.message, 'error', 9000); });
+}
+
+/** Ask for a results file and open it. */
+function pickResultsFile() {
+  const inp = h('input', { type: 'file', accept: C.CONST.RESULTS_FILE_EXT });
+  inp.addEventListener('change', () => { const f = inp.files[0]; if (f) openResultsFile(f); });
+  inp.click();
+}
+
+/** Open a results file (a File or Blob, or an ArrayBuffer with its name): its results in the views at once, then its analysis back in the worker. */
+async function openResultsFile(file, name) {
+  name = name || file.name || 'the results file';
+  if (app.job && !window.confirm('A job is running (' + app.job.label + '). Stop it and open ' + name + '?')) return;
+  let t;
+  try {
+    setStatus('Reading ' + name, 0);
+    t = C.decodeResultsFile(file instanceof ArrayBuffer ? file : await file.arrayBuffer());
+    if (!t || t.kind !== 'fcbga-results' || !t.results || !t.config) throw new Error('it holds no results');
+  } catch (e) {
+    setStatus('Ready', null);
+    toast('Could not open ' + name + ': ' + e.message, 'error', 9000);
+    return;
+  }
+  setStatus('Ready', null);
+  if (app.job) cancelRunning();
+  applyResultsFile(t);
+  const st = t.analysis;
+  t.analysis = null;
+  if (!st || !st.du) {
+    app.analysisLost = 'file'; app.analysisLostWhy = null;
+    renderAll();
+    toast('Opened ' + name + '. It was saved without the analysis behind its results; Restore analysis re-runs it for other temperatures and submodels.', 'warn', 9000);
+    return;
+  }
+  app.analysisLost = 'loading';
+  renderAll();
+  const du = st.du;
+  delete st.du;
+  startRun(async (send, progress) => {
+    const chunk = C.resultsChunkSteps(st.nDof);
+    for (let k = 0; k < du.length; k += chunk) {
+      progress(0.3 * k / du.length, 'Sending the thermal path (' + k + ' of ' + du.length + ' steps)');
+      await send({ type: 'restoreSteps', k0: k, du: du.slice(k, k + chunk) });
+      du.fill(null, k, k + chunk);  // the worker has its copy
+    }
+    return send({ type: 'restore', state: st });
+  }, 'Opening ' + name).then(() => {
+    app.analysisLost = false; app.analysisLostWhy = null;
+    renderAll();
+    toast('Opened ' + name + ' (saved ' + new Date(t.savedAt).toLocaleString() + '): the results and the analysis behind them are back.', 'ok', 7000);
+  }).catch(err => {
+    if (err.message === 'cancelled') return;
+    app.analysisLost = 'file'; app.analysisLostWhy = err.message;
+    renderAll();
+    toast('Opened the results of ' + name + ', but not the analysis behind them: ' + err.message + '. Restore analysis re-runs it.', 'warn', 11000);
+  });
+}
+
+/** Put the contents of a results file in place of the current configuration and results. */
+function applyResultsFile(t) {
+  app.cfg = t.config; app.selectedDie = 0;
+  onConfigChanged('geometry', { released: true });
+  app.results = t.results;
+  app.baseline = t.baseline === 'results' ? t.results : (t.baseline || null);
+  app.screening = t.screening || t.results.screening || null;
+  app.submodels = t.submodels || [];
+  app.sensitivity = t.sensitivity || null;
+  app.verification = t.verification || null; app.verifying = null;
+  app.fieldsCache = t.fieldsCache instanceof Map ? t.fieldsCache : new Map();
+  app.sectionCache = t.sectionCache instanceof Map ? t.sectionCache : new Map();
+  app.sectionPending = null; app.sectionDraft = null; app.submodelSelection = null; app.sensInputs = null;
+  const v = t.view || {};
+  for (const k of RESULTS_VIEW_KEYS) if (v[k] !== undefined) app[k] = v[k];
+  const T = app.selectedT;
+  app.currentFields = T === 25 ? app.results.at25 : (app.fieldsCache.get(T) || null);
+  if (!app.currentFields) { app.selectedT = 25; app.currentFields = app.results.at25; }
+  app.step = 6;
+  floorplan.zoomFit();
+  setCenterTab('results');
+}
+
+/** Results files dropped on the window open like File > Open results (and do not replace the page). */
+function bindResultsFileDrop() {
+  const isFile = ev => ev.dataTransfer && Array.from(ev.dataTransfer.types || []).includes('Files');
+  document.addEventListener('dragover', ev => { if (isFile(ev)) { ev.preventDefault(); ev.dataTransfer.dropEffect = 'copy'; } });
+  document.addEventListener('drop', ev => {
+    if (!isFile(ev)) return;
+    ev.preventDefault();
+    const f = ev.dataTransfer.files[0];
+    if (!f) return;
+    if (f.name.toLowerCase().endsWith(C.CONST.RESULTS_FILE_EXT)) openResultsFile(f);
+    else toast('Only results files (' + C.CONST.RESULTS_FILE_EXT + ') open by dropping; load a configuration with Load configuration in step 1.', 'warn', 7000);
+  });
+}
+
+/** Desktop app: File menu commands, and a results file the program was started with (Open with, or dropped on the program file). */
+async function bindDesktopResultsFile() {
+  if (!DESKTOP || !DESKTOP.onMenu) return;
+  DESKTOP.onMenu(cmd => { if (cmd === 'open-results') pickResultsFile(); else if (cmd === 'save-results') saveResultsFile(); });
+  const f = await DESKTOP.openedFile();
+  if (!f) return;
+  // read in blocks: one message between the program and the page is limited in size
+  const buf = new Uint8Array(f.size), step = C.CONST.RESULTS_FILE_CHUNK_BYTES;
+  setStatus('Reading ' + f.name, 0);
+  for (let p = 0; p < f.size; p += step) buf.set(await DESKTOP.readOpenedFile(p, Math.min(step, f.size - p)), p);
+  DESKTOP.closeOpenedFile();
+  openResultsFile(buf.buffer, f.name);
+}
+
 // ===== UI: shell, navigation, wiring ===========================================
 
 function renderStepper() {
@@ -10784,6 +11221,8 @@ function init() {
   renderAll();
   setStatus('Ready. Load a preset or edit the package, then run the analysis in step 6.', null);
   if (DESKTOP) DESKTOP.system().then(s => { app.desktop = s; if (app.step === 6) renderContext(); }).catch(() => {});
+  bindResultsFileDrop();
+  bindDesktopResultsFile().catch(e => toast('Could not open the results file: ' + e.message, 'error', 9000));
 }
 init();
 

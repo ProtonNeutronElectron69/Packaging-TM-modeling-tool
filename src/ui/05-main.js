@@ -93,5 +93,7 @@ function init() {
   renderAll();
   setStatus('Ready. Load a preset or edit the package, then run the analysis in step 6.', null);
   if (DESKTOP) DESKTOP.system().then(s => { app.desktop = s; if (app.step === 6) renderContext(); }).catch(() => {});
+  bindResultsFileDrop();
+  bindDesktopResultsFile().catch(e => toast('Could not open the results file: ' + e.message, 'error', 9000));
 }
 init();

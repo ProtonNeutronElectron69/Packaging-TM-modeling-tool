@@ -2,7 +2,9 @@
 // ===== Desktop app: the page's end of the compute channel ==================================
 // Runs before the page, isolated from it, and exposes window.fcbgaDesktop: start a compute process
 // (the desktop stand-in for a Web Worker), post messages to it, stop it, and read the computer's
-// memory and core count. The page's WorkerClient uses it through DesktopWorker (src/ui/00-app.js).
+// memory and core count; also the File menu's results commands and a results file the program was started
+// with. The page's WorkerClient uses it through DesktopWorker (src/ui/00-app.js); the results file through
+// src/ui/04d-resultsfile.js.
 
 const { contextBridge, ipcRenderer } = require('electron');
 
@@ -25,4 +27,10 @@ contextBridge.exposeInMainWorld('fcbgaDesktop', {
     };
   },
   system: () => ipcRenderer.invoke('fcbga:system'),
+  /** File menu commands for the page ('open-results', 'save-results'). */
+  onMenu(cb) { ipcRenderer.on('fcbga:menu', (ev, cmd) => cb(cmd)); },
+  /** The results file the program was started with: {name, size} or null; read it in blocks, then close it. */
+  openedFile: () => ipcRenderer.invoke('fcbga:opened-file'),
+  readOpenedFile: (offset, length) => ipcRenderer.invoke('fcbga:opened-file-read', offset, length),
+  closeOpenedFile: () => ipcRenderer.invoke('fcbga:opened-file-close'),
 });

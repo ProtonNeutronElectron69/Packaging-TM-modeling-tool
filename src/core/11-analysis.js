@@ -197,6 +197,21 @@ class Analysis {
   }
 
   /**
+   * A thermal path saved in a results file: the same steps, then the saved increments in place of the solves.
+   * Throws when this tool version plans the path of the configuration differently.
+   */
+  restorePath(du, plan) {
+    const steps = this.buildPath(), n = this.model.ndof;
+    const same = steps.length === plan.length && steps.every((s, k) => s.Ta === plan[k][0] && s.Tb === plan[k][1] && s.stage === plan[k][2] && s.branch === plan[k][3]);
+    if (!same) throw new Error('this version of the tool plans the thermal path of the saved configuration differently');
+    for (let k = 0; k < steps.length; k++) {
+      if (!du[k] || du[k].length !== n) throw new Error('the thermal path in the results file is incomplete');
+      this.du[k] = du[k];
+    }
+    return this.finishPath();
+  }
+
+  /**
    * Totals from the solved steps: displacement fields at every evaluation
    * temperature and in the chip-join state; the increments are then kept in
    * single precision for the stress histories.
@@ -216,7 +231,7 @@ class Analysis {
       for (const k of P.chainJoin.concat(P.cpi)) add(c, k);
       this.uCPI = c;
     } else this.uCPI = null;
-    for (let k = 0; k < this.du.length; k++) this.du[k] = Float32Array.from(this.du[k]);
+    for (let k = 0; k < this.du.length; k++) if (!(this.du[k] instanceof Float32Array)) this.du[k] = Float32Array.from(this.du[k]);
     this.ck25 = new Map();
     this.timings.total = nowMs() - (this.tAll || nowMs());
     this.progress(0.92, 'Post-processing');

@@ -235,7 +235,6 @@ class WorkerClient {
   }
 }
 const worker = new WorkerClient();
-const workerPool = []; // extra workers for sensitivity
 
 /** Status bar text and progress; a running job's record (src/ui/00e-progress.js) adds the dot, times and details. */
 function setStatus(text, frac) {

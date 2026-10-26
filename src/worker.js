@@ -5,7 +5,7 @@
 // from the helpers while this worker is busy with a solve of its own.
 
 (function () {
-  const state = { an: null, hashes: null, db: null, screening: null, restoreDu: null, src: null, w: 0, livePort: null, helper: false };
+  const state = { an: null, hashes: null, db: null, restoreDu: null, src: null, w: 0, livePort: null, helper: false };
   const post = m => self.postMessage(m);
   const progress = (id, frac, msg) => post({ type: 'progress', id, frac, msg });
   LIVE.post = info => {
@@ -190,7 +190,6 @@
       if (an.temps.cycling.length > 1) {
         progress(id, 0.96, 'Screening all bumps');
         result.screening = g.dies.map((d, i) => screenBumps(an, i));
-        state.screening = result.screening;
       }
     }
     result.totalMs = nowMs() - t0;

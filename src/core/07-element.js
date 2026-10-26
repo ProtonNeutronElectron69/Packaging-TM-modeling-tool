@@ -123,41 +123,6 @@ condense33._col = new Float64Array(9);
 
 const _ek = { K: new Float64Array(1089), f: new Float64Array(33), dx: new Float64Array(NFUN), dy: new Float64Array(NFUN), dz: new Float64Array(NFUN) };
 
-/**
- * Homogeneous box element: 2x2x2 Gauss, stiffness D (36) and thermal-stress
- * vector s0 = D eps0 (6, or null). Returns the condensed record.
- */
-function boxElement(hx, hy, hz, D, s0) {
-  const { K, f, dx, dy, dz } = _ek;
-  K.fill(0); f.fill(0);
-  const w = hx * hy * hz / 8;
-  for (let a = 0; a < 2; a++) for (let b = 0; b < 2; b++) for (let c = 0; c < 2; c++) {
-    boxDerivs(hx, hy, hz, a ? GP2 : -GP2, b ? GP2 : -GP2, c ? GP2 : -GP2, dx, dy, dz);
-    accumulatePoint(dx, dy, dz, D, s0, w, K, f);
-  }
-  symmetrize33(K);
-  return condense33(K, s0 ? f : null);
-}
-
-/**
- * Layered box element: 2x2 in-plane Gauss x 3 zeta points {-1, 0, 1} with the
- * through-thickness weight matrices W_j (3 x 36) and thermal-stress weights
- * V_j (3 x 6) of buildBandSection; exact for the layered integrand and
- * identical to 2x2 in-plane by 2 through-thickness Gauss points per sub-layer.
- */
-function layeredBoxElement(hx, hy, hz, W, V) {
-  const { K, f, dx, dy, dz } = _ek;
-  K.fill(0); f.fill(0);
-  const w = hx * hy * hz / 8;
-  const zj = [-1, 0, 1];
-  for (let a = 0; a < 2; a++) for (let b = 0; b < 2; b++) for (let j = 0; j < 3; j++) {
-    boxDerivs(hx, hy, hz, a ? GP2 : -GP2, b ? GP2 : -GP2, zj[j], dx, dy, dz);
-    accumulatePoint(dx, dy, dz, W.subarray(36 * j, 36 * j + 36), V ? V.subarray(6 * j, 6 * j + 6) : null, w, K, f);
-  }
-  symmetrize33(K);
-  return condense33(K, V ? f : null);
-}
-
 /** Strain at (xi, eta, zeta) of a box element from u (24) and alpha (9). */
 function boxStrainAt(hx, hy, hz, u, alpha, xi, eta, zeta, eps) {
   const { dx, dy, dz } = _ek;
@@ -174,12 +139,6 @@ function boxStrainAt(hx, hy, hz, u, alpha, xi, eta, zeta, eps) {
     eps[5] += dz[b] * ux + dx[b] * uz;
   }
   return eps;
-}
-
-function matVec6(D, e, out) {
-  out = out || new Float64Array(6);
-  for (let r = 0; r < 6; r++) { let s = 0; for (let c = 0; c < 6; c++) s += D[r * 6 + c] * e[c]; out[r] = s; }
-  return out;
 }
 
 // ---- general (distorted) hexahedron, used for the patch test -------------------

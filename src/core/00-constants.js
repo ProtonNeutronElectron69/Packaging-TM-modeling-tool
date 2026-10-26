@@ -89,7 +89,6 @@ const CONST = Object.freeze({
   SIGN_MARGINAL: 0.25,       // |AB_max + AB_min + CD_max + CD_min| / |C| below this flags a marginal JEITA sign
   GF_PER_N: 101.97162,
   // ---- solder fatigue -------------------------------------------------------
-  R_GAS: 8.314,
   SCREEN_MAX_BUMPS: 20000,
   SCREEN_KEEP_ROWS: 3,
   SCREEN_CORNER_BLOCK: 10,

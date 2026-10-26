@@ -336,7 +336,6 @@ const CONST = Object.freeze({
   SIGN_MARGINAL: 0.25,       // |AB_max + AB_min + CD_max + CD_min| / |C| below this flags a marginal JEITA sign
   GF_PER_N: 101.97162,
   // ---- solder fatigue -------------------------------------------------------
-  R_GAS: 8.314,
   SCREEN_MAX_BUMPS: 20000,
   SCREEN_KEEP_ROWS: 3,
   SCREEN_CORNER_BLOCK: 10,
@@ -2321,41 +2320,6 @@ condense33._col = new Float64Array(9);
 
 const _ek = { K: new Float64Array(1089), f: new Float64Array(33), dx: new Float64Array(NFUN), dy: new Float64Array(NFUN), dz: new Float64Array(NFUN) };
 
-/**
- * Homogeneous box element: 2x2x2 Gauss, stiffness D (36) and thermal-stress
- * vector s0 = D eps0 (6, or null). Returns the condensed record.
- */
-function boxElement(hx, hy, hz, D, s0) {
-  const { K, f, dx, dy, dz } = _ek;
-  K.fill(0); f.fill(0);
-  const w = hx * hy * hz / 8;
-  for (let a = 0; a < 2; a++) for (let b = 0; b < 2; b++) for (let c = 0; c < 2; c++) {
-    boxDerivs(hx, hy, hz, a ? GP2 : -GP2, b ? GP2 : -GP2, c ? GP2 : -GP2, dx, dy, dz);
-    accumulatePoint(dx, dy, dz, D, s0, w, K, f);
-  }
-  symmetrize33(K);
-  return condense33(K, s0 ? f : null);
-}
-
-/**
- * Layered box element: 2x2 in-plane Gauss x 3 zeta points {-1, 0, 1} with the
- * through-thickness weight matrices W_j (3 x 36) and thermal-stress weights
- * V_j (3 x 6) of buildBandSection; exact for the layered integrand and
- * identical to 2x2 in-plane by 2 through-thickness Gauss points per sub-layer.
- */
-function layeredBoxElement(hx, hy, hz, W, V) {
-  const { K, f, dx, dy, dz } = _ek;
-  K.fill(0); f.fill(0);
-  const w = hx * hy * hz / 8;
-  const zj = [-1, 0, 1];
-  for (let a = 0; a < 2; a++) for (let b = 0; b < 2; b++) for (let j = 0; j < 3; j++) {
-    boxDerivs(hx, hy, hz, a ? GP2 : -GP2, b ? GP2 : -GP2, zj[j], dx, dy, dz);
-    accumulatePoint(dx, dy, dz, W.subarray(36 * j, 36 * j + 36), V ? V.subarray(6 * j, 6 * j + 6) : null, w, K, f);
-  }
-  symmetrize33(K);
-  return condense33(K, V ? f : null);
-}
-
 /** Strain at (xi, eta, zeta) of a box element from u (24) and alpha (9). */
 function boxStrainAt(hx, hy, hz, u, alpha, xi, eta, zeta, eps) {
   const { dx, dy, dz } = _ek;
@@ -2372,12 +2336,6 @@ function boxStrainAt(hx, hy, hz, u, alpha, xi, eta, zeta, eps) {
     eps[5] += dz[b] * ux + dx[b] * uz;
   }
   return eps;
-}
-
-function matVec6(D, e, out) {
-  out = out || new Float64Array(6);
-  for (let r = 0; r < 6; r++) { let s = 0; for (let c = 0; c < 6; c++) s += D[r * 6 + c] * e[c]; out[r] = s; }
-  return out;
 }
 
 // ---- general (distorted) hexahedron, used for the patch test -------------------
@@ -2512,125 +2470,6 @@ function bcsrFromElements(nn, conn, ne, npe) {
   return { n: nn, rowPtr, col, nb: rowPtr[nn] };
 }
 
-/** Block index of (i, j), j >= i; -1 if absent. */
-function bcsrFind(P, i, j) {
-  const c = P.col;
-  let lo = P.rowPtr[i], hi = P.rowPtr[i + 1] - 1;
-  while (lo <= hi) {
-    const m = (lo + hi) >> 1, v = c[m];
-    if (v === j) return m;
-    if (v < j) lo = m + 1; else hi = m - 1;
-  }
-  return -1;
-}
-
-/**
- * Element-to-block map: for each element and each ordered local pair (a, b)
- * with node(a) <= node(b), the block index (npe*npe entries, -1 otherwise).
- */
-function elementBlockMap(P, conn, ne, npe) {
-  npe = npe || 8;
-  const map = new Int32Array(ne * npe * npe).fill(-1);
-  for (let e = 0; e < ne; e++) {
-    for (let a = 0; a < npe; a++) {
-      const na = conn[e * npe + a];
-      for (let b = 0; b < npe; b++) {
-        const nb = conn[e * npe + b];
-        if (na <= nb) map[(e * npe + a) * npe + b] = bcsrFind(P, na, nb);
-      }
-    }
-  }
-  return map;
-}
-
-/** Scatter c * Ke (3npe x 3npe) of element e into block values val. */
-function scatterElement(val, Ke, c, conn, e, bmap, npe) {
-  npe = npe || 8;
-  const n3 = 3 * npe;
-  for (let a = 0; a < npe; a++) {
-    const na = conn[e * npe + a];
-    for (let b = 0; b < npe; b++) {
-      const k = bmap[(e * npe + a) * npe + b];
-      if (k < 0) continue;
-      // node(a) <= node(b): block (na, nb) receives Ke[a, b]
-      const v = 9 * k;
-      for (let p = 0; p < 3; p++) for (let q = 0; q < 3; q++) val[v + p * 3 + q] += c * Ke[(3 * a + p) * n3 + 3 * b + q];
-    }
-  }
-}
-
-/** y = K x for the symmetric upper-stored block matrix. */
-function bcsrMatVec(P, val, x, y) {
-  const n = P.n, rp = P.rowPtr, col = P.col;
-  y.fill(0);
-  for (let i = 0; i < n; i++) {
-    const xi0 = x[3 * i], xi1 = x[3 * i + 1], xi2 = x[3 * i + 2];
-    let y0 = 0, y1 = 0, y2 = 0;
-    for (let k = rp[i]; k < rp[i + 1]; k++) {
-      const j = col[k], v = 9 * k;
-      const a0 = val[v], a1 = val[v + 1], a2 = val[v + 2], a3 = val[v + 3], a4 = val[v + 4], a5 = val[v + 5], a6 = val[v + 6], a7 = val[v + 7], a8 = val[v + 8];
-      const xj0 = x[3 * j], xj1 = x[3 * j + 1], xj2 = x[3 * j + 2];
-      y0 += a0 * xj0 + a1 * xj1 + a2 * xj2;
-      y1 += a3 * xj0 + a4 * xj1 + a5 * xj2;
-      y2 += a6 * xj0 + a7 * xj1 + a8 * xj2;
-      if (j !== i) {
-        y[3 * j] += a0 * xi0 + a3 * xi1 + a6 * xi2;
-        y[3 * j + 1] += a1 * xi0 + a4 * xi1 + a7 * xi2;
-        y[3 * j + 2] += a2 * xi0 + a5 * xi1 + a8 * xi2;
-      }
-    }
-    y[3 * i] += y0; y[3 * i + 1] += y1; y[3 * i + 2] += y2;
-  }
-  return y;
-}
-
-/** Diagonal of the scalar matrix. */
-function bcsrDiag(P, val, d) {
-  d = d || new Float64Array(3 * P.n);
-  for (let i = 0; i < P.n; i++) {
-    const v = 9 * P.rowPtr[i]; // diagonal block is first in row (j = i is smallest)
-    d[3 * i] = val[v]; d[3 * i + 1] = val[v + 4]; d[3 * i + 2] = val[v + 8];
-  }
-  return d;
-}
-
-/**
- * Apply homogeneous Dirichlet constraints (zero rows and columns, keep the
- * diagonal). Returns the saved full rows of the constrained DOFs (for reactions).
- */
-function bcsrConstrain(P, val, dofs) {
-  const isC = new Uint8Array(3 * P.n);
-  for (const d of dofs) isC[d] = 1;
-  for (let i = 0; i < P.n; i++) {
-    for (let k = P.rowPtr[i]; k < P.rowPtr[i + 1]; k++) {
-      const j = P.col[k], v = 9 * k;
-      for (let p = 0; p < 3; p++) for (let q = 0; q < 3; q++) {
-        const r = 3 * i + p, c = 3 * j + q;
-        if ((isC[r] || isC[c]) && !(r === c)) val[v + p * 3 + q] = 0;
-      }
-    }
-  }
-  return isC;
-}
-
-/** Extract full scalar rows of given DOFs (before constraining) as sparse lists. */
-function bcsrRows(P, val, dofs) {
-  const want = new Map();
-  dofs.forEach((d, q) => want.set(d, q));
-  const rows = dofs.map(() => ({ idx: [], val: [] }));
-  for (let i = 0; i < P.n; i++) {
-    for (let k = P.rowPtr[i]; k < P.rowPtr[i + 1]; k++) {
-      const j = P.col[k], v = 9 * k;
-      for (let p = 0; p < 3; p++) for (let q = 0; q < 3; q++) {
-        const r = 3 * i + p, c = 3 * j + q, a = val[v + p * 3 + q];
-        if (want.has(r)) { rows[want.get(r)].idx.push(c); rows[want.get(r)].val.push(a); }
-        if (i !== j && want.has(c)) { rows[want.get(c)].idx.push(r); rows[want.get(c)].val.push(a); }
-      }
-    }
-  }
-  return rows;
-}
-
 function dot(a, b) { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i]; return s; }
 function norm2(a) { return Math.sqrt(dot(a, a)); }
 function axpy(alpha, x, y) { for (let i = 0; i < y.length; i++) y[i] += alpha * x[i]; }
@@ -2695,35 +2534,6 @@ const UNIV = (() => {
   }
   return { G, g, GH, gH };
 })();
-
-/**
- * 33x33 stiffness of a box element from stiffness weights at the three zeta
- * stations (Wst, 3 x 36, already including the zeta integration weights) or
- * from a single D (homogeneous, uses the full-box integrals).
- */
-function elementK33(hx, hy, hz, Wst, D, K) {
-  K.fill(0);
-  const h = [hx, hy, hz];
-  const V8 = hx * hy * hz / 8;
-  const nst = D ? 1 : 3;
-  for (let j = 0; j < nst; j++) {
-    const Wj = D ? D : Wst.subarray(36 * j, 36 * j + 36);
-    for (let r = 0; r < 3; r++) for (let s = 0; s < 3; s++) {
-      const c = V8 * (2 / h[r]) * (2 / h[s]);
-      const Gb = D ? UNIV.GH.subarray((r * 3 + s) * 121, (r * 3 + s) * 121 + 121) : UNIV.G.subarray((j * 9 + r * 3 + s) * 121, (j * 9 + r * 3 + s) * 121 + 121);
-      for (let p = 0; p < 3; p++) for (let q = 0; q < 3; q++) {
-        const dv = c * Wj[VOIGT_IDX[p][r] * 6 + VOIGT_IDX[q][s]];
-        if (dv === 0) continue;
-        for (let a = 0; a < NFUN; a++) {
-          const ga = Gb.subarray(a * 11, a * 11 + 11);
-          const row = (3 * a + p) * 33 + q;
-          for (let b = 0; b < NFUN; b++) K[row + 3 * b] += dv * ga[b];
-        }
-      }
-    }
-  }
-  return K;
-}
 
 /**
  * Box-element shape matrices M^{rs} (33 x 33) such that
@@ -7121,7 +6931,7 @@ function restoreAnalysisState(st, opts) {
 // from the helpers while this worker is busy with a solve of its own.
 
 (function () {
-  const state = { an: null, hashes: null, db: null, screening: null, restoreDu: null, src: null, w: 0, livePort: null, helper: false };
+  const state = { an: null, hashes: null, db: null, restoreDu: null, src: null, w: 0, livePort: null, helper: false };
   const post = m => self.postMessage(m);
   const progress = (id, frac, msg) => post({ type: 'progress', id, frac, msg });
   LIVE.post = info => {
@@ -7306,7 +7116,6 @@ function restoreAnalysisState(st, opts) {
       if (an.temps.cycling.length > 1) {
         progress(id, 0.96, 'Screening all bumps');
         result.screening = g.dies.map((d, i) => screenBumps(an, i));
-        state.screening = result.screening;
       }
     }
     result.totalMs = nowMs() - t0;
@@ -7696,7 +7505,6 @@ class WorkerClient {
   }
 }
 const worker = new WorkerClient();
-const workerPool = []; // extra workers for sensitivity
 
 /** Status bar text and progress; a running job's record (src/ui/00e-progress.js) adds the dot, times and details. */
 function setStatus(text, frac) {
@@ -8289,7 +8097,6 @@ const GLOSSARY = [
 ];
 
 // ---- matcher ----
-const GLOSSARY_BY_ID = new Map(GLOSSARY.map(g => [g.id, g]));
 const GLOSSARY_EXACT = new Map();
 const GLOSSARY_PIECES = new Map();
 for (const g of GLOSSARY) {

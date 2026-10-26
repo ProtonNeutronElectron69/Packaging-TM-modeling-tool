@@ -60,35 +60,6 @@ const UNIV = (() => {
 })();
 
 /**
- * 33x33 stiffness of a box element from stiffness weights at the three zeta
- * stations (Wst, 3 x 36, already including the zeta integration weights) or
- * from a single D (homogeneous, uses the full-box integrals).
- */
-function elementK33(hx, hy, hz, Wst, D, K) {
-  K.fill(0);
-  const h = [hx, hy, hz];
-  const V8 = hx * hy * hz / 8;
-  const nst = D ? 1 : 3;
-  for (let j = 0; j < nst; j++) {
-    const Wj = D ? D : Wst.subarray(36 * j, 36 * j + 36);
-    for (let r = 0; r < 3; r++) for (let s = 0; s < 3; s++) {
-      const c = V8 * (2 / h[r]) * (2 / h[s]);
-      const Gb = D ? UNIV.GH.subarray((r * 3 + s) * 121, (r * 3 + s) * 121 + 121) : UNIV.G.subarray((j * 9 + r * 3 + s) * 121, (j * 9 + r * 3 + s) * 121 + 121);
-      for (let p = 0; p < 3; p++) for (let q = 0; q < 3; q++) {
-        const dv = c * Wj[VOIGT_IDX[p][r] * 6 + VOIGT_IDX[q][s]];
-        if (dv === 0) continue;
-        for (let a = 0; a < NFUN; a++) {
-          const ga = Gb.subarray(a * 11, a * 11 + 11);
-          const row = (3 * a + p) * 33 + q;
-          for (let b = 0; b < NFUN; b++) K[row + 3 * b] += dv * ga[b];
-        }
-      }
-    }
-  }
-  return K;
-}
-
-/**
  * Box-element shape matrices M^{rs} (33 x 33) such that
  *   K33 = sum_{r,s} c_rs M^{rs},  c_rs = (hx hy hz / 8)(2 / h_r)(2 / h_s),
  * built once per material and temperature. Since c_rs = c_sr the six

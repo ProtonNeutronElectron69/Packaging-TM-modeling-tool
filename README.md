@@ -41,7 +41,7 @@ The same tool also comes as a Windows desktop app, for runs that need more memor
 
 ## Project status
 
-The specification in `CLAUDE.md` is implemented in full. Thirty pull requests are merged on `main`:
+The specification in `CLAUDE.md` is implemented in full. Thirty-one pull requests are merged on `main`:
 
 | PR | Merged | Content |
 |---|---|---|
@@ -75,6 +75,7 @@ The specification in `CLAUDE.md` is implemented in full. Thirty pull requests ar
 | [#28](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/28) | 2026-10-20 | Desktop app published automatically: every merge to main that changes the built page, desktop/ or the desktop workflow builds the installer and portable exe and publishes a GitHub release (next patch version after the latest desktop-v* tag, or the raised desktop/package.json version; tools/desktop-version.mjs), with the merged pull requests in its notes |
 | [#29](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/29) | 2026-10-21 | Live run progress: status-bar dot (green running, orange slow, red likely stuck), progress bar, elapsed and remaining time, and a Details panel updated once a second (steps with times, one row per worker with its PCG iterations and residual or submodel step, residual history, log); core live reports throttled to 1 s, helpers report on their own message ports; desktop compute process split into a relay thread and a driver thread; 3D view draws faces between parts so the full die, TIM and underfill volumes show |
 | [#30](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/30) | 2026-10-21 | Desktop app built and released as the portable exe only (the installer is no longer built; desktop-v1.0.0 to v1.0.2 keep theirs) |
+| [#31](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/31) | 2026-10-26 | Incremental thermoelasticity dσ = D(T)(dε − α dT) along the temperature path in place of the secant form (steps of at most 30 °C, 10 °C near a Tg, one solve each with a fresh preconditioner, spread over the workers; stresses from per-element histories; submodel elastic parts incremental too); column solder phase (axial and shear stiffness only) and free-standing column screening; lid foot and stiffener ring edges refined to h_min after the DOF cap (lidded default 506k DOF at Standard); submodel cross-section total-stress option; Fine cap 850k (1.18M DOF, h_min 0.138 mm); run-panel memory estimate fitted to measured peaks; V16 (suite 16/16); full Standard 912 s, 3.6 GB on 3 workers |
 
 Open items are listed under "Known issues and next steps" below. The largest is performance against the Section 13 targets.
 
@@ -267,7 +268,7 @@ Sources were read directly where the publisher allows it: manufacturer data shee
 
 ```
 node tools/build.mjs                       # writes dist/fcbga_thermomech_tool.html (always rebuild after editing src/)
-node tools/verify.mjs                      # full verification suite headless in Node, V1 to V16 (about 1 h: V10 about 21 min, V15 about 17, V8 and V9 about 8 each)
+node tools/verify.mjs                      # full verification suite headless in Node, V1 to V16 (about 1.5 h: V10 about 45 min with Fine at 1.18M DOF, V15 about 17, V8 and V9 about 8 each)
 node tools/verify.mjs V1,V2,V13            # selected tests
 node tools/verify.mjs --presets draft      # V15 timing presets (default draft,standard)
 node tools/smoke.mjs                       # Chromium: page load and Draft preview, zero console errors
@@ -315,7 +316,7 @@ Last headless run (Node 22, 4-core container), 16 of 16 pass. `dist/verification
 | V7 | Submodel consistency with homogenized bump layer | 0.38 % (bump-layer domain, uniform phases, stepped with the global up branch); 0.83 % with the production domain, reported as information | 2 % | pass |
 | V8 | Symmetry of the warpage field | 2.1e-10 (x), 2.2e-10 (y), 2.2e-11 (diagonal), 1.3e-10 mirrored | 1e-6 | pass |
 | V9 | Physical sanity on the presets | bare RT +220 µm convex; backside +64 MPa tensile; 0.8 mm core 162 vs 280 µm; 795G LH 168 vs 705G 261 µm | all four | pass |
-| V10 | Mesh convergence, Standard vs Fine | warpage 0.31 %, die interior peak 2.49 % (506k vs 910k DOF) | 5 % | pass |
+| V10 | Mesh convergence, Standard vs Fine | warpage 0.40 %, die interior peak 2.72 % (506k vs 1.18M DOF; peak 3.4 GB in one Node process) | 5 % | pass |
 | V11 | Solver integrity (last process step S3 30 to 25 °C) | residual 8.4e-11, reactions 1.1e-10 of the force scale, energy balance 1.2e-13 | 1e-8 / 1e-9 | pass |
 | V12 | JEITA sign and magnitude on synthetic domes | signs +1 / -1, magnitude error 0.0 | exact / 1e-9 | pass |
 | V13 | Unit checks (Si CTE, rotated Si moduli, SAC305 E, AlSiC-9 strain, Turner, Voigt, Reuss) | all exact | 1e-9 (formulas), printed precision (rounded references) | pass |

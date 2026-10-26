@@ -517,6 +517,48 @@ const VERIFICATION_TESTS = [
       return { pass, measured: pts.length - 1 + ' steps from ' + Ta + ' to ' + Tb + ' °C: free block ' + (free.smax / sref).toExponential(2) + ' x E alpha dT; held block ' + held.sx.toFixed(2) + ' MPa vs exact ' + exact.toFixed(2) + ' MPa (' + (100 * err).toFixed(2) + ' %); a secant (total) form would give ' + secant.toFixed(2) + ' MPa' };
     },
   },
+  {
+    id: 'V17', name: 'Results file round trip', slow: true,
+    criterion: 'restored results within 1e-6 relative; values, Maps, Sets, typed arrays (shared ones once) and non-finite numbers kept exactly; a changed mesh and a truncated file refused',
+    about: 'Runs a small bare-die package through the full thermal path, writes the analysis and a sample of results to a results file and reads it back. The reloaded analysis must give the same warpage, die stress, cross-section and bump strain history as the original without solving again, and a file whose mesh no longer matches must be refused.',
+    run(ctx) {
+      // a small bare-die package with an offset die, meshed to a DOF cap of its own (about 8k DOF, which the file
+      // must bring back too), so the round trip takes about a minute
+      const cfg = presetConfig(ctx.db, 'bare');
+      cfg.substrate.sx = cfg.substrate.sy = 12;
+      Object.assign(cfg.dies[0], { sx: 5, sy: 5, x: 0.5, y: -0.3 });
+      const an = new Analysis(cfg, { preset: 'draft', evaluations: 'full', cap: 6000 });
+      an.build(); an.run();
+      const sample = a => {
+        const g = a.mesh.geom, hot = a.cfg.cycling.Tmax, e = a.mesh.ne >> 1;
+        const q = a.qAlong(e, a.temps.cycling);
+        return {
+          w25: warpageJEITA(a.mesh, g, a.fields.get(25), a.cfg).signed, wHot: warpageJEITA(a.mesh, g, a.fieldAt(hot - 2.5), a.cfg).signed,
+          die: dieSurfaceStress(a.view(25), g, 0, 'top').smax, cpi: bumpLoads(a.view(25, 'cpi'), g, 0).worstV,
+          sec: sectionStress(a.view(hot), g, { axis: 'x', c: 0.2, a0: -5, a1: 5 }).sig, q: q.get(a.temps.cycling[0]),
+        };
+      };
+      const A = sample(an);
+      const shared = Float64Array.of(0.1, 2);
+      const extra = { nan: NaN, inf: -Infinity, map: new Map([[25, Int32Array.of(-3, 7)], [-40, 'x']]), set: new Set(['a:1', 2]), nested: [{ f: Float32Array.of(1.5, NaN) }, null, true, shared], shared };
+      const enc = encodeResultsFile({ analysis: exportAnalysisState(an), extra });
+      const back = decodeResultsFile(joinParts(enc.parts, enc.size));
+      const bn = restoreAnalysisState(back.analysis);
+      const B = sample(bn);
+      const rel = (a, b) => Math.abs(a - b) / Math.max(Math.abs(a), 1e-30);
+      const arel = (a, b) => { let m = 0, s = 0; for (let i = 0; i < a.length; i++) { m = Math.max(m, Math.abs(a[i] - b[i])); s = Math.max(s, Math.abs(a[i])); } return a.length === b.length ? m / s : Infinity; };
+      const errs = { 'warpage 25 °C': rel(A.w25, B.w25), 'warpage near Tmax (interpolated)': rel(A.wHot, B.wHot), 'die backside stress map': arel(A.die, B.die), 'CPI worst shear': rel(A.cpi, B.cpi), 'cross-section at Tmax': arel(A.sec, B.sec), 'bump strain history': arel(A.q, B.q) };
+      const x = back.extra, m = x.map;
+      const kept = Number.isNaN(x.nan) && x.inf === -Infinity && m instanceof Map && m.get(25) instanceof Int32Array && m.get(25)[1] === 7 && m.get(-40) === 'x' && x.nested[0].f instanceof Float32Array && Number.isNaN(x.nested[0].f[1]) && x.nested[1] === null && x.nested[2] === true
+        && x.set instanceof Set && x.set.has('a:1') && x.set.has(2) && x.shared === x.nested[3] && x.shared[0] === 0.1;
+      let refused = false;
+      try { restoreAnalysisState(Object.assign({}, back.analysis, { fingerprint: '0' })); } catch (e) { refused = true; }
+      let damaged = false;
+      try { decodeResultsFile(joinParts(enc.parts, enc.size).slice(0, enc.size - 8)); } catch (e) { damaged = true; }
+      const worst = Math.max(...Object.values(errs));
+      return { pass: worst < 1e-6 && kept && refused && damaged, measured: an.path.steps.length + ' steps, ' + an.model.ndof + ' DOF, file ' + (enc.size / 1048576).toFixed(1) + ' MB; ' + Object.entries(errs).map(([k, v]) => k + ' ' + v.toExponential(1)).join(', ') + '; special values ' + (kept ? 'kept' : 'changed') + '; changed mesh ' + (refused ? 'refused' : 'accepted') + '; truncated file ' + (damaged ? 'refused' : 'accepted') };
+    },
+  },
 ];
 
 /** Run selected verification tests. */

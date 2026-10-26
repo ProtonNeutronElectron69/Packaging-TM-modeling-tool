@@ -1,6 +1,7 @@
 // Browser smoke test with Playwright (headless Chromium): loads the built HTML,
 // checks for console errors, runs a Draft preview and a full Draft analysis via
-// the worker, and reports timings as seen in the browser.
+// the worker (saved to a results file and reopened after a page reload), and
+// reports timings as seen in the browser.
 //   node tools/smoke.mjs [--full] [--standard] [--workers N] [--submodels]
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -69,6 +70,39 @@ if (args.includes('--full')) {
     console.log('submodel section:', JSON.stringify(ss));
     if (!ss.residual || !ss.totalFinite || !ss.totalIsTotal || !(ss.residualMaxMPa > 0)) errors.push('error: submodel total stress: ' + JSON.stringify(ss));
   }
+  // results file: view one temperature (cached), save, reload the page, reopen the file; then a temperature never
+  // evaluated before saving must come out of the reloaded analysis as it did from the original one
+  const rf = await page.evaluate(async () => {
+    const ts = app.results.temps.all, T1 = ts[ts.length - 1], T2 = ts.find(T => T < 25) ?? ts[0];
+    selectTemperature(T1);
+    const t0 = performance.now();
+    while (!app.fieldsCache.has(T1) && performance.now() - t0 < 60000) await new Promise(r => setTimeout(r, 100));
+    const ref = await worker.send({ type: 'fieldsAt', T: T2 });
+    return { T1, T2, w25: app.results.at25.warpage.signed, w2: ref.warpage.signed, s2: ref.dies[0].top.peakInterior, hash: C.configHashes(app.cfg).all, nSub: app.submodels.length, nCache: app.fieldsCache.size };
+  });
+  const dlP = page.waitForEvent('download', { timeout: 120000 });
+  await page.evaluate(() => saveResultsFile());
+  const dl = await dlP, rfPath = path.join(root, 'dist', dl.suggestedFilename());
+  await dl.saveAs(rfPath);
+  const rfSize = fs.statSync(rfPath).size;
+  await page.reload();
+  await page.waitForSelector('#floorplan', { timeout: 20000 });
+  const fcP = page.waitForEvent('filechooser');
+  await page.evaluate(() => pickResultsFile());
+  await (await fcP).setFiles(rfPath);
+  await page.waitForFunction(() => app.results && app.analysisLost === false && !app.job, null, { timeout: 300000 });
+  const rb = await page.evaluate(async ([T1, T2]) => {
+    const cached = app.fieldsCache.has(T1);
+    selectTemperature(T2);
+    const t0 = performance.now();
+    while (!app.fieldsCache.has(T2) && performance.now() - t0 < 60000) await new Promise(r => setTimeout(r, 100));
+    const f = app.fieldsCache.get(T2);
+    return { cached, w25: app.results.at25.warpage.signed, w2: f ? f.warpage.signed : null, s2: f ? f.dies[0].top.peakInterior : null, hash: C.configHashes(app.cfg).all, nSub: app.submodels.length, step: app.step, tab: app.centerTab };
+  }, [rf.T1, rf.T2]);
+  const rel = (a, b) => Math.abs(a - b) / Math.max(Math.abs(a), 1e-30);
+  console.log('results file:', JSON.stringify({ file: path.basename(rfPath), MB: +(rfSize / 1048576).toFixed(1), before: rf, after: rb, warpageRel: rel(rf.w2, rb.w2), stressRel: rel(rf.s2, rb.s2) }));
+  if (!rb.cached || rb.w25 !== rf.w25 || rb.hash !== rf.hash || rb.nSub !== rf.nSub || !(rel(rf.w2, rb.w2) < 1e-5) || !(rel(rf.s2, rb.s2) < 1e-5)) errors.push('error: results file round trip: ' + JSON.stringify({ rf, rb }));
+  fs.unlinkSync(rfPath);
   // render results views
   await page.evaluate(() => { app.section = { axis: 'x', c: 0, a0: -20, a1: 20 }; app.sectionMesh = true; });
   for (const view of ['warpage', 'dieStress', 'bumps', 'uf', 'section', 'fatigue', 'subSection', 'view3d', 'report']) {

@@ -23,6 +23,7 @@ const APP_ID = 'com.fcbga.thermomech-tool';
 const GB = 1024 ** 3;
 
 let computeSrc = null;  // read from the page on first use
+let mainWin = null;     // the app window (the File menu's results commands go to its page)
 const compute = new Map();  // `${webContents id}:${worker id}` -> child process
 global.fcbgaCompute = compute;  // read by tools/desktop-smoke.mjs (process count, simulated crash)
 
@@ -74,6 +75,22 @@ ipcMain.handle('fcbga:system', () => ({
   app: app.getVersion(), electron: process.versions.electron, node: process.versions.node, chrome: process.versions.chrome,
 }));
 
+// A results file (.fcbgares) named on the command line (Windows "Open with", or a file dropped on the program file):
+// the page asks for it once loaded and reads it in blocks, since one message to the page is limited in size. Only
+// this file can be read this way.
+const RESULTS_EXT = /\.fcbgares$/i;
+let openedFile = (() => { const f = process.argv.slice(1).find(a => RESULTS_EXT.test(a) && fs.existsSync(a)); return f ? path.resolve(f) : null; })();
+ipcMain.handle('fcbga:opened-file', () => {
+  if (!openedFile) return null;
+  try { return { name: path.basename(openedFile), size: fs.statSync(openedFile).size }; } catch (e) { openedFile = null; return null; }
+});
+ipcMain.handle('fcbga:opened-file-read', (ev, offset, length) => {
+  if (!openedFile) throw new Error('no results file to read');
+  const fd = fs.openSync(openedFile, 'r');
+  try { const b = Buffer.alloc(length); const n = fs.readSync(fd, b, 0, length, offset); return b.subarray(0, n); } finally { fs.closeSync(fd); }
+});
+ipcMain.handle('fcbga:opened-file-close', () => { openedFile = null; });
+
 function isWeb(url) { return /^https?:/i.test(url); }
 
 function createWindow() {
@@ -115,9 +132,19 @@ function about() {
   });
 }
 
+/** A File menu command for the page (open or save a results file). */
+function pageCommand(cmd) {
+  if (!mainWin || mainWin.isDestroyed()) return;
+  mainWin.focus();
+  mainWin.webContents.send('fcbga:menu', cmd);
+}
+
 function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     { label: 'File', submenu: [
+      { label: 'Open results…', accelerator: 'CmdOrCtrl+O', click: () => pageCommand('open-results') },
+      { label: 'Save results…', accelerator: 'CmdOrCtrl+S', click: () => pageCommand('save-results') },
+      { type: 'separator' },
       { label: 'Print…', accelerator: 'CmdOrCtrl+P', click: () => { const w = focused(); if (w) w.webContents.print({}); } },
       { label: 'Save as PDF…', accelerator: 'CmdOrCtrl+Shift+P', click: saveAsPdf },
       { type: 'separator' },
@@ -140,11 +167,13 @@ function buildMenu() {
 app.setAppUserModelId(APP_ID);
 app.whenReady().then(() => {
   buildMenu();
-  // downloads (configuration JSON, CSV exports) ask where to save, starting in Documents
+  // downloads (configuration JSON, CSV exports, results files) ask where to save, starting in Documents
   require('electron').session.defaultSession.on('will-download', (ev, item) => {
-    item.setSaveDialogOptions({ defaultPath: path.join(app.getPath('documents'), item.getFilename()) });
+    const name = item.getFilename(), opts = { defaultPath: path.join(app.getPath('documents'), name) };
+    if (RESULTS_EXT.test(name)) opts.filters = [{ name: 'FCBGA results file', extensions: ['fcbgares'] }];
+    item.setSaveDialogOptions(opts);
   });
-  createWindow();
+  mainWin = createWindow();
 });
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', () => { for (const key of Array.from(compute.keys())) stopCompute(key); });

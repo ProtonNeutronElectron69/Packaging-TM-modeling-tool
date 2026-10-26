@@ -5,7 +5,7 @@
 // from the helpers while this worker is busy with a solve of its own.
 
 (function () {
-  const state = { an: null, hashes: null, db: null, screening: null, src: null, w: 0, livePort: null, helper: false };
+  const state = { an: null, hashes: null, db: null, screening: null, restoreDu: null, src: null, w: 0, livePort: null, helper: false };
   const post = m => self.postMessage(m);
   const progress = (id, frac, msg) => post({ type: 'progress', id, frac, msg });
   LIVE.post = info => {
@@ -199,6 +199,22 @@
     return result;
   }
 
+  /**
+   * An analysis from a results file: the state from exportState, with the step increments sent before in
+   * restoreSteps; mesh and model rebuilt from the configuration, the saved increments in place of the solves,
+   * then held like a finished run.
+   */
+  function restoreFromFile(msg) {
+    const du = state.restoreDu || [];
+    state.restoreDu = null;
+    progress(msg.id, 0, 'Meshing and building the model');
+    const an = restoreAnalysisState(Object.assign({}, msg.state, { du }), { progress: (f, m) => progress(msg.id, f, m) });
+    if (an.opts.evaluations !== 'preview') { progress(msg.id, 0.95, 'Boundary faces'); an.faces = boundaryFaces(an.mesh); }
+    state.an = an;
+    state.hashes = configHashes(an.cfg);
+    return { nDof: an.model.ndof, steps: an.path.steps.length };
+  }
+
   /** Submodels for several sites: on helpers when possible, else sequentially here. */
   async function runSubmodels(msg, id) {
     const an = state.an;
@@ -266,6 +282,22 @@
           post({ type: 'result', id, payload: withResidual(state.an, sm.run()) });
           break;
         }
+        case 'exportState': {
+          // the analysis for a results file: its state first, then the step increments in blocks (k0, k1)
+          const an = state.an;
+          if (!an) throw new Error('No analysis in memory; run the analysis first.');
+          if (msg.k0 === undefined) post({ type: 'result', id, payload: { state: exportAnalysisState(an, true), hashes: state.hashes, nSteps: an.du.length, chunk: resultsChunkSteps(an.model.ndof) } });
+          else post({ type: 'result', id, payload: { du: an.du.slice(msg.k0, msg.k1) } });
+          break;
+        }
+        case 'restoreSteps':
+          // step increments of a results file ahead of 'restore'; the first block drops the analysis held so far
+          if (msg.k0 === 0) { state.an = null; state.restoreDu = []; }
+          if (!state.restoreDu) throw new Error('Results file steps arrived out of order.');
+          msg.du.forEach((d, i) => { state.restoreDu[msg.k0 + i] = d; });
+          post({ type: 'result', id, payload: { ok: true } });
+          break;
+        case 'restore': state.an = null; post({ type: 'result', id, payload: restoreFromFile(msg) }); break;
         case 'sensitivityCase': {
           const r = runSensitivityCase(msg.cfg, { progress: (f, m) => progress(id, f, m) });
           post({ type: 'result', id, payload: r });

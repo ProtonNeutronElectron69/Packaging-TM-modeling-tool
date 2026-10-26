@@ -118,6 +118,12 @@ const CONST = Object.freeze({
   // ---- sensitivity ----------------------------------------------------------
   SENS_REL: 0.10,
   SENS_DT: 10,
+  // ---- results file (.fcbgares) ---------------------------------------------
+  RESULTS_FILE_MAGIC: 'FCBGARES',  // first 8 bytes of a results file
+  RESULTS_FILE_VERSION: 1,         // format version; a file from a newer version is refused
+  RESULTS_FILE_ALIGN: 8,           // bytes; alignment of each typed array in the data block
+  RESULTS_FILE_EXT: '.fcbgares',
+  RESULTS_FILE_CHUNK_BYTES: 64 * 1048576,  // step increments per message between the page and a worker (the desktop app's page-to-process channel limits one message)
   // ---- guard rails (hard bounds) ---------------------------------------------
   BOUNDS: {
     dieT: [0.05, 1.5], standoff: [0.020, 0.200], coreT: [0.1, 2.0],

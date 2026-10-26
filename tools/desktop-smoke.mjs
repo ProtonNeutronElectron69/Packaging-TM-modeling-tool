@@ -1,7 +1,8 @@
 // Desktop app smoke test (Electron, driven by Playwright): starts desktop/ as the user would, checks
 // that the page runs its workers as compute processes, runs a Draft preview and a full analysis,
-// renders every results view (the 3D view with the bundled three.js), opens the report window, and
-// checks that a compute process that dies is reported and replaced.
+// renders every results view (the 3D view with the bundled three.js), opens the report window, checks
+// that a compute process that dies is reported and replaced, and saves the results to a results file
+// that a second launch opens from its command line.
 //   node tools/desktop-smoke.mjs [--workers N] [--standard] [--submodels] [--exe path]
 // Needs `npm install` in desktop/ and a display (in a headless container: xvfb-run -a node ...).
 // --exe runs a packaged build (for example desktop/release/linux-unpacked/fcbga-thermomech-tool
@@ -58,6 +59,22 @@ if (args.includes('--submodels')) {
   }), workers);
   console.log('submodels:', JSON.stringify(sub));
 }
+// results file through File > Save results (the save dialog answered here), reopened at the end by a second launch
+// with the file on the command line, as Windows "Open with" does
+const rfPath = path.join(root, 'dist', 'desktop-smoke' + '.fcbgares');
+try { fs.unlinkSync(rfPath); } catch (e) { /* none yet */ }
+await app.evaluate(({ session }, p) => {
+  session.defaultSession.removeAllListeners('will-download');
+  session.defaultSession.on('will-download', (ev, item) => { item.setSavePath(p); item.once('done', (e, state) => { global.__dlState = state; }); });
+}, rfPath);
+const rfBefore = await page.evaluate(async () => {
+  const ts = app.results.temps.all, T2 = ts.find(T => T < 25) ?? ts[0];
+  const f = await worker.send({ type: 'fieldsAt', T: T2 });
+  return { T2, w25: app.results.at25.warpage.signed, w2: f.warpage.signed, s2: f.dies[0].top.peakInterior, nSub: app.submodels.length };
+});
+await app.evaluate(({ Menu }) => Menu.getApplicationMenu().items.find(i => i.label === 'File').submenu.items.find(i => i.label === 'Save results…').click());
+for (let t = 0; t < 600 && !(await app.evaluate(() => global.__dlState)); t++) await page.waitForTimeout(500);
+console.log('results file saved:', JSON.stringify({ state: await app.evaluate(() => global.__dlState), MB: fs.existsSync(rfPath) ? +(fs.statSync(rfPath).size / 1048576).toFixed(1) : null }));
 // every results view, then the 3D view with the bundled three.js (no CDN access needed)
 await page.evaluate(() => { app.section = { axis: 'x', c: 0, a0: -20, a1: 20 }; });
 for (const view of ['warpage', 'dieStress', 'bumps', 'uf', 'section', 'fatigue', 'subSection', 'view3d', 'report']) {
@@ -86,6 +103,24 @@ console.log('preview after the restart:', again, 'compute processes:', await pro
 await page.evaluate(() => setCenterTab('floorplan'));
 await page.waitForTimeout(300);
 await page.screenshot({ path: path.join(root, 'dist', 'screenshot_desktop.png') });
+await app.close();
+// second launch with the results file on the command line: it opens by itself, and a temperature never evaluated
+// before saving comes out of the reloaded analysis as it did from the original one
+const app2 = await pw._electron.launch({ executablePath: electronBin, args: (exe ? [] : [desk]).concat(linuxArgs, [rfPath]), env: Object.assign({}, process.env, { ELECTRON_ENABLE_LOGGING: '0' }) });
+const page2 = await app2.firstWindow();
+page2.on('console', m => { if (m.type() === 'error' || m.type() === 'warning') errors.push('second launch ' + m.type() + ': ' + m.text()); });
+page2.on('pageerror', e => errors.push('second launch pageerror: ' + e.message));
+const t2 = Date.now();
+await page2.waitForFunction(() => typeof app !== 'undefined' && app.results && app.analysisLost === false && !app.job, null, { timeout: 300000 });
+const openMs = Date.now() - t2;
+const rfAfter = await page2.evaluate(async T2 => {
+  const f = await worker.send({ type: 'fieldsAt', T: T2 });
+  return { w25: app.results.at25.warpage.signed, w2: f.warpage.signed, s2: f.dies[0].top.peakInterior, nSub: app.submodels.length, tab: app.centerTab };
+}, rfBefore.T2);
+const rel = (a, b) => Math.abs(a - b) / Math.max(Math.abs(a), 1e-30);
+console.log('results file reopened by a second launch:', JSON.stringify({ openMs, before: rfBefore, after: rfAfter, warpageRel: rel(rfBefore.w2, rfAfter.w2), stressRel: rel(rfBefore.s2, rfAfter.s2) }));
+if (rfAfter.w25 !== rfBefore.w25 || rfAfter.nSub !== rfBefore.nSub || !(rel(rfBefore.w2, rfAfter.w2) < 1e-5) || !(rel(rfBefore.s2, rfAfter.s2) < 1e-5)) errors.push('error: results file round trip: ' + JSON.stringify({ rfBefore, rfAfter }));
+await app2.close();
+fs.unlinkSync(rfPath);
 console.log('console errors/warnings:', errors.length);
 for (const e of errors.slice(0, 20)) console.log('  ', e);
-await app.close();

@@ -432,6 +432,8 @@ class BumpSubmodel {
   constructor(an, dieIdx, site, opts) {
     this.an = an; this.cfg = an.cfg; this.opts = Object.assign({ nxy: 16, nz: 14, elasticSolder: false, uniformMaterial: false, layerOnly: false, progress: null, cancelled: null }, opts || {});
     const g = an.mesh.geom, d = g.dies[dieIdx];
+    // the submodel puts a Si slice above the joint: a module base must be Si at least the slice thick
+    if (d.kind === 'module' && (d.base !== 'si' || d.tBase < CONST.SUB_MARGIN)) throw new Error(d.name + ': bump submodels need a Si base at least ' + (CONST.SUB_MARGIN * 1000).toFixed(0) + ' µm thick (organic RDL interposers are not supported by the submodel yet).');
     this.die = d; this.site = site;
     const n = this.opts.nxy, nz = this.opts.nz;
     const xs = [], ys = [];

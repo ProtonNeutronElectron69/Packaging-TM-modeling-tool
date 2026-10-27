@@ -40,7 +40,7 @@ const maxWorkers = () => Math.max(1, Math.floor((navigator.hardwareConcurrency |
 
 const app = {
   cfg: null, results: null, baseline: null, fieldsCache: new Map(), screening: null, submodels: [], sensitivity: null, verification: null,
-  step: 1, centerTab: 'floorplan', selectedDie: 0, resultsView: 'warpage', selectedT: 25, exaggeration: 5, cutLine: { axis: 'x', pos: 0 },
+  step: 1, centerTab: 'floorplan', selectedDie: 0, selectedChiplet: -1, resultsView: 'warpage', selectedT: 25, exaggeration: 5, cutLine: { axis: 'x', pos: 0 },
   job: null, analysisLost: false, analysisLostWhy: null, desktop: null, mesh: null, validation: { errors: [], warnings: [] }, geom: null, dirty: true,
   workers: Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1, maxWorkers())), nestedWorkers: true,
   decisions: [], showOverlay: 'warpage', cutDirty: true,
@@ -91,7 +91,7 @@ const HELP = {
   dmax: 'Maximum (equatorial) bump diameter. With UBM, SRO and standoff it fixes the joint volume and d_eff.',
   standoff: 'Bump height after chip join. Thinner standoffs raise the bump shear strain for the same mismatch.',
   Wf: 'Underfill fillet width at the substrate surface, measured from the die edge.',
-  Hf: 'Fillet height at the die sidewall as a fraction of the die thickness.',
+  Hf: 'Fillet height at the die sidewall as a fraction of the die thickness (for a stacked module, of its height above the bumps: base, DDI gap and chiplet).',
   Tuf: 'Effective stress-free temperature of the underfill. Default is the cure temperature; lower it toward Tg to emulate relaxation.',
   Tsub: 'Temperature at which the substrate is assumed stress-free (solder solidus or ABF cure).',
   Tjoin: 'Chip join: solder solidification temperature at which the die and bumps are born stress-free.',
@@ -246,6 +246,7 @@ function setStatus(text, frac) {
 }
 
 const RUN_S_PER_STEP = 2.7;  // s per step solve of the thermal path per 28k DOF (Draft lidded default, 76.9k DOF: full analysis 187 s on 3 workers, headless Chromium, 4-core container)
+const RUN_MODULE_FACTOR = 2.4;  // stacked modules: PCG iterations per step against a monolithic package of the same size (Standard, first solves of stage 1 and stage 3: 265 / 121 and 135 / 54)
 // Peak memory of a full analysis, fitted to the desktop compute process on the lidded default package (67 thermal-path
 // steps, peak resident memory): Draft 76.9k DOF 367 MB on 1 worker and 811 MB on 3; Standard 505.7k DOF 2876 MB on 2
 // and 3632 MB on 3. The main worker holds the model and its preconditioner, every step's increment (single precision,
@@ -267,7 +268,7 @@ function estimateRun(cfg, preset) {
     const helperMB = MEM_HELPER_MB + inf.nDof * MEM_HELPER_MB_PER_DOF;
     const nw = Math.max(1, app.workers || 1);
     const memMB = mainMB + (nw - 1) * helperMB;
-    const perSolve = inf.nDof / 28000 * RUN_S_PER_STEP;
+    const perSolve = inf.nDof / 28000 * RUN_S_PER_STEP * (cfg.modules && cfg.modules.length ? RUN_MODULE_FACTOR : 1);
     return { info: inf, warnings: C.meshWarnings(mesh), memMB, mainMB, helperMB, nSteps, previewS: Math.ceil(nChain / nw) * perSolve, fullS: Math.ceil(nSteps / nw) * perSolve + 8 };
   } catch (e) { return { error: e.message }; }
 }

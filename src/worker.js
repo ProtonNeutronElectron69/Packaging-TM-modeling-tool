@@ -138,20 +138,18 @@
     const u = view.u;
     const w = warpageJEITA(an.mesh, g, u, cfg);
     const top = substrateTopWarpage(an.mesh, g, u);
-    const dies = g.dies.map((d, i) => ({
-      name: d.name, rect: d.rect,
-      top: dieSurfaceStress(view, g, i, 'top'),
-      bottom: dieSurfaceStress(view, g, i, 'bottom'),
-      bumps: bumpLoads(view, g, i),
-      uf: ufTractions(view, g, i),
-    }));
+    // die stress on every silicon part (monolithic dies, chiplets, Si bases); bump loads and underfill tractions per
+    // object on the flip chip bump layer (dies and module bases); a monolithic die keeps its stress maps in both lists
+    const si = g.siParts.map((d, i) => ({ name: d.name, kind: d.kind || 'die', rect: d.rect, top: dieSurfaceStress(view, g, i, 'top'), bottom: dieSurfaceStress(view, g, i, 'bottom') }));
+    const dies = g.dies.map((d, i) => Object.assign({ name: d.name, kind: d.kind, rect: d.rect, bumps: bumpLoads(view, g, i), uf: ufTractions(view, g, i) },
+      d.kind === 'die' ? { top: si[g.siParts.indexOf(d)].top, bottom: si[g.siParts.indexOf(d)].bottom } : {}));
     const solidus = pv(findMaterial(cfg.materials, cfg.bump.solder).solidus || { v: 217 });
     return {
       T, molten: T > solidus,
       warpage: { signed: w.signed, mag: w.mag, sign: w.sign, signConf: w.signConf, marginal: w.marginal, shape: w.shape, limitHot: w.limitHot, limitRT: w.limitRT, grid: toF32(w.grid), rmin: w.rmin, rmax: w.rmax, ballX: toF32(g.bga.x), ballY: toF32(g.bga.y), ballRes: toF32(w.ballRes), ballW: toF32(w.ballW),
         diagAB: { s: toF32(w.diagAB.s), rel: toF32(w.diagAB.rel), w: toF32(w.diagAB.w), max: w.diagAB.max, min: w.diagAB.min }, diagCD: { s: toF32(w.diagCD.s), rel: toF32(w.diagCD.rel), w: toF32(w.diagCD.w), max: w.diagCD.max, min: w.diagCD.min }, plane: w.plane },
       substrateTop: { grid: toF32(top.grid), mag: top.mag, dies: top.dies },
-      dies,
+      dies, si,
       u: toF32(u),
     };
   }
@@ -176,7 +174,8 @@
       hashes: state.hashes, preset: an.mesh.info.preset, meshInfo, timings: an.timings, solverLog: an.log, notes: an.notes,
       temps: an.temps, finalStage: an.finalStage,
       xs: toF32(an.mesh.xs), ys: toF32(an.mesh.ys), zs: toF32(an.mesh.zs), nx: an.mesh.nx, ny: an.mesh.ny, nz: an.mesh.nz,
-      geometry: { substrate: g.substrate, dies: g.dies.map(d => ({ name: d.name, rect: d.rect, cx: d.cx, cy: d.cy, w: d.w, h: d.h, t: d.t, deff: d.deff, abump: d.abump, nbx: d.nbx, nby: d.nby, px: d.px, py: d.py })), bga: { zone: g.bga.zone, x: toF32(g.bga.x), y: toF32(g.bga.y) }, zt: g.zt, zaf: g.zaf, lid: g.lid ? { outer: g.lid.outer, inner: g.lid.inner, footH: g.lid.footH, blt: g.lid.blt } : null, stiff: g.stiff ? { outer: g.stiff.outer, inner: g.stiff.inner } : null },
+      geometry: { substrate: g.substrate, dies: g.dies.map(d => ({ name: d.name, kind: d.kind, rect: d.rect, cx: d.cx, cy: d.cy, w: d.w, h: d.h, t: d.t, deff: d.deff, abump: d.abump, nbx: d.nbx, nby: d.nby, px: d.px, py: d.py,
+        chiplets: d.chiplets ? d.chiplets.map(c => ({ name: c.name, rect: c.rect })) : undefined, sub: d.kind !== 'module' || (d.base === 'si' && d.tBase >= CONST.SUB_MARGIN) })), si: g.siParts.map(d => ({ name: d.name, kind: d.kind || 'die', rect: d.rect, zb: d.zb, ztop: d.ztop })), bga: { zone: g.bga.zone, x: toF32(g.bga.x), y: toF32(g.bga.y) }, zt: g.zt, zaf: g.zaf, lid: g.lid ? { outer: g.lid.outer, inner: g.lid.inner, footH: g.lid.footH, blt: g.lid.blt } : null, stiff: g.stiff ? { outer: g.stiff.outer, inner: g.stiff.inner } : null },
       at25: fieldsAt(an, 25, view25),
       sweep: an.temps.reflow.map(T => { const w = warpageJEITA(an.mesh, g, an.fields.get(T), cfg); return { T, signed: w.signed, mag: w.mag, sign: w.sign, signConf: w.signConf, marginal: w.marginal, shape: w.shape }; }),
       cpi: an.uCPI ? (v => g.dies.map((d, i) => bumpLoads(v, g, i)))(an.view(25, 'cpi')) : null,

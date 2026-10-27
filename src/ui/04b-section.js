@@ -45,8 +45,10 @@ function sectionPartName(sec, q) {
 /** Quads shown for the bump-layer phase choice: the underfill phase hides solder; the solder phase hides underfill where both share a cell. */
 function sectionVisible(sec, q, phase) {
   if (phase === 'all') return true;  // submodel sections: every voxel holds one material
-  const p = sec.part[q];
-  return phase === 'solder' ? !(p === C.PART.UF_BUMP && sec.pair[q]) : p !== C.PART.SOLDER;
+  const p = sec.part[q], P = C.PART;
+  // superposed pairs: bump or microbump phase with its fill, TSV Cu with the Si base
+  if (phase === 'solder') return !(sec.pair[q] && (p === P.UF_BUMP || p === P.DDI_FILL || p === P.BASE_SI));
+  return p !== P.SOLDER && !(sec.pair[q] && (p === P.DDI_SOLDER || p === P.TSV));
 }
 
 function bisect(arr, v) {

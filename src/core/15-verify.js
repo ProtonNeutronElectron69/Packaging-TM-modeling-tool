@@ -445,8 +445,8 @@ const VERIFICATION_TESTS = [
   },
   {
     id: 'V14', name: 'Configuration save / load round trip', slow: false,
-    criterion: 'identical configuration hash',
-    about: 'Saves the configuration to a JSON file and loads it back. Nothing may change, confirmed by an identical configuration fingerprint (hash).',
+    criterion: 'identical configuration hash (with and without stacked modules); a file from before stacked modules keeps its geometry and process hashes',
+    about: 'Saves a configuration to a JSON file and loads it back, once with monolithic dies and once with stacked modules. Nothing may change, confirmed by an identical configuration fingerprint (hash). A file saved before stacked modules existed must load with the same geometry and process fingerprints.',
     run(ctx) {
       const cfg = presetConfig(ctx.db, 'stiffener2');
       cfg.dies[1].x += 0.123456789;
@@ -454,7 +454,16 @@ const VERIFICATION_TESTS = [
       const h1 = configHashes(cfg).all;
       const back = parseConfig(serializeConfig(cfg));
       const h2 = configHashes(back).all;
-      return { pass: h1 === h2, measured: 'hash before ' + h1 + ', after ' + h2 };
+      // stacked modules round trip too
+      const mx = presetConfig(ctx.db, 'mixed');
+      mx.modules[1].chiplets[0].x += 0.0123456789; mx.stack.wcuf.Wf = 0.271828; mx.modules[0].rdl[1].r = 0.4321;
+      const m1 = configHashes(mx).all, m2 = configHashes(parseConfig(serializeConfig(mx))).all;
+      // a file from before stacked modules (no modules or stack) loads with unchanged geometry and process hashes
+      const old = presetConfig(ctx.db, 'default'), ho = configHashes(old);
+      delete old.modules; delete old.stack;
+      const hn = configHashes(parseConfig(serializeConfig(old), ctx.db));
+      const compat = ho.geometry === hn.geometry && ho.process === hn.process;
+      return { pass: h1 === h2 && m1 === m2 && compat, measured: 'hash before ' + h1 + ', after ' + h2 + '; stacked modules ' + m1 + ', after ' + m2 + '; configuration without modules: geometry and process hashes ' + (compat ? 'unchanged' : 'changed') };
     },
   },
   {
@@ -557,6 +566,62 @@ const VERIFICATION_TESTS = [
       try { decodeResultsFile(joinParts(enc.parts, enc.size).slice(0, enc.size - 8)); } catch (e) { damaged = true; }
       const worst = Math.max(...Object.values(errs));
       return { pass: worst < 1e-6 && kept && refused && damaged, measured: an.path.steps.length + ' steps, ' + an.model.ndof + ' DOF, file ' + (enc.size / 1048576).toFixed(1) + ' MB; ' + Object.entries(errs).map(([k, v]) => k + ' ' + v.toExponential(1)).join(', ') + '; special values ' + (kept ? 'kept' : 'changed') + '; changed mesh ' + (refused ? 'refused' : 'accepted') + '; truncated file ' + (damaged ? 'refused' : 'accepted') };
+    },
+  },
+  {
+    id: 'V18', name: 'Stacked modules: free module stages and silicon stress', slow: true,
+    criterion: 'uniform-CTE module stress-free after its process stages (below 1e-3 of E α ΔT); module support reactions below 1e-6 of the internal force scale; bare module package convex at 25 °C with finite chiplet and base stresses',
+    about: 'A small package with one Si-base module and two chiplets. With every module material given the CTE of silicon, the module process stages (chiplet join, wafer underfill and mold cure) must leave the free module stress-free, apart from the pull of the not-yet-born bumps and underfill under it (stiffness 1e-6 of their own, about 2e-4 of E α ΔT here); with the real materials the temporary three-point support of the free module must carry essentially no force. The bare module package must come out convex (silicon on the higher-CTE substrate, as V9 for a bare die) with finite stresses on every chiplet and on the base.',
+    run(ctx) {
+      const small = () => {
+        const cfg = presetConfig(ctx.db, 'bare');
+        cfg.substrate.sx = cfg.substrate.sy = 14;
+        const m = defaultModule('M1', 0, 0, 'si');
+        Object.assign(m, { sx: 7, sy: 6 });
+        m.chiplets = [defaultChiplet('C1', -1.75, 0, 3.0, 5.0), defaultChiplet('C2', 1.75, 0, 3.0, 5.0)];
+        cfg.dies = []; cfg.modules = [m];
+        return cfg;
+      };
+      const opts = { preset: 'draft', evaluations: 'preview', cap: 20000 };
+      // (1) uniform CTE: every module material takes the silicon CTE (Okada and Tokumaru form)
+      const cu = small(), si = findMaterial(cu.materials, 'si');
+      for (const id of [cu.stack.moldMat, cu.stack.wcuf.mat, cu.stack.ddi.solder, 'cu']) { const mm = findMaterial(cu.materials, id); mm.cte = deepClone(si.cte); delete mm.cteXY; delete mm.cteZ; }
+      const au = new Analysis(cu, opts);
+      au.build();
+      const steps = au.buildPath(), mod = au.path.chain.filter(k => steps[k].stage < 0);
+      for (const k of mod) au.du[k] = au.solveStep(k).u;
+      let smax = 0;
+      const st = { eps: new Float64Array(6), sig: new Float64Array(6) }, modParts = new Set([PART.CHIPLET, PART.BASE_SI, PART.TSV, PART.DDI_SOLDER, PART.DDI_FILL, PART.WCUF_FILLET, PART.MOLD]);
+      for (let e = 0; e < au.mesh.ne; e++) {
+        if (!modParts.has(au.mesh.ePart[e])) continue;
+        const h = au.elementHistory(e, mod);
+        au.model.stateStress(e, h, 0, 0, 0, st);
+        for (let c = 0; c < 6; c++) smax = Math.max(smax, Math.abs(st.sig[c]));
+      }
+      const T0 = cu.stack.process.Tddi, T1 = cu.process.Tsub;
+      const scale = 130000 * 3e-6 * Math.max(Math.abs(T0 - cu.stack.process.Twcuf), Math.abs(cu.stack.process.Tmold - T1), 1);
+      // (2) real materials: reactions at the module's support on the first module step
+      const cfg = small();
+      const an = new Analysis(cfg, opts);
+      an.build();
+      an.solver.opts.tol = 1e-10;
+      an.buildPath();
+      const k0 = an.path.chain[0], s0 = an.path.steps[k0];
+      const u = an.solveStep(k0).u, model = an.model, f = new Float64Array(model.ndof), Ku = new Float64Array(model.ndof);
+      model.assembleStep(s0.Ta, s0.Tb, s0.stage, f, true);
+      fullMatVec(model.pattern, model.val, u, Ku);
+      let fscale = 0, reac = 0;
+      for (let q = 0; q < model.ndof; q++) fscale = Math.max(fscale, Math.abs(Ku[q]), Math.abs(f[q]));
+      for (const d of model.moduleConstraints) reac = Math.max(reac, Math.abs(Ku[d] - f[d]));
+      // (3) the whole path of the bare module package
+      const bn = new Analysis(small(), opts);
+      bn.build(); bn.run();
+      const g = bn.mesh.geom, w = warpageJEITA(bn.mesh, g, bn.fields.get(25), bn.cfg), v25 = bn.view(25);
+      // whole-face Gauss-point peaks: the chiplets of this small model are too narrow on its coarse grid for an interior (edge band excluded) value
+      const sis = g.siParts.map((p, i) => ({ name: p.name, top: dieSurfaceStress(v25, g, i, 'top').gpPeakAll, bottom: dieSurfaceStress(v25, g, i, 'bottom').gpPeakAll }));
+      const finite = sis.length === 3 && sis.every(p => isFinite(p.top) && isFinite(p.bottom));
+      const pass = smax / scale < 1e-3 && reac / fscale < 1e-6 && w.sign > 0 && finite;
+      return { pass, measured: 'uniform-CTE module after ' + mod.length + ' module steps: max |σ| ' + smax.toExponential(2) + ' MPa = ' + (smax / scale).toExponential(2) + ' of E α ΔT; module support reactions ' + (reac / fscale).toExponential(2) + ' of the internal force scale (' + stepLabel(s0) + '); bare module package (' + bn.model.ndof + ' DOF, ' + bn.path.steps.length + ' steps) RT warpage ' + (w.signed * 1000).toFixed(2) + ' µm (' + (w.sign > 0 ? 'convex' : 'concave') + '); whole-face Gauss-point peaks (top / bottom) ' + sis.map(p => p.name + ' ' + p.top.toFixed(1) + ' / ' + p.bottom.toFixed(1) + ' MPa').join(', ') };
     },
   },
 ];

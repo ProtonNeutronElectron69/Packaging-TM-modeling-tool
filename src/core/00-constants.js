@@ -23,6 +23,8 @@ const CONST = Object.freeze({
   SOLDER_MOLTEN_FRACTION: 0.01, // solder E above solidus = 1 % of E(solidus)
   LAYERED_PLANE_STRESS: true,   // continuum-shell sub-layer stiffness in the layered substrate bands
   COLUMN_INPLANE_FRACTION: 1e-3, // in-plane stiffness of the solder column phase, fraction of its axial stiffness (numerical floor)
+  // stacked-module process stages, before the substrate stage S0 (stage numbers; a material is born in its stage)
+  STAGE: Object.freeze({ DDI: -3, WCUF: -2, MOLD: -1 }),
   // ---- incremental thermoelastic path (Section 6.5, as amended) -----------
   INC_DT_MAX: 30,            // degC, largest temperature step of the thermal path
   INC_DT_TG: 10,             // degC, largest step within INC_TG_BAND of any Tg
@@ -43,6 +45,7 @@ const CONST = Object.freeze({
   FILLET_FILL_SAMPLES: 4,    // in-plane samples per side for the filled fraction of a fillet cell
   FILLET_FILL_MIN: 0.05,     // fillet cells filled less than this are left void
   ASPECT_WARN: 50,
+  CHIPLET_GAP_WARN: 0.05,    // mm, chiplet-to-chiplet gaps below this warn of wafer underfill or mold flow risk
   SIZE_SAMPLES: 256,         // samples per interval for the size-function mapping
   CAP_GROWTH_PAD: 1.03,
   CAP_MAX_ITER: 12,
@@ -119,13 +122,13 @@ const CONST = Object.freeze({
   SENS_DT: 10,
   // ---- results file (.fcbgares) ---------------------------------------------
   RESULTS_FILE_MAGIC: 'FCBGARES',  // first 8 bytes of a results file
-  RESULTS_FILE_VERSION: 1,         // format version; a file from a newer version is refused
+  RESULTS_FILE_VERSION: 2,         // format version (2: stacked modules in the configuration and the results); a file from a newer version is refused
   RESULTS_FILE_ALIGN: 8,           // bytes; alignment of each typed array in the data block
   RESULTS_FILE_EXT: '.fcbgares',
   RESULTS_FILE_CHUNK_BYTES: 64 * 1048576,  // step increments per message between the page and a worker (the desktop app's page-to-process channel limits one message)
   // ---- guard rails (hard bounds) ---------------------------------------------
   BOUNDS: {
-    dieT: [0.05, 1.5], standoff: [0.020, 0.200], coreT: [0.1, 2.0],
+    dieT: [0.05, 1.5], standoff: [0.020, 0.200], coreT: [0.1, 2.0], baseT: [0.02, 1.5], ddiStandoff: [0.005, 0.100],
     cte: [0, 300], modulusGPa: [0.0001, 500], nu: [0, 0.49],
   },
 });

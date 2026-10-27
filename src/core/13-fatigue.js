@@ -165,6 +165,46 @@ class AnandPoint {
     return d;
   }
 
+  /**
+   * Step of a free-standing column of this solder in series with an elastic
+   * pillar (a DDI microbump: solder cap of height fraction fs on a Cu pillar of
+   * fraction 1 - fs). The column-average mechanical strains tz = (zz, yz, zx) are
+   * prescribed: fs eps_Z + (1 - fs) Cp sigma_Z = tz, with the pillar compliances
+   * Cp = (1/E_p, 1/G_p, 1/G_p) (the axial and shear stresses are the same in cap
+   * and pillar), and the cap's in-plane stresses vanish. Newton on the six strains
+   * of the cap with the consistent tangent. eps holds the cap's mechanical strain
+   * (guess on entry, solution on return). Returns the plastic increment.
+   */
+  stepSeriesColumn(eps, tz, fs, Cp, T, dt, out, k) {
+    const P = [0, 1, 3], Z = [2, 4, 5], ord = [0, 1, 3, 2, 4, 5], fp = 1 - fs;
+    const J = this._serJ || (this._serJ = new Float64Array(36)), R = this._serR || (this._serR = new Float64Array(6));
+    const E = this.E(T);
+    let d = 0;
+    for (let it = 0; it < CONST.COLUMN_NEWTON_MAXIT; it++) {
+      d = this.step(eps, T, dt, out, true, k);
+      for (let r = 0; r < 3; r++) { R[r] = out.sig[P[r]]; R[3 + r] = fs * eps[Z[r]] + fp * Cp[r] * out.sig[Z[r]] - tz[r]; }
+      const ref = Math.max(1, Math.abs(out.sig[2]), Math.abs(out.sig[4]), Math.abs(out.sig[5]));
+      let worst = 0;
+      for (let r = 0; r < 3; r++) worst = Math.max(worst, Math.abs(R[r]), Math.abs(R[3 + r]) * E);
+      if (worst < CONST.COLUMN_STRESS_TOL * ref) break;
+      for (let r = 0; r < 6; r++) for (let c = 0; c < 6; c++) {
+        const Dv = out.D[6 * ord[r] + ord[c]];
+        J[6 * r + c] = r < 3 ? Dv : fp * Cp[r - 3] * Dv + (ord[r] === ord[c] ? fs : 0);
+      }
+      // Gaussian elimination with partial pivoting in place (no allocation: millions of calls per screening)
+      for (let c = 0; c < 6; c++) {
+        let pr = c;
+        for (let r = c + 1; r < 6; r++) if (Math.abs(J[6 * r + c]) > Math.abs(J[6 * pr + c])) pr = r;
+        if (pr !== c) { for (let q = 0; q < 6; q++) { const t = J[6 * c + q]; J[6 * c + q] = J[6 * pr + q]; J[6 * pr + q] = t; } const t = R[c]; R[c] = R[pr]; R[pr] = t; }
+        const piv = J[7 * c];
+        for (let r = c + 1; r < 6; r++) { const f = J[6 * r + c] / piv; if (f === 0) continue; for (let q = c; q < 6; q++) J[6 * r + q] -= f * J[6 * c + q]; R[r] -= f * R[c]; }
+      }
+      for (let c = 5; c >= 0; c--) { let v = R[c]; for (let q = c + 1; q < 6; q++) v -= J[6 * c + q] * R[q]; R[c] = v / J[7 * c]; }
+      for (let c = 0; c < 6; c++) eps[ord[c]] -= R[c];
+    }
+    return d;
+  }
+
   /** ds/d(delta ebar_p) from the implicit evolution equation. */
   _dsdd(d, s, dt, expQ) {
     if (d <= 0) return 0;
@@ -253,15 +293,15 @@ function cycleHistory(cyc) {
 }
 
 /** Bump sites kept for screening (subsampled above SCREEN_MAX_BUMPS). */
-function screeningSites(d) {
+function screeningSites(d, max) {
   const all = dieBumpSites(d);
-  const n = all.x.length;
-  if (n <= CONST.SCREEN_MAX_BUMPS) return { sites: all, idx: null, subsampled: false };
+  const n = all.x.length, cap = max || CONST.SCREEN_MAX_BUMPS;
+  if (n <= cap) return { sites: all, idx: null, subsampled: false };
   const keep = [];
   const must = q => all.row[q] < CONST.SCREEN_KEEP_ROWS || ((all.ix[q] < CONST.SCREEN_CORNER_BLOCK || all.ix[q] >= d.nbx - CONST.SCREEN_CORNER_BLOCK) && (all.iy[q] < CONST.SCREEN_CORNER_BLOCK || all.iy[q] >= d.nby - CONST.SCREEN_CORNER_BLOCK));
   const rest = [];
   for (let q = 0; q < n; q++) { if (must(q)) keep.push(q); else rest.push(q); }
-  const budget = Math.max(0, CONST.SCREEN_MAX_BUMPS - keep.length);
+  const budget = Math.max(0, cap - keep.length);
   const stride = rest.length / Math.max(budget, 1);
   for (let k = 0; k < budget && k * stride < rest.length; k++) keep.push(rest[Math.floor(k * stride)]);
   keep.sort((a, b) => a - b);
@@ -275,15 +315,16 @@ function screeningSites(d) {
  * sample temperature of the analysis: Float64Array(nsites x ntemps x 6), from
  * the element DOFs marched along the thermal path (Analysis.qAlong).
  */
-function siteStrainTable(an, dieIdx, sites, temps) {
+function siteStrainTable(an, dieIdx, sites, temps, layer) {
   const mesh = an.mesh, model = an.model, g = mesh.geom;
   const n = sites.x.length, nt = temps.length;
   const out = new Float64Array(n * nt * 6).fill(NaN);
-  const zmid = g.zt + 0.5 * g.so, kb = findInterval(mesh.zs, zmid);
+  // the flip chip bump layer, or another joint layer (DDI gap): {zmid, part}
+  const zmid = layer ? layer.zmid : g.zt + 0.5 * g.so, kb = findInterval(mesh.zs, zmid), part = layer ? layer.part : PART.SOLDER;
   const byElem = new Map();
   for (let q = 0; q < n; q++) {
     const i = findInterval(mesh.xs, sites.x[q]), j = findInterval(mesh.ys, sites.y[q]);
-    const e = elementInCell(mesh, i, j, kb, PART.SOLDER);
+    const e = elementInCell(mesh, i, j, kb, part);
     if (e < 0) continue;
     if (!byElem.has(e)) byElem.set(e, []);
     byElem.get(e).push(q);
@@ -316,12 +357,32 @@ function siteStrainTable(an, dieIdx, sites, temps) {
  * strain range.
  */
 function screenBumps(an, dieIdx, opts) {
-  const cfg = an.cfg, g = an.mesh.geom, d = g.dies[dieIdx];
+  const g = an.mesh.geom, d = g.dies[dieIdx];
+  const r = screenJoints(an, d, null, an.cfg.bump.solder, null);
+  r.dieIdx = dieIdx;
+  return r;
+}
+
+/**
+ * Screening of the DDI microbumps of chiplet ci of module mi: each joint a
+ * free-standing column of a solder cap on an elastic Cu pillar in series
+ * (AnandPoint.stepSeriesColumn), driven by the DDI gap's axial and shear strains.
+ */
+function screenDdi(an, mi, ci) {
+  const g = an.mesh.geom, m = g.modules[mi], c = m.chiplets[ci], dd = an.cfg.stack.ddi;
+  const r = screenJoints(an, c, { zmid: 0.5 * (m.zBaseTop + m.zDdiTop), part: PART.DDI_SOLDER }, dd.solder, { mat: 'cu', fs: 1 - dd.pillarH / dd.standoff });
+  r.module = mi; r.chiplet = ci; r.ddi = true;
+  return r;
+}
+
+/** Screening of the joints of a bump field d in a joint layer (null: the flip chip bump layer), optionally a solder cap on a pillar in series. */
+function screenJoints(an, d, layer, solderId, pillar) {
+  const cfg = an.cfg;
   const t0 = nowMs();
-  const { sites, subsampled } = screeningSites(d);
+  const { sites, subsampled } = screeningSites(d, pillar ? CONST.SCREEN_MAX_DDI : null);
   const temps = an.temps.cycling;
-  const table = siteStrainTable(an, dieIdx, sites, temps);
-  const solder = findMaterial(cfg.materials, cfg.bump.solder);
+  const table = siteStrainTable(an, null, sites, temps, layer);
+  const solder = findMaterial(cfg.materials, solderId);
   const hist = cycleHistory(cfg.cycling);
   const n = sites.x.length, nt = temps.length, nsteps = hist.t.length;
   const dW = new Float64Array(n).fill(NaN), dE = new Float64Array(n).fill(NaN), stab = new Float64Array(n).fill(NaN);
@@ -338,6 +399,19 @@ function screenBumps(an, dieIdx, opts) {
     Fth[k] = pt.thermalStrain(hist.T[k]) - pt.thermalStrain(25);
     kc.push(k > 0 ? pt.stepConstants(hist.T[k], hist.t[k] - hist.t[k - 1]) : null);
   }
+  // a pillar in series: its elastic compliances and thermal strain at every step, and the solder fraction of the height
+  let Cps = null, Fp = null, tz = null;
+  const s1 = new Float64Array(6), s2 = new Float64Array(6);
+  const fs = pillar ? pillar.fs : 1;
+  if (pillar) {
+    const pm = findMaterial(cfg.materials, pillar.mat), pt2 = materialTables(pm);
+    Cps = new Float64Array(3 * nsteps); Fp = new Float64Array(nsteps); tz = new Float64Array(3);
+    for (let k = 0; k < nsteps; k++) {
+      const Ep = gridAt(pt2.E, hist.T[k]), Gp = Ep / (2 * (1 + pt2.nu));
+      Cps[3 * k] = 1 / Ep; Cps[3 * k + 1] = Cps[3 * k + 2] = 1 / Gp;
+      Fp[k] = gridAt(pt2.F, hist.T[k]) - gridAt(pt2.F, 25);
+    }
+  }
   const Wc = new Float64Array(hist.cycles + 1), Ec = new Float64Array(hist.cycles + 1);
   for (let q = 0; q < n; q++) {
     const base = q * nt * 6;
@@ -349,13 +423,22 @@ function screenBumps(an, dieIdx, opts) {
     for (let k = 1; k < nsteps; k++) {
       const a = base + wi[k] * 6, b = a + 6, t = wt[k];
       const lay = c => table[a + c] + t * (table[b + c] - table[a + c]) - e25[c];
-      const ez = lay(2) - Fth[k];
-      // in-plane guess: linear extrapolation within a ramp or dwell, else the last strains plus the elastic
-      // lateral contraction of the axial increment (1.5 Newton calls per step instead of 2.7)
-      if (k > 2 && hist.phase[k] === hist.phase[k - 1]) for (let r = 0; r < 3; r++) eps[IP[r]] = 2 * e1[r] - e2[r];
-      else { eps[0] -= nu * (ez - eps[2]); eps[1] -= nu * (ez - eps[2]); }
-      eps[2] = ez; eps[4] = lay(4); eps[5] = lay(5);
-      pt.stepColumn(eps, hist.T[k], kc[k].dt, out, kc[k]);
+      if (pillar) {
+        // column-average mechanical strain: the layer strain less the thermal strains of cap and pillar
+        tz[0] = lay(2) - fs * Fth[k] - (1 - fs) * Fp[k]; tz[1] = lay(4); tz[2] = lay(5);
+        // guess: all six cap strains extrapolated linearly within a ramp or dwell
+        if (k > 2 && hist.phase[k] === hist.phase[k - 1]) for (let c = 0; c < 6; c++) eps[c] = 2 * s1[c] - s2[c];
+        pt.stepSeriesColumn(eps, tz, fs, Cps.subarray(3 * k, 3 * k + 3), hist.T[k], kc[k].dt, out, kc[k]);
+        s2.set(s1); s1.set(eps);
+      } else {
+        const ez = lay(2) - Fth[k];
+        // in-plane guess: linear extrapolation within a ramp or dwell, else the last strains plus the elastic
+        // lateral contraction of the axial increment (1.5 Newton calls per step instead of 2.7)
+        if (k > 2 && hist.phase[k] === hist.phase[k - 1]) for (let r = 0; r < 3; r++) eps[IP[r]] = 2 * e1[r] - e2[r];
+        else { eps[0] -= nu * (ez - eps[2]); eps[1] -= nu * (ez - eps[2]); }
+        eps[2] = ez; eps[4] = lay(4); eps[5] = lay(5);
+        pt.stepColumn(eps, hist.T[k], kc[k].dt, out, kc[k]);
+      }
       pt.commit();
       e2.set(e1); for (let r = 0; r < 3; r++) e1[r] = eps[IP[r]];
       const cyc = hist.cycle[k];
@@ -368,7 +451,7 @@ function screenBumps(an, dieIdx, opts) {
   }
   // ranking
   const order = Array.from({ length: n }, (_, q) => q).filter(q => isFinite(dW[q])).sort((a, b) => dW[b] - dW[a]);
-  return { die: d.name, dieIdx, x: sites.x, y: sites.y, ix: sites.ix, iy: sites.iy, dW, dE, stab, subsampled, nSites: n, top: order.slice(0, 20).map(q => ({ q, x: sites.x[q], y: sites.y[q], dW: dW[q], dE: dE[q] })), ms: nowMs() - t0, cycles: hist.cycles };
+  return { die: d.name, x: sites.x, y: sites.y, ix: sites.ix, iy: sites.iy, dW, dE, stab, subsampled, nSites: n, top: order.slice(0, 20).map(q => ({ q, x: sites.x[q], y: sites.y[q], dW: dW[q], dE: dE[q] })), ms: nowMs() - t0, cycles: hist.cycles };
 }
 
 // ---- life models (Section 9.3) ------------------------------------------------------------

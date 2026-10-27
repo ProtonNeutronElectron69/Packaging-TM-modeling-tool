@@ -340,6 +340,7 @@ const CONST = Object.freeze({
   GF_PER_N: 101.97162,
   // ---- solder fatigue -------------------------------------------------------
   SCREEN_MAX_BUMPS: 20000,
+  SCREEN_MAX_DDI: 5000,      // DDI microbumps screened per chiplet at most (same keep rule; each joint is a 6-unknown series-column Newton)
   SCREEN_KEEP_ROWS: 3,
   SCREEN_CORNER_BLOCK: 10,
   CYCLE_DT_STEP: 10,         // degC between global cycling samples
@@ -4502,7 +4503,7 @@ function thermalPathPoints(Ta, Tb, tgs, stops) {
 
 /** Short label of one step of the thermal path. */
 function stepLabel(s) {
-  const what = s.branch === 'chain' ? (s.stage < 0 ? 'M' + (4 + s.stage) : 'S' + s.stage) : (s.branch === 'cpi' ? 'chip join' : 'sweep');
+  const what = s.branch === 'chain' ? (s.stage < 0 ? 'M' + (4 + s.stage) : 'S' + s.stage) : (s.branch === 'cpi' ? 'chip join' : (s.branch === 'ddi' ? 'chiplet join' : 'sweep'));
   return what + ' ' + s.Ta + ' -> ' + s.Tb + ' °C';
 }
 
@@ -4599,12 +4600,14 @@ class Analysis {
     // both sweep branches in the final stage (down first, continuing from the last chain step)
     // stacked modules first (the substrate and everything on it unborn): chip join of the chiplets on their bases, then the
     // wafer underfill cure (wCUF fill only), then the wafer mold cure, then on to the substrate's stress-free temperature
-    let sm = [];
+    // a full analysis also cools the joined module to 25 degC before its fill is born (the 'ddi' branch: DDI microbump
+    // loads at the end of chiplet join, the module counterpart of the chip-join CPI state)
+    let sm = [], smJoin = [], ddi = [];
     if (this.hasModules) {
-      const mp = this.cfg.stack.process, S = CONST.STAGE;
-      if (this.cfg.stack.fill === 'wcuf') sm = seg(mp.Tddi, mp.Twcuf, S.DDI, 'chain').concat(seg(mp.Twcuf, mp.Tmold, S.WCUF, 'chain'));
-      else sm = seg(mp.Tddi, mp.Tmold, S.DDI, 'chain');
-      sm = sm.concat(seg(mp.Tmold, p.Tsub, S.MOLD, 'chain'));
+      const mp = this.cfg.stack.process, S = CONST.STAGE, wcuf = this.cfg.stack.fill === 'wcuf', Tfill = wcuf ? mp.Twcuf : mp.Tmold;
+      smJoin = seg(mp.Tddi, Tfill, S.DDI, 'chain');
+      if (this.opts.evaluations === 'full') ddi = seg(Tfill, 25, S.DDI, 'ddi');
+      sm = smJoin.concat(wcuf ? seg(mp.Twcuf, mp.Tmold, S.WCUF, 'chain') : [], seg(mp.Tmold, p.Tsub, S.MOLD, 'chain'));
     }
     const s0 = Math.abs(p.Tsub - p.Tjoin) > 1e-9 ? seg(p.Tsub, p.Tjoin, 0, 'chain') : [];
     const s1 = seg(p.Tjoin, p.Tuf, 1, 'chain');
@@ -4612,7 +4615,7 @@ class Analysis {
     const rest = fin === 3 ? seg(p.Tuf, p.Tattach, 2, 'chain').concat(seg(p.Tattach, 25, 3, 'chain')) : seg(p.Tuf, 25, 2, 'chain');
     const ev = temps.all;
     const down = seg(25, Math.min(25, ...ev), fin, 'down', ev), up = seg(25, Math.max(25, ...ev), fin, 'up', ev);
-    this.path = { steps, chain: sm.concat(s0, s1, rest), chainJoin: sm.concat(s0, s1), cpi, up, down, hasCPI: this.opts.evaluations === 'full' };
+    this.path = { steps, chain: sm.concat(s0, s1, rest), chainJoin: sm.concat(s0, s1), cpi, up, down, hasCPI: this.opts.evaluations === 'full', ddiJoin: smJoin, ddi, hasDDI: ddi.length > 0 };
     this.du = new Array(steps.length).fill(null);
     this.rec = new Array(steps.length).fill(null);
     return steps;
@@ -4681,6 +4684,11 @@ class Analysis {
       for (const k of P.chainJoin.concat(P.cpi)) add(c, k);
       this.uCPI = c;
     } else this.uCPI = null;
+    if (P.hasDDI) {
+      const c = new Float64Array(n);
+      for (const k of P.ddiJoin.concat(P.ddi)) add(c, k);
+      this.uDDI = c;
+    } else this.uDDI = null;
     for (let k = 0; k < this.du.length; k++) if (!(this.du[k] instanceof Float32Array)) this.du[k] = Float32Array.from(this.du[k]);
     this.ck25 = new Map();
     this.timings.total = nowMs() - (this.tAll || nowMs());
@@ -4716,7 +4724,7 @@ class Analysis {
     return null;
   }
 
-  /** View of the solution at T for post-processing: 'final' (as-assembled) or 'cpi' (chip-join state at 25 degC). */
+  /** View of the solution at T for post-processing: 'final' (as-assembled), 'cpi' (chip-join state at 25 degC) or 'ddi' (stacked modules at the end of chiplet join, 25 degC). */
   view(T, which) { return new StateView(this, T, which || 'final'); }
 
   /**
@@ -4764,6 +4772,7 @@ class StateView {
     this.an = an; this.model = an.model; this.T = T; this.which = which;
     this.cache = new Map();
     if (which === 'cpi') { this.u = an.uCPI; this.ids = an.path.chainJoin.concat(an.path.cpi); return; }
+    if (which === 'ddi') { this.u = an.uDDI; this.ids = an.path.ddiJoin.concat(an.path.ddi); return; }
     this.ids = an.branchTo(T);
     if (this.ids) { this.u = an.fields.get(T); return; }
     // between evaluation temperatures: blend the neighbouring views
@@ -4777,7 +4786,7 @@ class StateView {
   state(e) {
     let st = this.cache.get(e);
     if (!st) {
-      st = this.which === 'cpi' ? this.an.elementHistory(e, this.ids) : (this.ids.length ? this.an.elementHistory(e, this.ids, this.an.state25(e)) : this.an.state25(e));
+      st = this.which !== 'final' ? this.an.elementHistory(e, this.ids) : (this.ids.length ? this.an.elementHistory(e, this.ids, this.an.state25(e)) : this.an.state25(e));
       this.cache.set(e, st);
     }
     return st;
@@ -5054,22 +5063,38 @@ function dieSurfaceStress(view, geom, dieIdx, which) {
 
 /** Per-bump axial and shear forces from the solder-phase stress at each site (Section 8.3). */
 function bumpLoads(view, geom, dieIdx) {
-  const mesh = view.model.mesh, d = geom.dies[dieIdx], T = view.T;
+  const d = geom.dies[dieIdx];
+  return jointLoads(view, d, geom.zt + 0.5 * geom.so, PART.SOLDER, d.abump);
+}
+
+/**
+ * Per-microbump axial and shear forces of chiplet ci of module mi from the DDI
+ * microbump phase at mid-height of the DDI gap. The phase is a Cu pillar and a
+ * solder cap in series, so its axial and shear stresses are those of both.
+ */
+function ddiLoads(view, geom, mi, ci) {
+  const m = geom.modules[mi], c = m.chiplets[ci];
+  const r = jointLoads(view, c, 0.5 * (m.zBaseTop + m.zDdiTop), PART.DDI_SOLDER, c.abump);
+  r.module = mi; r.chiplet = ci;
+  return r;
+}
+
+/** Axial and shear forces N = szz A, V = |(tyz, txz)| A at the joint sites of a bump field at height zmid in elements of a part. */
+function jointLoads(view, d, zmid, part, A) {
+  const mesh = view.model.mesh, T = view.T;
   const sites = dieBumpSites(d);
   const n = sites.x.length;
   const N = new Float64Array(n).fill(NaN), V = new Float64Array(n).fill(NaN), szz = new Float64Array(n).fill(NaN);
-  const zmid = geom.zt + 0.5 * geom.so;
   const kb = findInterval(mesh.zs, zmid);
   const byElem = new Map();
   for (let q = 0; q < n; q++) {
     const i = findInterval(mesh.xs, sites.x[q]), j = findInterval(mesh.ys, sites.y[q]);
-    const e = elementInCell(mesh, i, j, kb, PART.SOLDER);
+    const e = elementInCell(mesh, i, j, kb, part);
     if (e < 0) continue;
     if (!byElem.has(e)) byElem.set(e, []);
     byElem.get(e).push(q);
   }
   const st = { eps: new Float64Array(6), sig: new Float64Array(6) };
-  const A = d.abump;
   for (const [e, list] of byElem) {
     for (const q of list) {
       const [xi, eta, zeta] = naturalCoords(mesh, e, sites.x[q], sites.y[q], zmid);
@@ -5109,7 +5134,30 @@ function dieCorners(r) {
  * over 50 um x 50 um patches.
  */
 function ufTractions(view, geom, dieIdx) {
-  const mesh = view.model.mesh, d = geom.dies[dieIdx], r = d.rect, T = view.T;
+  const d = geom.dies[dieIdx];
+  return perimeterTractions(view, d.name, d.rect, d.zaf, [PART.UF_FILLET], PART.UF_BUMP);
+}
+
+/**
+ * Wafer underfill (or, for mold-only modules, wafer mold) tractions around
+ * chiplet ci of module mi: chiplet sidewall to the wCUF fillet or mold, and
+ * chiplet active face to the DDI fill near the edge.
+ */
+function wcufTractions(view, geom, mi, ci) {
+  const m = geom.modules[mi], c = m.chiplets[ci];
+  const r = perimeterTractions(view, c.name, c.rect, m.zDdiTop, [PART.WCUF_FILLET, PART.MOLD], PART.DDI_FILL);
+  r.module = mi; r.chiplet = ci; r.fill = geom.wcuf ? 'wcuf' : 'mold';
+  return r;
+}
+
+/**
+ * Tractions along the perimeter of rectangle r (clockwise from corner 1) on
+ * the sidewall just outside it, from z0 up by one patch (first of sideParts
+ * found in the cell), and on the face just below z0, one patch inside the edge
+ * (facePart), each averaged over a TRACTION_PATCH square patch.
+ */
+function perimeterTractions(view, name, r, z0, sideParts, facePart) {
+  const mesh = view.model.mesh, T = view.T;
   const step = CONST.TRACTION_PATCH, ns = CONST.TRACTION_SAMPLES;
   // perimeter walked clockwise from corner 1 (+x, -y): side k runs from corner k to corner k+1, outward normal (nx, ny)
   const cs = dieCorners(r);
@@ -5126,6 +5174,7 @@ function ufTractions(view, geom, dieIdx) {
     view.point(e, xi, eta, zeta, st);
     return st.sig;
   };
+  const sideSig = (x, y, z) => { for (const p of sideParts) { const sg = sigAt(x, y, z, p); if (sg) return sg; } return sigAt(x, y, z, null); };
   const eps = 1e-6;
   for (const ed of edges) {
     const L = Math.hypot(ed.x1 - ed.x0, ed.y1 - ed.y0);
@@ -5138,18 +5187,18 @@ function ufTractions(view, geom, dieIdx) {
       for (let a = 0; a < ns; a++) for (let b = 0; b < ns; b++) {
         const ds = (a + 0.5) / ns * step - step / 2;
         const xs = xc + tx * ds, ys = yc + ty * ds;
-        // sidewall patch: just outside the die, z from the active face up by one patch
-        const zS = d.zaf + (b + 0.5) / ns * step;
-        const sg = sigAt(xs + ed.nx * eps, ys + ed.ny * eps, zS, PART.UF_FILLET) || sigAt(xs + ed.nx * eps, ys + ed.ny * eps, zS, null);
+        // sidewall patch: just outside the edge, z from z0 up by one patch
+        const zS = z0 + (b + 0.5) / ns * step;
+        const sg = sideSig(xs + ed.nx * eps, ys + ed.ny * eps, zS);
         if (sg) {
           // traction t = sigma n, n = (nx, ny, 0)
           const t0 = sg[0] * ed.nx + sg[3] * ed.ny, t1 = sg[3] * ed.nx + sg[1] * ed.ny, t2 = sg[5] * ed.nx + sg[4] * ed.ny;
           const tn = t0 * ed.nx + t1 * ed.ny;
           pS += tn; vS += Math.hypot(t0 - tn * ed.nx, t1 - tn * ed.ny, t2); cS++;
         }
-        // active-face patch: inside the die edge by one patch, just below the active face
+        // face patch: inside the edge by one patch, just below z0
         const inX = xs - ed.nx * (b + 0.5) / ns * step, inY = ys - ed.ny * (b + 0.5) / ns * step;
-        const sf = sigAt(inX, inY, d.zaf - eps, PART.UF_BUMP);
+        const sf = sigAt(inX, inY, z0 - eps, facePart);
         if (sf) { pF += sf[2]; vF += Math.hypot(sf[4], sf[5]); cF++; }
       }
       s.push(s0 + sc); px.push(xc); py.push(yc);
@@ -5160,7 +5209,7 @@ function ufTractions(view, geom, dieIdx) {
     corners.push(s0);
   }
   const mx = arr => arr.reduce((m, v) => isFinite(v) && v > m ? v : m, -Infinity);
-  return { die: d.name, s: Float64Array.from(s), x: Float64Array.from(px), y: Float64Array.from(py), peelSide: Float64Array.from(peelSide), shearSide: Float64Array.from(shearSide), peelFace: Float64Array.from(peelFace), shearFace: Float64Array.from(shearFace), corners, maxPeelSide: mx(peelSide), maxShearSide: mx(shearSide), maxPeelFace: mx(peelFace), maxShearFace: mx(shearFace), T };
+  return { die: name, s: Float64Array.from(s), x: Float64Array.from(px), y: Float64Array.from(py), peelSide: Float64Array.from(peelSide), shearSide: Float64Array.from(shearSide), peelFace: Float64Array.from(peelFace), shearFace: Float64Array.from(shearFace), corners, maxPeelSide: mx(peelSide), maxShearSide: mx(shearSide), maxPeelFace: mx(peelFace), maxShearFace: mx(shearFace), T };
 }
 
 /**
@@ -5530,6 +5579,46 @@ class AnandPoint {
     return d;
   }
 
+  /**
+   * Step of a free-standing column of this solder in series with an elastic
+   * pillar (a DDI microbump: solder cap of height fraction fs on a Cu pillar of
+   * fraction 1 - fs). The column-average mechanical strains tz = (zz, yz, zx) are
+   * prescribed: fs eps_Z + (1 - fs) Cp sigma_Z = tz, with the pillar compliances
+   * Cp = (1/E_p, 1/G_p, 1/G_p) (the axial and shear stresses are the same in cap
+   * and pillar), and the cap's in-plane stresses vanish. Newton on the six strains
+   * of the cap with the consistent tangent. eps holds the cap's mechanical strain
+   * (guess on entry, solution on return). Returns the plastic increment.
+   */
+  stepSeriesColumn(eps, tz, fs, Cp, T, dt, out, k) {
+    const P = [0, 1, 3], Z = [2, 4, 5], ord = [0, 1, 3, 2, 4, 5], fp = 1 - fs;
+    const J = this._serJ || (this._serJ = new Float64Array(36)), R = this._serR || (this._serR = new Float64Array(6));
+    const E = this.E(T);
+    let d = 0;
+    for (let it = 0; it < CONST.COLUMN_NEWTON_MAXIT; it++) {
+      d = this.step(eps, T, dt, out, true, k);
+      for (let r = 0; r < 3; r++) { R[r] = out.sig[P[r]]; R[3 + r] = fs * eps[Z[r]] + fp * Cp[r] * out.sig[Z[r]] - tz[r]; }
+      const ref = Math.max(1, Math.abs(out.sig[2]), Math.abs(out.sig[4]), Math.abs(out.sig[5]));
+      let worst = 0;
+      for (let r = 0; r < 3; r++) worst = Math.max(worst, Math.abs(R[r]), Math.abs(R[3 + r]) * E);
+      if (worst < CONST.COLUMN_STRESS_TOL * ref) break;
+      for (let r = 0; r < 6; r++) for (let c = 0; c < 6; c++) {
+        const Dv = out.D[6 * ord[r] + ord[c]];
+        J[6 * r + c] = r < 3 ? Dv : fp * Cp[r - 3] * Dv + (ord[r] === ord[c] ? fs : 0);
+      }
+      // Gaussian elimination with partial pivoting in place (no allocation: millions of calls per screening)
+      for (let c = 0; c < 6; c++) {
+        let pr = c;
+        for (let r = c + 1; r < 6; r++) if (Math.abs(J[6 * r + c]) > Math.abs(J[6 * pr + c])) pr = r;
+        if (pr !== c) { for (let q = 0; q < 6; q++) { const t = J[6 * c + q]; J[6 * c + q] = J[6 * pr + q]; J[6 * pr + q] = t; } const t = R[c]; R[c] = R[pr]; R[pr] = t; }
+        const piv = J[7 * c];
+        for (let r = c + 1; r < 6; r++) { const f = J[6 * r + c] / piv; if (f === 0) continue; for (let q = c; q < 6; q++) J[6 * r + q] -= f * J[6 * c + q]; R[r] -= f * R[c]; }
+      }
+      for (let c = 5; c >= 0; c--) { let v = R[c]; for (let q = c + 1; q < 6; q++) v -= J[6 * c + q] * R[q]; R[c] = v / J[7 * c]; }
+      for (let c = 0; c < 6; c++) eps[ord[c]] -= R[c];
+    }
+    return d;
+  }
+
   /** ds/d(delta ebar_p) from the implicit evolution equation. */
   _dsdd(d, s, dt, expQ) {
     if (d <= 0) return 0;
@@ -5618,15 +5707,15 @@ function cycleHistory(cyc) {
 }
 
 /** Bump sites kept for screening (subsampled above SCREEN_MAX_BUMPS). */
-function screeningSites(d) {
+function screeningSites(d, max) {
   const all = dieBumpSites(d);
-  const n = all.x.length;
-  if (n <= CONST.SCREEN_MAX_BUMPS) return { sites: all, idx: null, subsampled: false };
+  const n = all.x.length, cap = max || CONST.SCREEN_MAX_BUMPS;
+  if (n <= cap) return { sites: all, idx: null, subsampled: false };
   const keep = [];
   const must = q => all.row[q] < CONST.SCREEN_KEEP_ROWS || ((all.ix[q] < CONST.SCREEN_CORNER_BLOCK || all.ix[q] >= d.nbx - CONST.SCREEN_CORNER_BLOCK) && (all.iy[q] < CONST.SCREEN_CORNER_BLOCK || all.iy[q] >= d.nby - CONST.SCREEN_CORNER_BLOCK));
   const rest = [];
   for (let q = 0; q < n; q++) { if (must(q)) keep.push(q); else rest.push(q); }
-  const budget = Math.max(0, CONST.SCREEN_MAX_BUMPS - keep.length);
+  const budget = Math.max(0, cap - keep.length);
   const stride = rest.length / Math.max(budget, 1);
   for (let k = 0; k < budget && k * stride < rest.length; k++) keep.push(rest[Math.floor(k * stride)]);
   keep.sort((a, b) => a - b);
@@ -5640,15 +5729,16 @@ function screeningSites(d) {
  * sample temperature of the analysis: Float64Array(nsites x ntemps x 6), from
  * the element DOFs marched along the thermal path (Analysis.qAlong).
  */
-function siteStrainTable(an, dieIdx, sites, temps) {
+function siteStrainTable(an, dieIdx, sites, temps, layer) {
   const mesh = an.mesh, model = an.model, g = mesh.geom;
   const n = sites.x.length, nt = temps.length;
   const out = new Float64Array(n * nt * 6).fill(NaN);
-  const zmid = g.zt + 0.5 * g.so, kb = findInterval(mesh.zs, zmid);
+  // the flip chip bump layer, or another joint layer (DDI gap): {zmid, part}
+  const zmid = layer ? layer.zmid : g.zt + 0.5 * g.so, kb = findInterval(mesh.zs, zmid), part = layer ? layer.part : PART.SOLDER;
   const byElem = new Map();
   for (let q = 0; q < n; q++) {
     const i = findInterval(mesh.xs, sites.x[q]), j = findInterval(mesh.ys, sites.y[q]);
-    const e = elementInCell(mesh, i, j, kb, PART.SOLDER);
+    const e = elementInCell(mesh, i, j, kb, part);
     if (e < 0) continue;
     if (!byElem.has(e)) byElem.set(e, []);
     byElem.get(e).push(q);
@@ -5681,12 +5771,32 @@ function siteStrainTable(an, dieIdx, sites, temps) {
  * strain range.
  */
 function screenBumps(an, dieIdx, opts) {
-  const cfg = an.cfg, g = an.mesh.geom, d = g.dies[dieIdx];
+  const g = an.mesh.geom, d = g.dies[dieIdx];
+  const r = screenJoints(an, d, null, an.cfg.bump.solder, null);
+  r.dieIdx = dieIdx;
+  return r;
+}
+
+/**
+ * Screening of the DDI microbumps of chiplet ci of module mi: each joint a
+ * free-standing column of a solder cap on an elastic Cu pillar in series
+ * (AnandPoint.stepSeriesColumn), driven by the DDI gap's axial and shear strains.
+ */
+function screenDdi(an, mi, ci) {
+  const g = an.mesh.geom, m = g.modules[mi], c = m.chiplets[ci], dd = an.cfg.stack.ddi;
+  const r = screenJoints(an, c, { zmid: 0.5 * (m.zBaseTop + m.zDdiTop), part: PART.DDI_SOLDER }, dd.solder, { mat: 'cu', fs: 1 - dd.pillarH / dd.standoff });
+  r.module = mi; r.chiplet = ci; r.ddi = true;
+  return r;
+}
+
+/** Screening of the joints of a bump field d in a joint layer (null: the flip chip bump layer), optionally a solder cap on a pillar in series. */
+function screenJoints(an, d, layer, solderId, pillar) {
+  const cfg = an.cfg;
   const t0 = nowMs();
-  const { sites, subsampled } = screeningSites(d);
+  const { sites, subsampled } = screeningSites(d, pillar ? CONST.SCREEN_MAX_DDI : null);
   const temps = an.temps.cycling;
-  const table = siteStrainTable(an, dieIdx, sites, temps);
-  const solder = findMaterial(cfg.materials, cfg.bump.solder);
+  const table = siteStrainTable(an, null, sites, temps, layer);
+  const solder = findMaterial(cfg.materials, solderId);
   const hist = cycleHistory(cfg.cycling);
   const n = sites.x.length, nt = temps.length, nsteps = hist.t.length;
   const dW = new Float64Array(n).fill(NaN), dE = new Float64Array(n).fill(NaN), stab = new Float64Array(n).fill(NaN);
@@ -5703,6 +5813,19 @@ function screenBumps(an, dieIdx, opts) {
     Fth[k] = pt.thermalStrain(hist.T[k]) - pt.thermalStrain(25);
     kc.push(k > 0 ? pt.stepConstants(hist.T[k], hist.t[k] - hist.t[k - 1]) : null);
   }
+  // a pillar in series: its elastic compliances and thermal strain at every step, and the solder fraction of the height
+  let Cps = null, Fp = null, tz = null;
+  const s1 = new Float64Array(6), s2 = new Float64Array(6);
+  const fs = pillar ? pillar.fs : 1;
+  if (pillar) {
+    const pm = findMaterial(cfg.materials, pillar.mat), pt2 = materialTables(pm);
+    Cps = new Float64Array(3 * nsteps); Fp = new Float64Array(nsteps); tz = new Float64Array(3);
+    for (let k = 0; k < nsteps; k++) {
+      const Ep = gridAt(pt2.E, hist.T[k]), Gp = Ep / (2 * (1 + pt2.nu));
+      Cps[3 * k] = 1 / Ep; Cps[3 * k + 1] = Cps[3 * k + 2] = 1 / Gp;
+      Fp[k] = gridAt(pt2.F, hist.T[k]) - gridAt(pt2.F, 25);
+    }
+  }
   const Wc = new Float64Array(hist.cycles + 1), Ec = new Float64Array(hist.cycles + 1);
   for (let q = 0; q < n; q++) {
     const base = q * nt * 6;
@@ -5714,13 +5837,22 @@ function screenBumps(an, dieIdx, opts) {
     for (let k = 1; k < nsteps; k++) {
       const a = base + wi[k] * 6, b = a + 6, t = wt[k];
       const lay = c => table[a + c] + t * (table[b + c] - table[a + c]) - e25[c];
-      const ez = lay(2) - Fth[k];
-      // in-plane guess: linear extrapolation within a ramp or dwell, else the last strains plus the elastic
-      // lateral contraction of the axial increment (1.5 Newton calls per step instead of 2.7)
-      if (k > 2 && hist.phase[k] === hist.phase[k - 1]) for (let r = 0; r < 3; r++) eps[IP[r]] = 2 * e1[r] - e2[r];
-      else { eps[0] -= nu * (ez - eps[2]); eps[1] -= nu * (ez - eps[2]); }
-      eps[2] = ez; eps[4] = lay(4); eps[5] = lay(5);
-      pt.stepColumn(eps, hist.T[k], kc[k].dt, out, kc[k]);
+      if (pillar) {
+        // column-average mechanical strain: the layer strain less the thermal strains of cap and pillar
+        tz[0] = lay(2) - fs * Fth[k] - (1 - fs) * Fp[k]; tz[1] = lay(4); tz[2] = lay(5);
+        // guess: all six cap strains extrapolated linearly within a ramp or dwell
+        if (k > 2 && hist.phase[k] === hist.phase[k - 1]) for (let c = 0; c < 6; c++) eps[c] = 2 * s1[c] - s2[c];
+        pt.stepSeriesColumn(eps, tz, fs, Cps.subarray(3 * k, 3 * k + 3), hist.T[k], kc[k].dt, out, kc[k]);
+        s2.set(s1); s1.set(eps);
+      } else {
+        const ez = lay(2) - Fth[k];
+        // in-plane guess: linear extrapolation within a ramp or dwell, else the last strains plus the elastic
+        // lateral contraction of the axial increment (1.5 Newton calls per step instead of 2.7)
+        if (k > 2 && hist.phase[k] === hist.phase[k - 1]) for (let r = 0; r < 3; r++) eps[IP[r]] = 2 * e1[r] - e2[r];
+        else { eps[0] -= nu * (ez - eps[2]); eps[1] -= nu * (ez - eps[2]); }
+        eps[2] = ez; eps[4] = lay(4); eps[5] = lay(5);
+        pt.stepColumn(eps, hist.T[k], kc[k].dt, out, kc[k]);
+      }
       pt.commit();
       e2.set(e1); for (let r = 0; r < 3; r++) e1[r] = eps[IP[r]];
       const cyc = hist.cycle[k];
@@ -5733,7 +5865,7 @@ function screenBumps(an, dieIdx, opts) {
   }
   // ranking
   const order = Array.from({ length: n }, (_, q) => q).filter(q => isFinite(dW[q])).sort((a, b) => dW[b] - dW[a]);
-  return { die: d.name, dieIdx, x: sites.x, y: sites.y, ix: sites.ix, iy: sites.iy, dW, dE, stab, subsampled, nSites: n, top: order.slice(0, 20).map(q => ({ q, x: sites.x[q], y: sites.y[q], dW: dW[q], dE: dE[q] })), ms: nowMs() - t0, cycles: hist.cycles };
+  return { die: d.name, x: sites.x, y: sites.y, ix: sites.ix, iy: sites.iy, dW, dE, stab, subsampled, nSites: n, top: order.slice(0, 20).map(q => ({ q, x: sites.x[q], y: sites.y[q], dW: dW[q], dE: dE[q] })), ms: nowMs() - t0, cycles: hist.cycles };
 }
 
 // ---- life models (Section 9.3) ------------------------------------------------------------
@@ -7211,9 +7343,9 @@ const VERIFICATION_TESTS = [
     },
   },
   {
-    id: 'V18', name: 'Stacked modules: free module stages and silicon stress', slow: true,
-    criterion: 'uniform-CTE module stress-free after its process stages (below 1e-3 of E α ΔT); module support reactions below 1e-6 of the internal force scale; bare module package convex at 25 °C with finite chiplet and base stresses',
-    about: 'A small package with one Si-base module and two chiplets. With every module material given the CTE of silicon, the module process stages (chiplet join, wafer underfill and mold cure) must leave the free module stress-free, apart from the pull of the not-yet-born bumps and underfill under it (stiffness 1e-6 of their own, about 2e-4 of E α ΔT here); with the real materials the temporary three-point support of the free module must carry essentially no force. The bare module package must come out convex (silicon on the higher-CTE substrate, as V9 for a bare die) with finite stresses on every chiplet and on the base.',
+    id: 'V18', name: 'Stacked modules: free module stages, silicon stress, microbumps', slow: true,
+    criterion: 'uniform-CTE module stress-free after its process stages (below 1e-3 of E α ΔT); module support reactions below 1e-6 of the internal force scale; bare module package convex at 25 °C with finite chiplet and base stresses, DDI microbump loads and wafer underfill tractions; series microbump column within 1e-4 of the closed form with in-plane stress below 1e-3',
+    about: 'A small package with one Si-base module and two chiplets. With every module material given the CTE of silicon, the module process stages (chiplet join, wafer underfill and mold cure) must leave the free module stress-free, apart from the pull of the not-yet-born bumps and underfill under it (stiffness 1e-6 of their own, about 2e-4 of E α ΔT here); with the real materials the temporary three-point support of the free module must carry essentially no force. The bare module package must come out convex (silicon on the higher-CTE substrate, as V9 for a bare die) with finite stresses on every chiplet and on the base and finite microbump loads and wafer underfill tractions. A free-standing microbump column (solder cap on a Cu pillar) loaded elastically must carry the series stiffness 1 / (f_s / E_s + f_p / E_p) in tension and the same rule in shear, with no in-plane stress.',
     run(ctx) {
       const small = () => {
         const cfg = presetConfig(ctx.db, 'bare');
@@ -7262,8 +7394,18 @@ const VERIFICATION_TESTS = [
       // whole-face Gauss-point peaks: the chiplets of this small model are too narrow on its coarse grid for an interior (edge band excluded) value
       const sis = g.siParts.map((p, i) => ({ name: p.name, top: dieSurfaceStress(v25, g, i, 'top').gpPeakAll, bottom: dieSurfaceStress(v25, g, i, 'bottom').gpPeakAll }));
       const finite = sis.length === 3 && sis.every(p => isFinite(p.top) && isFinite(p.bottom));
-      const pass = smax / scale < 1e-3 && reac / fscale < 1e-6 && w.sign > 0 && finite;
-      return { pass, measured: 'uniform-CTE module after ' + mod.length + ' module steps: max |σ| ' + smax.toExponential(2) + ' MPa = ' + (smax / scale).toExponential(2) + ' of E α ΔT; module support reactions ' + (reac / fscale).toExponential(2) + ' of the internal force scale (' + stepLabel(s0) + '); bare module package (' + bn.model.ndof + ' DOF, ' + bn.path.steps.length + ' steps) RT warpage ' + (w.signed * 1000).toFixed(2) + ' µm (' + (w.sign > 0 ? 'convex' : 'concave') + '); whole-face Gauss-point peaks (top / bottom) ' + sis.map(p => p.name + ' ' + p.top.toFixed(1) + ' / ' + p.bottom.toFixed(1) + ' MPa').join(', ') };
+      // DDI microbump loads and wafer underfill tractions of both chiplets at 25 degC
+      const ddi = [0, 1].map(ci => ddiLoads(v25, g, 0, ci)), wct = [0, 1].map(ci => wcufTractions(v25, g, 0, ci));
+      const ddiOk = ddi.every(d => isFinite(d.worstV) && isFinite(d.worstN)) && wct.every(t => isFinite(t.maxShearSide) && isFinite(t.maxPeelFace));
+      // (4) series column of a solder cap on a Cu pillar, elastic regime (tiny time step): closed-form series stiffness
+      const sn = findMaterial(bn.cfg.materials, bn.cfg.stack.ddi.solder), cuM = findMaterial(bn.cfg.materials, 'cu'), fsC = 1 - bn.cfg.stack.ddi.pillarH / bn.cfg.stack.ddi.standoff;
+      const ptS = new AnandPoint(sn), Es = ptS.E(25), Gs = Es / (2 * (1 + ptS.nu)), Ep = isoE(cuM, 25), Gp = Ep / (2 * (1 + pv(cuM.elastic.nu)));
+      const tzc = Float64Array.of(1e-4, 1e-4, 0), epsC = new Float64Array(6), outC = { sig: new Float64Array(6), D: new Float64Array(36) };
+      ptS.stepSeriesColumn(epsC, tzc, fsC, Float64Array.of(1 / Ep, 1 / Gp, 1 / Gp), 25, 1e-9, outC);
+      const sRef = 1e-4 / (fsC / Es + (1 - fsC) / Ep), tRef = 1e-4 / (fsC / Gs + (1 - fsC) / Gp);
+      const serErr = Math.max(Math.abs(outC.sig[2] - sRef) / sRef, Math.abs(outC.sig[4] - tRef) / tRef), inPlane = Math.max(Math.abs(outC.sig[0]), Math.abs(outC.sig[1]), Math.abs(outC.sig[3])) / sRef;
+      const pass = smax / scale < 1e-3 && reac / fscale < 1e-6 && w.sign > 0 && finite && ddiOk && serErr < 1e-4 && inPlane < 1e-3;
+      return { pass, measured: 'uniform-CTE module after ' + mod.length + ' module steps: max |σ| ' + smax.toExponential(2) + ' MPa = ' + (smax / scale).toExponential(2) + ' of E α ΔT; module support reactions ' + (reac / fscale).toExponential(2) + ' of the internal force scale (' + stepLabel(s0) + '); bare module package (' + bn.model.ndof + ' DOF, ' + bn.path.steps.length + ' steps) RT warpage ' + (w.signed * 1000).toFixed(2) + ' µm (' + (w.sign > 0 ? 'convex' : 'concave') + '); whole-face Gauss-point peaks (top / bottom) ' + sis.map(p => p.name + ' ' + p.top.toFixed(1) + ' / ' + p.bottom.toFixed(1) + ' MPa').join(', ') + '; worst DDI microbump shear ' + ddi.map(d => (d.worstV * 1000).toFixed(3) + ' mN').join(' / ') + ', wCUF sidewall shear ' + wct.map(t => t.maxShearSide.toFixed(2)).join(' / ') + ' MPa; series column (elastic) axial and shear stress ' + serErr.toExponential(1) + ' from the closed form, in-plane ' + inPlane.toExponential(1) };
     },
   },
 ];
@@ -7581,9 +7723,11 @@ function restoreAnalysisState(st, opts) {
     const si = g.siParts.map((d, i) => ({ name: d.name, kind: d.kind || 'die', rect: d.rect, top: dieSurfaceStress(view, g, i, 'top'), bottom: dieSurfaceStress(view, g, i, 'bottom') }));
     const dies = g.dies.map((d, i) => Object.assign({ name: d.name, kind: d.kind, rect: d.rect, bumps: bumpLoads(view, g, i), uf: ufTractions(view, g, i) },
       d.kind === 'die' ? { top: si[g.siParts.indexOf(d)].top, bottom: si[g.siParts.indexOf(d)].bottom } : {}));
+    // stacked modules: DDI microbump loads and wafer underfill (or mold) tractions per chiplet
+    const ddi = g.modules.flatMap((m, mi) => m.chiplets.map((c, ci) => ({ name: c.name, module: mi, chiplet: ci, rect: c.rect, bumps: ddiLoads(view, g, mi, ci), wcuf: wcufTractions(view, g, mi, ci) })));
     const solidus = pv(findMaterial(cfg.materials, cfg.bump.solder).solidus || { v: 217 });
     return {
-      T, molten: T > solidus,
+      T, molten: T > solidus, ddi,
       warpage: { signed: w.signed, mag: w.mag, sign: w.sign, signConf: w.signConf, marginal: w.marginal, shape: w.shape, limitHot: w.limitHot, limitRT: w.limitRT, grid: toF32(w.grid), rmin: w.rmin, rmax: w.rmax, ballX: toF32(g.bga.x), ballY: toF32(g.bga.y), ballRes: toF32(w.ballRes), ballW: toF32(w.ballW),
         diagAB: { s: toF32(w.diagAB.s), rel: toF32(w.diagAB.rel), w: toF32(w.diagAB.w), max: w.diagAB.max, min: w.diagAB.min }, diagCD: { s: toF32(w.diagCD.s), rel: toF32(w.diagCD.rel), w: toF32(w.diagCD.w), max: w.diagCD.max, min: w.diagCD.min }, plane: w.plane },
       substrateTop: { grid: toF32(top.grid), mag: top.mag, dies: top.dies },
@@ -7617,6 +7761,7 @@ function restoreAnalysisState(st, opts) {
       at25: fieldsAt(an, 25, view25),
       sweep: an.temps.reflow.map(T => { const w = warpageJEITA(an.mesh, g, an.fields.get(T), cfg); return { T, signed: w.signed, mag: w.mag, sign: w.sign, signConf: w.signConf, marginal: w.marginal, shape: w.shape }; }),
       cpi: an.uCPI ? (v => g.dies.map((d, i) => bumpLoads(v, g, i)))(an.view(25, 'cpi')) : null,
+      ddiJoin: an.uDDI ? (v => g.modules.flatMap((m, mi) => m.chiplets.map((c, ci) => ddiLoads(v, g, mi, ci))))(an.view(25, 'ddi')) : null,
       cycling: an.temps.cycling.map(T => { const w = warpageJEITA(an.mesh, g, an.fields.get(T), cfg); return { T, signed: w.signed, mag: w.mag, marginal: w.marginal, shape: w.shape }; }),
     };
     if (msg.evaluations !== 'preview') {
@@ -7627,6 +7772,7 @@ function restoreAnalysisState(st, opts) {
       if (an.temps.cycling.length > 1) {
         progress(id, 0.96, 'Screening all bumps');
         result.screening = g.dies.map((d, i) => screenBumps(an, i));
+        if (g.modules.length) { progress(id, 0.98, 'Screening the DDI microbumps'); result.ddiScreening = g.modules.flatMap((m, mi) => m.chiplets.map((c, ci) => screenDdi(an, mi, ci))); }
       }
     }
     result.totalMs = nowMs() - t0;
@@ -8355,6 +8501,12 @@ const TIPS = {
   Twcuf: 'Effective stress-free temperature of the wafer underfill (default: its cure temperature).',
   Tmold: 'Effective stress-free temperature of the wafer mold (default: the post-mold cure of the default compound).',
   subNotAllowed: 'Bump submodels put a Si slice above the joint, so they need a Si base at least 50 µm thick; joints under an organic RDL interposer are not supported yet.',
+  layerC4: 'Results of the flip chip (C4) bumps under the dies and the module bases.',
+  layerDdi: 'Results of the DDI microbumps between each module base and its chiplets.',
+  stateDdiJoin: 'Stacked modules at the end of chiplet join, cooled to 25 °C before the wafer underfill (or mold) is born: the microbumps alone carry the chiplet-to-base mismatch. Elastic upper bound.',
+  layerFli: 'Tractions of the flip chip underfill at the die and module-base edges.',
+  layerWcuf: 'Tractions of the wafer underfill (or, for mold-only modules, the wafer mold) at each chiplet: chiplet sidewall to the fillet, and chiplet active face to the DDI fill near the edge.',
+  ddiScreen: 'Inelastic work density per stabilized cycle of each microbump solder cap: the joint is a free-standing column of the cap on an elastic Cu pillar, driven by the axial and shear strain of the DDI gap. Ranks locations; not a life.',
 };
 
 /** Help icon bound to a tooltip key (or free text). */
@@ -9621,6 +9773,22 @@ const floorplan = {
       scale = makeScale(mn, mx, comp === 'N');
       for (const b of list) drawPoints(ctx, b.x, b.y, b[comp], scale, X, Y, Math.max(1, 0.35 * (app.geom ? app.geom.dies[0].px : 0.15) * this.scale));
       label = 'Per-bump ' + (comp === 'N' ? 'axial force (tension +)' : 'shear force') + ', N, ' + (cpi ? 'end of chip join at 25 °C (before underfill)' : 'as-assembled at ' + f.T + ' °C');
+    } else if (app.showOverlay === 'ddiV' || app.showOverlay === 'ddiN' || app.showOverlay === 'ddiJoinV') {
+      const join = app.showOverlay === 'ddiJoinV', comp = app.showOverlay === 'ddiN' ? 'N' : 'V';
+      const list = join ? res.ddiJoin || [] : (f.ddi || []).map(c => c.bumps);
+      let mn = Infinity, mx = -Infinity;
+      for (const b of list) for (const v of b[comp]) if (isFinite(v)) { mn = Math.min(mn, v); mx = Math.max(mx, v); }
+      if (list.length) {
+        scale = makeScale(mn, mx, comp === 'N');
+        for (const b of list) drawPoints(ctx, b.x, b.y, b[comp], scale, X, Y, Math.max(1, 0.35 * Math.min(app.cfg.stack.ddi.px, app.cfg.stack.ddi.py) * this.scale));
+        label = 'Per-microbump ' + (comp === 'N' ? 'axial force (tension +)' : 'shear force') + ', N, ' + (join ? 'end of chiplet join at 25 °C (before the DDI fill)' : 'as-assembled at ' + f.T + ' °C');
+      }
+    } else if (app.showOverlay === 'screeningDdi' && res.ddiScreening) {
+      let mn = Infinity, mx = -Infinity;
+      for (const s of res.ddiScreening) for (const v of s.dW) if (isFinite(v)) { mn = Math.min(mn, v); mx = Math.max(mx, v); }
+      scale = makeScale(mn, mx, false);
+      for (const s of res.ddiScreening) drawPoints(ctx, s.x, s.y, s.dW, scale, X, Y, Math.max(1, 0.35 * Math.min(app.cfg.stack.ddi.px, app.cfg.stack.ddi.py) * this.scale));
+      label = 'DDI microbump screening index ΔW_proxy (solder caps), MPa; ranks locations, not a life';
     } else if (app.showOverlay === 'screening' && res.screening) {
       let mn = Infinity, mx = -Infinity;
       for (const s of res.screening) for (const v of s.dW) if (isFinite(v)) { mn = Math.min(mn, v); mx = Math.max(mx, v); }
@@ -10291,6 +10459,14 @@ function renderRunPanel(root) {
     const bb = base && base.cpi[i];
     root.append(h('div', { class: 'card' }, h('h3', null, b.die + ' bump loading (CPI proxy)', helpTip('stateCpi')), h('div', { class: 'big' }, gf(b.worstV) + ' gf shear'), h('div', { class: 'sub' }, 'worst bump at chip join cooldown, before underfill; axial ' + gf(b.worstN) + ' gf (' + fmt(b.worstN, 3) + ' N)' + (bb ? delta(b.worstV, bb.worstV, ' N', 3) : '')), h('div', { class: 'conf' }, 'Elastic upper bound; real joints relax by creep during cooldown. ' + CONFIDENCE.bumps)));
   });
+  if (res.ddiJoin) res.ddiJoin.forEach((b, i) => {
+    const bb = base && base.ddiJoin && base.ddiJoin[i];
+    root.append(h('div', { class: 'card' }, h('h3', null, b.die + ' DDI microbumps', helpTip('stateDdiJoin')), h('div', { class: 'big' }, gf(b.worstV) + ' gf shear'), h('div', { class: 'sub' }, 'worst microbump at chiplet join cooldown, before the DDI fill; axial ' + gf(b.worstN) + ' gf (' + fmt(b.worstN, 4) + ' N)' + (bb ? delta(b.worstV, bb.worstV, ' N', 4) : '')), h('div', { class: 'conf' }, 'Elastic upper bound; real joints relax by creep during cooldown. ' + CONFIDENCE.bumps)));
+  });
+  if (res.ddiScreening) res.ddiScreening.forEach((s, i) => {
+    const bs = base && base.ddiScreening && base.ddiScreening[i];
+    root.append(h('div', { class: 'card' }, h('h3', null, s.die + ' DDI microbump screening', helpTip('ddiScreen')), h('div', { class: 'big' }, fmtE(s.top[0] ? s.top[0].dW : NaN, 3) + ' MPa/cycle'), h('div', { class: 'sub' }, 'worst-site ΔW_proxy of the solder caps at (' + fmt(s.top[0] && s.top[0].x, 3) + ', ' + fmt(s.top[0] && s.top[0].y, 3) + ') mm' + (bs && bs.top[0] ? delta(s.top[0].dW, bs.top[0].dW, ' MPa', 4) : '')), h('div', { class: 'conf' }, 'Screening index; ranks locations; not a life.')));
+  });
   if (res.screening) res.screening.forEach((s, i) => {
     const bs = base && base.screening && base.screening[i];
     root.append(h('div', { class: 'card' }, h('h3', null, s.die + ' solder fatigue screening', helpTip('dWproxy')), h('div', { class: 'big' }, fmtE(s.top[0] ? s.top[0].dW : NaN, 3) + ' MPa/cycle'), h('div', { class: 'sub' }, 'worst-site ΔW_proxy at (' + fmt(s.top[0] && s.top[0].x, 2) + ', ' + fmt(s.top[0] && s.top[0].y, 2) + ') mm; equivalent inelastic strain range ' + fmtE(s.top[0] && s.top[0].dE, 3) + (bs && bs.top[0] ? delta(s.top[0].dW, bs.top[0].dW, ' MPa', 4) : '')), h('div', { class: 'conf' }, 'Screening index; ranks locations; not a life. ' + (s.subsampled ? 'Sites subsampled above 20,000 (outer rows and corner blocks kept).' : ''))));
@@ -10590,36 +10766,45 @@ function renderDieStressView(root, res, f, Tsel) {
 function renderBumpView(root, res, f, Tsel) {
   const cfg = app.cfg;
   const state = app.bumpState || 'cpi';
-  root.append(h('div', { class: 'row' }, h('b', null, 'Bump loading (chip-package interaction proxy)'), ...[['cpi', 'End of chip join, 25 °C (before underfill)', 'stateCpi'], ['asm', 'As-assembled', 'stateAsm']].map(([k, l, t]) => h('button', tip(t, { class: state === k ? 'primary small' : 'small', onclick: () => { app.bumpState = k; renderCenter(); } }), l)), state === 'asm' ? Tsel : null, h('span', { class: 'conf' }, CONFIDENCE.bumps)));
+  // stacked modules: flip chip bumps or DDI microbumps
+  const hasDdi = !!(f.ddi && f.ddi.length), ddi = hasDdi && app.bumpLayer === 'ddi';
+  if (hasDdi) root.append(h('div', { class: 'row' }, ...[['c4', 'Flip chip bumps', 'layerC4'], ['ddi', 'DDI microbumps (chiplets)', 'layerDdi']].map(([k, l, t]) => h('button', tip(t, { class: (app.bumpLayer || 'c4') === k ? 'primary small' : 'small', onclick: () => { app.bumpLayer = k; renderCenter(); } }), l))));
+  root.append(h('div', { class: 'row' }, h('b', null, ddi ? 'DDI microbump loading' : 'Bump loading (chip-package interaction proxy)'), ...[['cpi', ddi ? 'End of chiplet join, 25 °C (before the DDI fill)' : 'End of chip join, 25 °C (before underfill)', ddi ? 'stateDdiJoin' : 'stateCpi'], ['asm', 'As-assembled', 'stateAsm']].map(([k, l, t]) => h('button', tip(t, { class: state === k ? 'primary small' : 'small', onclick: () => { app.bumpState = k; renderCenter(); } }), l)), state === 'asm' ? Tsel : null, h('span', { class: 'conf' }, CONFIDENCE.bumps)));
   const comp = app.bumpComp || 'V';
   root.append(h('div', { class: 'row' }, ...[['V', 'Shear force', 'compV'], ['N', 'Axial force', 'compN']].map(([k, l, t]) => h('button', tip(t, { class: comp === k ? 'primary small' : 'small', onclick: () => { app.bumpComp = k; renderCenter(); } }), l))));
-  const list = state === 'cpi' ? res.cpi : f.dies.map(d => d.bumps);
+  const list = ddi ? (state === 'cpi' ? res.ddiJoin || [] : f.ddi.map(c => c.bumps)) : (state === 'cpi' ? res.cpi : f.dies.map(d => d.bumps));
+  if (!list || !list.length) { root.append(h('div', { class: 'msg info' }, 'This state needs the full analysis (not the quick preview).')); return; }
   let mn = Infinity, mx = -Infinity;
   for (const b of list) for (const v of b[comp]) if (isFinite(v)) { mn = Math.min(mn, v); mx = Math.max(mx, v); }
   const scale = makeScale(mn, mx, comp === 'N');
   const left = h('div');
-  left.append(mapCanvas(res, (ctx, X, Y, sc) => { for (const b of list) drawPoints(ctx, b.x, b.y, b[comp], scale, X, Y, Math.max(1, 0.4 * res.geometry.dies[0].px * sc)); }));
-  left.append(legendRow(scale, (comp === 'N' ? 'axial force per bump, N (tension positive)' : 'shear force per bump, N') + '; A_bump = π d_eff² / 4'));
+  const dotPitch = ddi ? Math.min(cfg.stack.ddi.px, cfg.stack.ddi.py) : res.geometry.dies[0].px;
+  left.append(mapCanvas(res, (ctx, X, Y, sc) => { for (const b of list) drawPoints(ctx, b.x, b.y, b[comp], scale, X, Y, Math.max(1, 0.4 * dotPitch * sc)); }));
+  left.append(legendRow(scale, (comp === 'N' ? 'axial force per ' + (ddi ? 'microbump' : 'bump') + ', N (tension positive)' : 'shear force per ' + (ddi ? 'microbump' : 'bump') + ', N') + (ddi ? '; A = π d² / 4 of the microbump (Cu pillar and solder cap in series)' : '; A_bump = π d_eff² / 4')));
   const right = h('div');
   list.forEach((b, i) => {
-    right.append(h('div', { class: 'card' }, h('h3', null, b.die + (state === 'cpi' ? ', chip join cooldown (elastic upper bound; real joints relax by creep)' : ', as-assembled at ' + f.T + ' °C')),
-      h('div', { class: 'kv' }, kl('Worst shear', 'worstV'), h('b', null, fmt(b.worstV, 3) + ' N = ' + gf(b.worstV) + ' gf' + (cfg.limits.bumpShearN ? (b.worstV > cfg.limits.bumpShearN ? ' (above threshold)' : ' (below threshold)') : '')), kl('Worst axial', 'worstN'), h('b', null, fmt(b.worstN, 3) + ' N = ' + gf(b.worstN) + ' gf' + (cfg.limits.bumpAxialN ? (Math.abs(b.worstN) > cfg.limits.bumpAxialN ? ' (above threshold)' : ' (below threshold)') : '')), kl('Bump area', 'abump'), h('span', null, fmtE(b.abump, 3) + ' mm² (d_eff ' + fmt(res.geometry.dies[i].deff * 1000, 1) + ' µm)')),
+    right.append(h('div', { class: 'card' }, h('h3', null, b.die + (state === 'cpi' ? (ddi ? ', chiplet join cooldown (elastic upper bound; real joints relax by creep)' : ', chip join cooldown (elastic upper bound; real joints relax by creep)') : ', as-assembled at ' + f.T + ' °C')),
+      h('div', { class: 'kv' }, kl('Worst shear', 'worstV'), h('b', null, fmt(b.worstV, 3) + ' N = ' + gf(b.worstV) + ' gf' + (cfg.limits.bumpShearN ? (b.worstV > cfg.limits.bumpShearN ? ' (above threshold)' : ' (below threshold)') : '')), kl('Worst axial', 'worstN'), h('b', null, fmt(b.worstN, 3) + ' N = ' + gf(b.worstN) + ' gf' + (cfg.limits.bumpAxialN ? (Math.abs(b.worstN) > cfg.limits.bumpAxialN ? ' (above threshold)' : ' (below threshold)') : '')), kl('Bump area', 'abump'), h('span', null, fmtE(b.abump, 3) + ' mm² (' + (ddi ? 'd ' : 'd_eff ') + fmt(2 * Math.sqrt(b.abump / Math.PI) * 1000, 1) + ' µm)')),
       h('table', tip('worstTable', { class: 'small' }), h('tr', null, h('th', null, 'x'), h('th', null, 'y'), h('th', null, 'N (N)', helpTip('compN')), h('th', null, 'V (N)', helpTip('compV'))), ...b.worst.map(q => h('tr', null, h('td', null, fmt(q.x, 2)), h('td', null, fmt(q.y, 2)), h('td', null, fmt(q.N, 4)), h('td', null, fmt(q.V, 4))))),
-      h('details', null, h('summary', null, 'What this means'), h('p', { class: 'small' }, 'Forces are the solder-phase stress of the homogenized bump layer times the bump area (column phase: axial and transverse shear stiffness of the joints, no in-plane force). The chip-join state carries the full die-substrate mismatch through the bumps alone and is typically the critical case for BEOL / low-k cracking at die corners; it is an elastic upper bound. Use the maps to rank bump locations and designs.'))));
+      h('details', null, h('summary', null, 'What this means'), h('p', { class: 'small' }, ddi ? 'Forces are the stress of the microbump phase of the homogenized DDI gap times the microbump area: each joint a Cu pillar and a solder cap in series (axial and transverse shear stiffness, no in-plane force), so its axial and shear stress are those of both. The chiplet-join state is the joined module cooled to 25 °C before its wafer underfill or mold is born, when the microbumps alone carry the chiplet-to-base mismatch (small on a Si base, larger on an RDL interposer); it is an elastic upper bound. The as-assembled values also carry the module bending on the substrate. Use the maps to rank microbump locations and designs.' : 'Forces are the solder-phase stress of the homogenized bump layer times the bump area (column phase: axial and transverse shear stiffness of the joints, no in-plane force). The chip-join state carries the full die-substrate mismatch through the bumps alone and is typically the critical case for BEOL / low-k cracking at die corners; it is an elastic upper bound. Use the maps to rank bump locations and designs.'))));
   });
   root.append(h('div', { class: 'grid2' }, left, right));
 }
 
 function renderUFView(root, res, f, Tsel) {
-  root.append(h('div', { class: 'row' }, h('b', null, 'Underfill interface tractions'), ' at ', Tsel, h('span', { class: 'conf' }, CONFIDENCE.corner)));
-  for (const d of f.dies) {
+  // stacked modules: the flip chip underfill, or the wafer underfill (or mold) around each chiplet
+  const hasDdi = !!(f.ddi && f.ddi.length), wc = hasDdi && app.ufLayer === 'wcuf', mold = wc && f.ddi[0].wcuf.fill === 'mold';
+  if (hasDdi) root.append(h('div', { class: 'row' }, ...[['fli', 'Flip chip underfill', 'layerFli'], ['wcuf', f.ddi[0].wcuf.fill === 'mold' ? 'Wafer mold at the chiplets' : 'Wafer underfill at the chiplets', 'layerWcuf']].map(([k, l, t]) => h('button', tip(t, { class: (app.ufLayer || 'fli') === k ? 'primary small' : 'small', onclick: () => { app.ufLayer = k; renderCenter(); } }), l))));
+  root.append(h('div', { class: 'row' }, h('b', null, wc ? (mold ? 'Wafer mold interface tractions at the chiplets' : 'Wafer underfill interface tractions') : 'Underfill interface tractions'), ' at ', Tsel, h('span', { class: 'conf' }, CONFIDENCE.corner)));
+  const fill = mold ? 'mold' : 'wafer underfill';
+  for (const d of (wc ? f.ddi.map(c => ({ name: c.name, uf: c.wcuf })) : f.dies)) {
     const u = d.uf;
     const c1 = h('canvas', tip('ufSide', { class: 'plot' })), c2 = h('canvas', tip('ufFace', { class: 'plot' }));
-    root.append(h('div', { class: 'card' }, h('h3', null, d.name + ' perimeter, clockwise from corner 1 (bottom right, +x −y); corners 1 to 4 run clockwise'), h('div', { class: 'grid2' }, c1, c2), h('div', { class: 'kv' }, kl('Max sidewall peel / shear', 'ufSide'), h('span', null, fmt(u.maxPeelSide, 1) + ' / ' + fmt(u.maxShearSide, 1) + ' MPa', helpTip('peel'), helpTip('shearT')), kl('Max active-face peel / shear', 'ufFace'), h('span', null, fmt(u.maxPeelFace, 1) + ' / ' + fmt(u.maxShearFace, 1) + ' MPa')), h('details', null, h('summary', null, 'What this means'), h('p', { class: 'small' }, 'Tractions are taken from the underfill-side stresses next to the die edge, averaged over 50 µm × 50 µm patches stepped along the perimeter. Peel is the traction normal to the interface (tension positive); shear is the in-plane traction magnitude. Peaks sit at the die corners (marked), where the elastic solution is singular; compare designs by these values, do not read them as strengths.'))));
+    root.append(h('div', { class: 'card' }, h('h3', null, d.name + ' perimeter, clockwise from corner 1 (bottom right, +x −y); corners 1 to 4 run clockwise'), h('div', { class: 'grid2' }, c1, c2), h('div', { class: 'kv' }, kl('Max sidewall peel / shear', 'ufSide'), h('span', null, fmt(u.maxPeelSide, 1) + ' / ' + fmt(u.maxShearSide, 1) + ' MPa', helpTip('peel'), helpTip('shearT')), kl('Max active-face peel / shear', 'ufFace'), h('span', null, fmt(u.maxPeelFace, 1) + ' / ' + fmt(u.maxShearFace, 1) + ' MPa')), h('details', null, h('summary', null, 'What this means'), h('p', { class: 'small' }, (wc ? 'At a chiplet the sidewall traction is taken from the ' + fill + ' just outside the chiplet edge (the wafer mold where the fillet has ended), and the face traction from the DDI fill under the chiplet edge. ' : '') + 'Tractions are taken from the underfill-side stresses next to the die edge, averaged over 50 µm × 50 µm patches stepped along the perimeter. Peel is the traction normal to the interface (tension positive); shear is the in-plane traction magnitude. Peaks sit at the die corners (marked), where the elastic solution is singular; compare designs by these values, do not read them as strengths.'))));
     requestAnimationFrame(() => {
       const vl = u.corners.map((s, i) => ({ x: s, label: 'corner ' + (i % 4 + 1), bottom: true }));  // labels at the bottom, clear of the series legend
-      linePlot(c1, [{ x: u.s, y: u.peelSide, label: 'peel (normal)' }, { x: u.s, y: u.shearSide, label: 'shear' }], { title: 'Die sidewall to fillet interface', xlabel: 'perimeter position from corner 1, clockwise, mm', ylabel: 'MPa', vlines: vl, hlines: [{ y: 0 }] });
-      linePlot(c2, [{ x: u.s, y: u.peelFace, label: 'peel (normal)' }, { x: u.s, y: u.shearFace, label: 'shear' }], { title: 'Die active face to underfill interface near the edge', xlabel: 'perimeter position from corner 1, clockwise, mm', ylabel: 'MPa', vlines: vl, hlines: [{ y: 0 }] });
+      linePlot(c1, [{ x: u.s, y: u.peelSide, label: 'peel (normal)' }, { x: u.s, y: u.shearSide, label: 'shear' }], { title: wc ? 'Chiplet sidewall to ' + fill + ' interface' : 'Die sidewall to fillet interface', xlabel: 'perimeter position from corner 1, clockwise, mm', ylabel: 'MPa', vlines: vl, hlines: [{ y: 0 }] });
+      linePlot(c2, [{ x: u.s, y: u.peelFace, label: 'peel (normal)' }, { x: u.s, y: u.shearFace, label: 'shear' }], { title: wc ? 'Chiplet active face to ' + fill + ' (DDI gap) near the edge' : 'Die active face to underfill interface near the edge', xlabel: 'perimeter position from corner 1, clockwise, mm', ylabel: 'MPa', vlines: vl, hlines: [{ y: 0 }] });
     });
   }
 }
@@ -10628,6 +10813,10 @@ function renderFatigueView(root, res) {
   const cfg = app.cfg;
   root.append(h('div', { class: 'row' }, h('b', null, 'Solder fatigue'), h('span', { class: 'conf' }, CONFIDENCE.fatigue + ' Lives are order-of-magnitude; ratios against the baseline are the most trustworthy output.')));
   if (!res.screening) { root.append(h('div', { class: 'msg info' }, 'Screening needs the full analysis (cycling states).')); return; }
+  if (res.ddiScreening && res.ddiScreening.length) {
+    root.append(h('div', { class: 'row' }, ...[['c4', 'Flip chip bumps', 'layerC4'], ['ddi', 'DDI microbumps (chiplets)', 'layerDdi']].map(([k, l, t]) => h('button', tip(t, { class: (app.fatigueLayer || 'c4') === k ? 'primary small' : 'small', onclick: () => { app.fatigueLayer = k; renderCenter(); } }), l))));
+    if (app.fatigueLayer === 'ddi') { renderDdiScreening(root, res); return; }
+  }
   let mn = Infinity, mx = -Infinity;
   for (const s of res.screening) for (const v of s.dW) if (isFinite(v)) { mn = Math.min(mn, v); mx = Math.max(mx, v); }
   const scale = makeScale(mn, mx, false);
@@ -10642,6 +10831,19 @@ function renderFatigueView(root, res) {
   right.append(h('div', { class: 'card' }, h('h3', null, 'Screening ranking'), ...res.screening.map(s => h('div', null, h('b', null, s.die), h('table', { class: 'small' }, h('tr', null, h('th', null, 'select', helpTip('selectSite')), h('th', null, 'x'), h('th', null, 'y'), h('th', null, 'ΔW_proxy MPa', helpTip('dWproxy')), h('th', null, 'Δε̄p', helpTip('dEproxy'))), ...s.top.slice(0, 8).map(t => { const key = s.dieIdx + ':' + t.q; return h('tr', null, h('td', null, h('input', { type: 'checkbox', checked: sel.has(key) ? '' : null, disabled: submodelAllowed(res, s.dieIdx) ? null : '', 'data-tip': submodelAllowed(res, s.dieIdx) ? null : TIPS.subNotAllowed, onchange: e => { if (e.target.checked) sel.add(key); else sel.delete(key); } })), h('td', null, fmt(t.x, 2)), h('td', null, fmt(t.y, 2)), h('td', null, fmtE(t.dW, 3)), h('td', null, fmtE(t.dE, 3))); })), h('div', tip('stab', { class: 'small muted' }), 'stabilization (last two cycles): ' + fmtE(s.stab[s.top[0] ? s.top[0].q : 0], 2) + (s.subsampled ? '; subsampled' : '') + '; ' + fmt(s.ms / 1000, 1) + ' s'))),
     h('div', { class: 'row' }, h('label', null, 'Submodel resolution ', nxySel), h('button', tip('runSub', { class: 'primary', onclick: () => runSubmodels(res) }), '▶ Run bump submodels for selected sites'))));
   for (const sm of app.submodels) right.append(renderSubmodelCard(sm));
+  root.append(h('div', { class: 'grid2' }, left, right));
+}
+/** Screening of the DDI microbumps: map and ranking per chiplet (no submodels for microbumps). */
+function renderDdiScreening(root, res) {
+  const list = res.ddiScreening;
+  let mn = Infinity, mx = -Infinity;
+  for (const s of list) for (const v of s.dW) if (isFinite(v)) { mn = Math.min(mn, v); mx = Math.max(mx, v); }
+  const scale = makeScale(mn, mx, false), pitch = Math.min(app.cfg.stack.ddi.px, app.cfg.stack.ddi.py);
+  const left = h('div');
+  left.append(mapCanvas(res, (ctx, X, Y, sc) => { for (const s of list) drawPoints(ctx, s.x, s.y, s.dW, scale, X, Y, Math.max(1, 0.4 * pitch * sc)); }));
+  left.append(legendRow(scale, 'ΔW_proxy of the DDI microbump solder caps, MPa per stabilized cycle (screening index: ranks locations, not a life)'));
+  const right = h('div', null, h('div', { class: 'card' }, h('h3', null, 'DDI microbump screening ranking', helpTip('ddiScreen')), ...list.map(s => h('div', null, h('b', null, s.die), h('table', { class: 'small' }, h('tr', null, h('th', null, 'x'), h('th', null, 'y'), h('th', null, 'ΔW_proxy MPa', helpTip('dWproxy')), h('th', null, 'Δε̄p', helpTip('dEproxy'))), ...s.top.slice(0, 8).map(t => h('tr', null, h('td', null, fmt(t.x, 3)), h('td', null, fmt(t.y, 3)), h('td', null, fmtE(t.dW, 3)), h('td', null, fmtE(t.dE, 3))))), h('div', tip('stab', { class: 'small muted' }), 'stabilization (last two cycles): ' + fmtE(s.stab[s.top[0] ? s.top[0].q : 0], 2) + (s.subsampled ? '; subsampled to ' + s.nSites + ' sites' : '') + '; ' + fmt(s.ms / 1000, 1) + ' s'))),
+    h('div', { class: 'small muted' }, 'Each microbump is a free-standing column of its solder cap on an elastic Cu pillar, driven by the axial and shear strain of the DDI gap. Bump submodels are not available for microbumps.')));
   root.append(h('div', { class: 'grid2' }, left, right));
 }
 /** Bump submodels need a Si slice above the joint: not under an organic RDL interposer or a Si base thinner than the slice. */
@@ -10930,6 +11132,8 @@ function reportBody(res) {
   siList(f).forEach(d => { add(d.name + ' backside interior peak stress', fmt(d.top.peakInterior, 1) + ' MPa', CONFIDENCE.dieInterior); add(d.name + ' backside corner patches 1 / 2 / 3 / 4', d.top.corners.map(c => fmt(c.value, 0)).join(' / ') + ' MPa', CONFIDENCE.corner); add(d.name + ' active-face interior peak', fmt(d.bottom.peakInterior, 1) + ' MPa', CONFIDENCE.dieInterior); });
   f.dies.forEach((d, i) => { add(d.name + ' worst CPI bump shear / axial', gf(res.cpi[i].worstV) + ' / ' + gf(res.cpi[i].worstN) + ' gf', CONFIDENCE.bumps); add(d.name + ' underfill max sidewall peel / shear', fmt(d.uf.maxPeelSide, 1) + ' / ' + fmt(d.uf.maxShearSide, 1) + ' MPa', CONFIDENCE.corner); });
   if (res.screening) res.screening.forEach(s => add(s.die + ' worst ΔW_proxy', fmtE(s.top[0] ? s.top[0].dW : NaN, 3) + ' MPa/cycle', CONFIDENCE.fatigue));
+  if (f.ddi) f.ddi.forEach((c, i) => { const j = res.ddiJoin && res.ddiJoin[i]; if (j) add(c.name + ' worst DDI microbump shear / axial, chiplet join', gf(j.worstV) + ' / ' + gf(j.worstN) + ' gf', CONFIDENCE.bumps); add(c.name + ' worst DDI microbump shear / axial, 25 °C', gf(c.bumps.worstV) + ' / ' + gf(c.bumps.worstN) + ' gf', CONFIDENCE.bumps); add(c.name + ' ' + (c.wcuf.fill === 'mold' ? 'wafer mold' : 'wafer underfill') + ' max sidewall peel / shear', fmt(c.wcuf.maxPeelSide, 1) + ' / ' + fmt(c.wcuf.maxShearSide, 1) + ' MPa', CONFIDENCE.corner); });
+  if (res.ddiScreening) res.ddiScreening.forEach(s => add(s.die + ' worst DDI microbump ΔW_proxy', fmtE(s.top[0] ? s.top[0].dW : NaN, 3) + ' MPa/cycle', CONFIDENCE.fatigue));
   for (const sm of app.submodels) add('Submodel ' + sm.die + ' (' + fmt(sm.site.x, 1) + ', ' + fmt(sm.site.y, 1) + ') ΔW / Syed life', fmtE(sm.dW, 3) + ' MPa, ' + fmt(sm.life.syedEnergy, 0) + ' cycles', CONFIDENCE.fatigue);
   div.append(tbl);
   if (app.sensitivity && app.sensitivity.warpRT) div.append(h('p', { class: 'small' }, 'Sensitivity (RT warpage), top drivers: ' + app.sensitivity.warpRT.rows.slice(0, 5).map(r => r.label).join(', ') + '.'));
@@ -10963,9 +11167,12 @@ function exportCSV() {
   siList(f).forEach(d => { lines.push('die_stress,' + d.name + '_top_interior_peak,' + d.top.peakInterior + ',MPa', 'die_stress,' + d.name + '_bottom_interior_peak,' + d.bottom.peakInterior + ',MPa'); d.top.corners.forEach(c => lines.push('die_stress,' + d.name + '_top_' + c.name.replace(/[^\w+-]+/g, '_').replace(/_$/, '') + ',' + c.value + ',MPa')); });
   f.dies.forEach((d, i) => { lines.push('bumps,' + d.name + '_cpi_worst_shear,' + res.cpi[i].worstV + ',N', 'bumps,' + d.name + '_cpi_worst_axial,' + res.cpi[i].worstN + ',N', 'uf,' + d.name + '_max_sidewall_peel,' + d.uf.maxPeelSide + ',MPa', 'uf,' + d.name + '_max_sidewall_shear,' + d.uf.maxShearSide + ',MPa'); });
   if (res.screening) res.screening.forEach(s => lines.push('fatigue,' + s.die + '_worst_dW_proxy,' + (s.top[0] ? s.top[0].dW : '') + ',MPa'));
+  if (f.ddi) f.ddi.forEach((c, i) => { const j = res.ddiJoin && res.ddiJoin[i]; if (j) lines.push('ddi,' + c.name + '_join_worst_shear,' + j.worstV + ',N', 'ddi,' + c.name + '_join_worst_axial,' + j.worstN + ',N'); lines.push('ddi,' + c.name + '_25C_worst_shear,' + c.bumps.worstV + ',N', 'ddi,' + c.name + '_25C_worst_axial,' + c.bumps.worstN + ',N', 'wcuf,' + c.name + '_max_sidewall_peel,' + c.wcuf.maxPeelSide + ',MPa', 'wcuf,' + c.name + '_max_sidewall_shear,' + c.wcuf.maxShearSide + ',MPa'); });
+  if (res.ddiScreening) res.ddiScreening.forEach(s => lines.push('fatigue,' + s.die + '_ddi_worst_dW_proxy,' + (s.top[0] ? s.top[0].dW : '') + ',MPa'));
   for (const sm of app.submodels) lines.push('submodel,' + sm.die + '_' + sm.site.x + '_' + sm.site.y + '_dW,' + sm.dW + ',MPa', 'submodel,' + sm.die + '_' + sm.site.x + '_' + sm.site.y + '_life_syed,' + sm.life.syedEnergy + ',cycles');
   lines.push('', 'ball_x_mm,ball_y_mm,warpage_residual_25C_um,w_25C_um');
   for (let q = 0; q < f.warpage.ballX.length; q++) lines.push(f.warpage.ballX[q] + ',' + f.warpage.ballY[q] + ',' + f.warpage.ballRes[q] * 1000 + ',' + f.warpage.ballW[q] * 1000);
+  if (f.ddi) f.ddi.forEach((c, i) => { const j = res.ddiJoin && res.ddiJoin[i], a = c.bumps; lines.push('', 'chiplet,microbump_x_mm,microbump_y_mm,N_join_N,V_join_N,N_asm25_N,V_asm25_N'); for (let q = 0; q < a.x.length; q++) lines.push(c.name + ',' + a.x[q] + ',' + a.y[q] + ',' + (j ? j.N[q] : '') + ',' + (j ? j.V[q] : '') + ',' + a.N[q] + ',' + a.V[q]); });
   res.cpi.forEach((b, i) => { lines.push('', 'die,bump_x_mm,bump_y_mm,N_cpi_N,V_cpi_N,N_asm25_N,V_asm25_N'); const a = f.dies[i].bumps; for (let q = 0; q < b.x.length; q++) lines.push(b.die + ',' + b.x[q] + ',' + b.y[q] + ',' + b.N[q] + ',' + b.V[q] + ',' + a.N[q] + ',' + a.V[q]); });
   const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
   const a = h('a', { href: URL.createObjectURL(blob), download: (cfg.name || 'fcbga').replace(/[^\w.-]+/g, '_') + '_results.csv' });
@@ -10989,7 +11196,7 @@ function limitationsList(res) {
     'Stacked-module geometry: the wafer mold fills every module area not covered by chiplet silicon, out to the base edge and flush with the chiplet backsides (no overmold); the wafer underfill fillet is a linear wedge around each chiplet on the base top (cells it cuts carry wCUF and mold by their volume fractions), clipped at the base edge; the flip chip underfill fillet height is a fraction of the module height; the lid TIM covers the whole module top. All chiplets share one thickness and one DDI microbump technology.',
     'DDI microbumps are homogenized like the flip chip bumps: a microbump column phase superposed on the DDI fill (wafer underfill or mold), the column a Cu pillar and a solder cap in series (axial and shear stiffness only). TSV copper in a Si base is superposed on the Si by the parallel (Voigt) rule; the BEOL of the base and chiplets is not modeled. An RDL interposer is homogenized per layer like the substrate and integrated layer by layer.',
     'Stacked modules add element layers (at least four through the base, the DDI gap and the chiplets), so Draft cannot always reach its DOF cap: h_min then stops at the preset h_max and the mesh stays above the cap. The solver needs about two to three times the iterations per step of a monolithic package of the same size (more in the first module steps on coarse meshes), so module packages take markedly longer to run.',
-    'Results of stacked modules in this version: warpage, die stress on every chiplet and Si base, flip chip bump loads, screening and underfill tractions under each module base. DDI microbump loads and screening, wafer underfill tractions and the module parts of the report follow in the next update; bump submodels need a Si base at least 50 µm thick (not under an RDL interposer).',
+    'Results of stacked modules: warpage; die stress on every chiplet and Si base; flip chip bump loads, screening and underfill tractions under each module base; DDI microbump loads (as-assembled, and at the end of chiplet join before the DDI fill, an elastic upper bound like the chip-join state) and screening, each microbump a free-standing column of its solder cap on an elastic Cu pillar in series (at most 5000 microbumps per chiplet, outer rows and corner blocks kept); wafer underfill (or mold) tractions at every chiplet. Bump submodels need a Si base at least 50 µm thick (not under an RDL interposer) and are not available for microbumps.',
     'Silicon elastic constants are temperature independent; Cu and metals are elastic.',
     'Poisson ratios are clamped to 0.45 in the global hexahedral elements (B-bar elements in the submodel accept up to 0.49).',
     'Layered substrate bands use the continuum-shell form of each sub-layer stiffness (plane-stress in-plane block, uncoupled thickness modulus), because one thickness strain shared by all sub-layers of a band over-constrains the Poisson expansion (0.7 % warpage bias against lamination theory).',
@@ -11161,9 +11368,16 @@ function sectionFields(sec, qty, phase) {
   const vals = new Float64Array(4 * sec.n);
   const alongY = sec.axis === 'y';
   for (let q = 0; q < sec.n; q++) for (let v = 0; v < 4; v++) vals[4 * q + v] = sectionValue(qty, alongY, sec.sig, 24 * q + 6 * v, s => eig(s, out), tmp);
-  const nzs = sec.zl.length - 1, idx = new Int32Array((sec.sl.length - 1) * nzs).fill(-1);
-  for (let q = 0; q < sec.n; q++) if (sectionVisible(sec, q, phase)) idx[sec.qa[q] * nzs + sec.qb[q]] = q;
-  return { vals, idx, nzs };
+  const nzs = sec.zl.length - 1, idx = new Int32Array((sec.sl.length - 1) * nzs).fill(-1), idx2 = new Int32Array(idx.length).fill(-1);
+  // a cell cut by a fillet wedge with a second material over it (wafer underfill below, wafer mold above): the wedge
+  // quad is the primary one, the other fills the cell above the wedge surface (idx2)
+  for (let q = 0; q < sec.n; q++) {
+    if (!sectionVisible(sec, q, phase)) continue;
+    const key = sec.qa[q] * nzs + sec.qb[q], p = idx[key];
+    if (p >= 0 && (sec.topA[q] === sec.topA[q]) !== (sec.topA[p] === sec.topA[p])) { if (sec.topA[q] === sec.topA[q]) { idx[key] = q; idx2[key] = p; } else idx2[key] = q; }
+    else idx[key] = q;
+  }
+  return { vals, idx, idx2, nzs };
 }
 
 /** Contour of the cut plane: bilinear shading per quad, material boundaries, optional element edges. */
@@ -11206,9 +11420,10 @@ function drawSectionPlot(cv, sec, F, scale, opts) {
     const tz = rowT[r];
     for (let p = 0; p < iw; p++) {
       const a = colA[p]; if (a < 0) continue;
-      const q = idx[a * nzs + b]; if (q < 0) continue;
-      const tx = colT[p], o = 4 * q;
-      if (sec.topA[q] === sec.topA[q] && zRow[r] > sec.topA[q] + tx * (sec.topB[q] - sec.topA[q])) continue;  // above the fillet surface
+      let q = idx[a * nzs + b]; if (q < 0) continue;
+      const tx = colT[p];
+      if (sec.topA[q] === sec.topA[q] && zRow[r] > sec.topA[q] + tx * (sec.topB[q] - sec.topA[q])) { q = F.idx2 ? F.idx2[a * nzs + b] : -1; if (q < 0) continue; }  // above the fillet surface: void, or the material over it
+      const o = 4 * q;
       const di = 4 * (r * iw + p);
       if (grey && grey[q]) { D[di] = D[di + 1] = D[di + 2] = grey[q]; D[di + 3] = 255; continue; }
       const v = (1 - tx) * (1 - tz) * vals[o] + tx * (1 - tz) * vals[o + 1] + tx * tz * vals[o + 2] + (1 - tx) * tz * vals[o + 3];
@@ -11287,9 +11502,11 @@ function sectionReadout(cv, sec, F, qty, e) {
   const lb = sec.labels || {}, unit = lb.unit || 'mm', dg = unit === 'µm' ? 1 : 3;
   const pos = (lb.sName || (sec.axis === 'x' ? 'x' : 'y')) + ' ' + fmt(s, dg) + ' ' + unit + ', ' + (lb.zName || 'z') + ' ' + fmt(z, dg + 1) + ' ' + unit;
   if (s < sec.a0 || s > sec.a1 || z < sec.zMin || z > sec.zTop) return pos;
-  const a = bisect(sec.sl, s), b = bisect(sec.zl, z), q = F.idx[a * F.nzs + b];
+  const a = bisect(sec.sl, s), b = bisect(sec.zl, z);
+  let q = F.idx[a * F.nzs + b];
   const tx = q < 0 ? 0 : (s - sec.sl[a]) / (sec.sl[a + 1] - sec.sl[a]);
-  if (q < 0 || (sec.topA[q] === sec.topA[q] && z > sec.topA[q] + tx * (sec.topB[q] - sec.topA[q]))) return pos + ': void (no material)';
+  if (q >= 0 && sec.topA[q] === sec.topA[q] && z > sec.topA[q] + tx * (sec.topB[q] - sec.topA[q])) q = F.idx2 ? F.idx2[a * F.nzs + b] : -1;
+  if (q < 0) return pos + ': void (no material)';
   const tz = (z - sec.zl[b]) / (sec.zl[b + 1] - sec.zl[b]), o = 4 * q, V = F.vals;
   const v = (1 - tx) * (1 - tz) * V[o] + tx * (1 - tz) * V[o + 1] + tx * tz * V[o + 2] + (1 - tx) * tz * V[o + 3];
   return pos + ': ' + sectionPartName(sec, q) + ', ' + sectionQtyLabel(qty) + ' ' + fmt(v, 2) + ' MPa';
@@ -11749,7 +11966,7 @@ function renderCenter() {
   body.classList.toggle('fill', app.centerTab === 'floorplan');
   if (three) { try { three.renderer.dispose(); } catch (e) { /* ignore */ } three = null; }
   if (app.centerTab === 'floorplan') {
-    const overlaySel = h('select', tip('overlay', { onchange: e => { app.showOverlay = e.target.value; floorplan.draw(); } }), ...[['none', 'no overlay'], ['warpage', 'warpage, substrate bottom'], ['subtop', 'warpage, substrate top'], ['dieTop', 'die backside stress'], ['dieBottom', 'die active-face stress'], ['cpiV', 'bump shear, chip join'], ['cpiN', 'bump axial, chip join'], ['bumpV', 'bump shear, as-assembled'], ['bumpN', 'bump axial, as-assembled'], ['screening', 'fatigue screening ΔW']].map(([v, l]) => h('option', { value: v, selected: app.showOverlay === v ? '' : null }, l)));
+    const overlaySel = h('select', tip('overlay', { onchange: e => { app.showOverlay = e.target.value; floorplan.draw(); } }), ...[['none', 'no overlay'], ['warpage', 'warpage, substrate bottom'], ['subtop', 'warpage, substrate top'], ['dieTop', 'die backside stress'], ['dieBottom', 'die active-face stress'], ['cpiV', 'bump shear, chip join'], ['cpiN', 'bump axial, chip join'], ['bumpV', 'bump shear, as-assembled'], ['bumpN', 'bump axial, as-assembled'], ['screening', 'fatigue screening ΔW']].concat(app.cfg.modules.length ? [['ddiJoinV', 'DDI microbump shear, chiplet join'], ['ddiV', 'DDI microbump shear, as-assembled'], ['ddiN', 'DDI microbump axial, as-assembled'], ['screeningDdi', 'DDI microbump screening ΔW']] : []).map(([v, l]) => h('option', { value: v, selected: app.showOverlay === v ? '' : null }, l)));
     const cut = h('div', { class: 'fp-toolbar' }, h('b', null, 'Floorplan'), h('span', null, 'overlay ', overlaySel), app.results ? h('span', { class: 'small muted' }, '(' + (app.currentFields ? app.currentFields.T : 25) + ' °C, ' + app.results.preset + (app.results.preview ? ' preview' : '') + ')') : null,
       h('span', null, ' cut A-A\' '), h('select', tip('cutAxis', { onchange: e => { app.cutLine.axis = e.target.value; floorplan.draw(); xsection.draw(); } }), h('option', { value: 'x', selected: app.cutLine.axis === 'x' ? '' : null }, 'along x at y ='), h('option', { value: 'y', selected: app.cutLine.axis === 'y' ? '' : null }, 'along y at x =')), h('input', tip('cutPos', { type: 'number', step: 0.5, value: app.cutLine.pos, class: 'cut-pos', onchange: e => { app.cutLine.pos = +e.target.value; floorplan.draw(); xsection.draw(); } })), h('span', null, ' mm; vertical exaggeration '), h('select', tip('exagg', { onchange: e => { app.exaggeration = +e.target.value; xsection.draw(); } }), ...[1, 5, 20].map(v => h('option', { value: v, selected: app.exaggeration === v ? '' : null }, v + '×'))), h('button', tip('fit', { class: 'small', onclick: () => { floorplan.zoomFit(); floorplan.draw(); } }), 'Fit'));
     const wrap = h('div', { id: 'floorplan-wrap' }, h('canvas', { id: 'floorplan' }), h('div', { id: 'fp-readout', class: 'readout' }), app.results && app.results.preview ? h('div', { class: 'preview-badge' }, 'Preview (Draft)') : null);

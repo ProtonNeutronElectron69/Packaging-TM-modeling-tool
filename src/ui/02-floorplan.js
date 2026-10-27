@@ -286,6 +286,22 @@ const floorplan = {
       scale = makeScale(mn, mx, comp === 'N');
       for (const b of list) drawPoints(ctx, b.x, b.y, b[comp], scale, X, Y, Math.max(1, 0.35 * (app.geom ? app.geom.dies[0].px : 0.15) * this.scale));
       label = 'Per-bump ' + (comp === 'N' ? 'axial force (tension +)' : 'shear force') + ', N, ' + (cpi ? 'end of chip join at 25 °C (before underfill)' : 'as-assembled at ' + f.T + ' °C');
+    } else if (app.showOverlay === 'ddiV' || app.showOverlay === 'ddiN' || app.showOverlay === 'ddiJoinV') {
+      const join = app.showOverlay === 'ddiJoinV', comp = app.showOverlay === 'ddiN' ? 'N' : 'V';
+      const list = join ? res.ddiJoin || [] : (f.ddi || []).map(c => c.bumps);
+      let mn = Infinity, mx = -Infinity;
+      for (const b of list) for (const v of b[comp]) if (isFinite(v)) { mn = Math.min(mn, v); mx = Math.max(mx, v); }
+      if (list.length) {
+        scale = makeScale(mn, mx, comp === 'N');
+        for (const b of list) drawPoints(ctx, b.x, b.y, b[comp], scale, X, Y, Math.max(1, 0.35 * Math.min(app.cfg.stack.ddi.px, app.cfg.stack.ddi.py) * this.scale));
+        label = 'Per-microbump ' + (comp === 'N' ? 'axial force (tension +)' : 'shear force') + ', N, ' + (join ? 'end of chiplet join at 25 °C (before the DDI fill)' : 'as-assembled at ' + f.T + ' °C');
+      }
+    } else if (app.showOverlay === 'screeningDdi' && res.ddiScreening) {
+      let mn = Infinity, mx = -Infinity;
+      for (const s of res.ddiScreening) for (const v of s.dW) if (isFinite(v)) { mn = Math.min(mn, v); mx = Math.max(mx, v); }
+      scale = makeScale(mn, mx, false);
+      for (const s of res.ddiScreening) drawPoints(ctx, s.x, s.y, s.dW, scale, X, Y, Math.max(1, 0.35 * Math.min(app.cfg.stack.ddi.px, app.cfg.stack.ddi.py) * this.scale));
+      label = 'DDI microbump screening index ΔW_proxy (solder caps), MPa; ranks locations, not a life';
     } else if (app.showOverlay === 'screening' && res.screening) {
       let mn = Infinity, mx = -Infinity;
       for (const s of res.screening) for (const v of s.dW) if (isFinite(v)) { mn = Math.min(mn, v); mx = Math.max(mx, v); }

@@ -569,9 +569,9 @@ const VERIFICATION_TESTS = [
     },
   },
   {
-    id: 'V18', name: 'Stacked modules: free module stages and silicon stress', slow: true,
-    criterion: 'uniform-CTE module stress-free after its process stages (below 1e-3 of E α ΔT); module support reactions below 1e-6 of the internal force scale; bare module package convex at 25 °C with finite chiplet and base stresses',
-    about: 'A small package with one Si-base module and two chiplets. With every module material given the CTE of silicon, the module process stages (chiplet join, wafer underfill and mold cure) must leave the free module stress-free, apart from the pull of the not-yet-born bumps and underfill under it (stiffness 1e-6 of their own, about 2e-4 of E α ΔT here); with the real materials the temporary three-point support of the free module must carry essentially no force. The bare module package must come out convex (silicon on the higher-CTE substrate, as V9 for a bare die) with finite stresses on every chiplet and on the base.',
+    id: 'V18', name: 'Stacked modules: free module stages, silicon stress, microbumps', slow: true,
+    criterion: 'uniform-CTE module stress-free after its process stages (below 1e-3 of E α ΔT); module support reactions below 1e-6 of the internal force scale; bare module package convex at 25 °C with finite chiplet and base stresses, DDI microbump loads and wafer underfill tractions; series microbump column within 1e-4 of the closed form with in-plane stress below 1e-3',
+    about: 'A small package with one Si-base module and two chiplets. With every module material given the CTE of silicon, the module process stages (chiplet join, wafer underfill and mold cure) must leave the free module stress-free, apart from the pull of the not-yet-born bumps and underfill under it (stiffness 1e-6 of their own, about 2e-4 of E α ΔT here); with the real materials the temporary three-point support of the free module must carry essentially no force. The bare module package must come out convex (silicon on the higher-CTE substrate, as V9 for a bare die) with finite stresses on every chiplet and on the base and finite microbump loads and wafer underfill tractions. A free-standing microbump column (solder cap on a Cu pillar) loaded elastically must carry the series stiffness 1 / (f_s / E_s + f_p / E_p) in tension and the same rule in shear, with no in-plane stress.',
     run(ctx) {
       const small = () => {
         const cfg = presetConfig(ctx.db, 'bare');
@@ -620,8 +620,18 @@ const VERIFICATION_TESTS = [
       // whole-face Gauss-point peaks: the chiplets of this small model are too narrow on its coarse grid for an interior (edge band excluded) value
       const sis = g.siParts.map((p, i) => ({ name: p.name, top: dieSurfaceStress(v25, g, i, 'top').gpPeakAll, bottom: dieSurfaceStress(v25, g, i, 'bottom').gpPeakAll }));
       const finite = sis.length === 3 && sis.every(p => isFinite(p.top) && isFinite(p.bottom));
-      const pass = smax / scale < 1e-3 && reac / fscale < 1e-6 && w.sign > 0 && finite;
-      return { pass, measured: 'uniform-CTE module after ' + mod.length + ' module steps: max |σ| ' + smax.toExponential(2) + ' MPa = ' + (smax / scale).toExponential(2) + ' of E α ΔT; module support reactions ' + (reac / fscale).toExponential(2) + ' of the internal force scale (' + stepLabel(s0) + '); bare module package (' + bn.model.ndof + ' DOF, ' + bn.path.steps.length + ' steps) RT warpage ' + (w.signed * 1000).toFixed(2) + ' µm (' + (w.sign > 0 ? 'convex' : 'concave') + '); whole-face Gauss-point peaks (top / bottom) ' + sis.map(p => p.name + ' ' + p.top.toFixed(1) + ' / ' + p.bottom.toFixed(1) + ' MPa').join(', ') };
+      // DDI microbump loads and wafer underfill tractions of both chiplets at 25 degC
+      const ddi = [0, 1].map(ci => ddiLoads(v25, g, 0, ci)), wct = [0, 1].map(ci => wcufTractions(v25, g, 0, ci));
+      const ddiOk = ddi.every(d => isFinite(d.worstV) && isFinite(d.worstN)) && wct.every(t => isFinite(t.maxShearSide) && isFinite(t.maxPeelFace));
+      // (4) series column of a solder cap on a Cu pillar, elastic regime (tiny time step): closed-form series stiffness
+      const sn = findMaterial(bn.cfg.materials, bn.cfg.stack.ddi.solder), cuM = findMaterial(bn.cfg.materials, 'cu'), fsC = 1 - bn.cfg.stack.ddi.pillarH / bn.cfg.stack.ddi.standoff;
+      const ptS = new AnandPoint(sn), Es = ptS.E(25), Gs = Es / (2 * (1 + ptS.nu)), Ep = isoE(cuM, 25), Gp = Ep / (2 * (1 + pv(cuM.elastic.nu)));
+      const tzc = Float64Array.of(1e-4, 1e-4, 0), epsC = new Float64Array(6), outC = { sig: new Float64Array(6), D: new Float64Array(36) };
+      ptS.stepSeriesColumn(epsC, tzc, fsC, Float64Array.of(1 / Ep, 1 / Gp, 1 / Gp), 25, 1e-9, outC);
+      const sRef = 1e-4 / (fsC / Es + (1 - fsC) / Ep), tRef = 1e-4 / (fsC / Gs + (1 - fsC) / Gp);
+      const serErr = Math.max(Math.abs(outC.sig[2] - sRef) / sRef, Math.abs(outC.sig[4] - tRef) / tRef), inPlane = Math.max(Math.abs(outC.sig[0]), Math.abs(outC.sig[1]), Math.abs(outC.sig[3])) / sRef;
+      const pass = smax / scale < 1e-3 && reac / fscale < 1e-6 && w.sign > 0 && finite && ddiOk && serErr < 1e-4 && inPlane < 1e-3;
+      return { pass, measured: 'uniform-CTE module after ' + mod.length + ' module steps: max |σ| ' + smax.toExponential(2) + ' MPa = ' + (smax / scale).toExponential(2) + ' of E α ΔT; module support reactions ' + (reac / fscale).toExponential(2) + ' of the internal force scale (' + stepLabel(s0) + '); bare module package (' + bn.model.ndof + ' DOF, ' + bn.path.steps.length + ' steps) RT warpage ' + (w.signed * 1000).toFixed(2) + ' µm (' + (w.sign > 0 ? 'convex' : 'concave') + '); whole-face Gauss-point peaks (top / bottom) ' + sis.map(p => p.name + ' ' + p.top.toFixed(1) + ' / ' + p.bottom.toFixed(1) + ' MPa').join(', ') + '; worst DDI microbump shear ' + ddi.map(d => (d.worstV * 1000).toFixed(3) + ' mN').join(' / ') + ', wCUF sidewall shear ' + wct.map(t => t.maxShearSide.toFixed(2)).join(' / ') + ' MPa; series column (elastic) axial and shear stress ' + serErr.toExponential(1) + ' from the closed form, in-plane ' + inPlane.toExponential(1) };
     },
   },
 ];

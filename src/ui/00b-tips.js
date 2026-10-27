@@ -289,6 +289,12 @@ const TIPS = {
   Twcuf: 'Effective stress-free temperature of the wafer underfill (default: its cure temperature).',
   Tmold: 'Effective stress-free temperature of the wafer mold (default: the post-mold cure of the default compound).',
   subNotAllowed: 'Bump submodels put a Si slice above the joint, so they need a Si base at least 50 µm thick; joints under an organic RDL interposer are not supported yet.',
+  layerC4: 'Results of the flip chip (C4) bumps under the dies and the module bases.',
+  layerDdi: 'Results of the DDI microbumps between each module base and its chiplets.',
+  stateDdiJoin: 'Stacked modules at the end of chiplet join, cooled to 25 °C before the wafer underfill (or mold) is born: the microbumps alone carry the chiplet-to-base mismatch. Elastic upper bound.',
+  layerFli: 'Tractions of the flip chip underfill at the die and module-base edges.',
+  layerWcuf: 'Tractions of the wafer underfill (or, for mold-only modules, the wafer mold) at each chiplet: chiplet sidewall to the fillet, and chiplet active face to the DDI fill near the edge.',
+  ddiScreen: 'Inelastic work density per stabilized cycle of each microbump solder cap: the joint is a free-standing column of the cap on an elastic Cu pillar, driven by the axial and shear strain of the DDI gap. Ranks locations; not a life.',
 };
 
 /** Help icon bound to a tooltip key (or free text). */

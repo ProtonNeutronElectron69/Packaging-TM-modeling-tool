@@ -157,9 +157,16 @@ function sectionFields(sec, qty, phase) {
   const vals = new Float64Array(4 * sec.n);
   const alongY = sec.axis === 'y';
   for (let q = 0; q < sec.n; q++) for (let v = 0; v < 4; v++) vals[4 * q + v] = sectionValue(qty, alongY, sec.sig, 24 * q + 6 * v, s => eig(s, out), tmp);
-  const nzs = sec.zl.length - 1, idx = new Int32Array((sec.sl.length - 1) * nzs).fill(-1);
-  for (let q = 0; q < sec.n; q++) if (sectionVisible(sec, q, phase)) idx[sec.qa[q] * nzs + sec.qb[q]] = q;
-  return { vals, idx, nzs };
+  const nzs = sec.zl.length - 1, idx = new Int32Array((sec.sl.length - 1) * nzs).fill(-1), idx2 = new Int32Array(idx.length).fill(-1);
+  // a cell cut by a fillet wedge with a second material over it (wafer underfill below, wafer mold above): the wedge
+  // quad is the primary one, the other fills the cell above the wedge surface (idx2)
+  for (let q = 0; q < sec.n; q++) {
+    if (!sectionVisible(sec, q, phase)) continue;
+    const key = sec.qa[q] * nzs + sec.qb[q], p = idx[key];
+    if (p >= 0 && (sec.topA[q] === sec.topA[q]) !== (sec.topA[p] === sec.topA[p])) { if (sec.topA[q] === sec.topA[q]) { idx[key] = q; idx2[key] = p; } else idx2[key] = q; }
+    else idx[key] = q;
+  }
+  return { vals, idx, idx2, nzs };
 }
 
 /** Contour of the cut plane: bilinear shading per quad, material boundaries, optional element edges. */
@@ -202,9 +209,10 @@ function drawSectionPlot(cv, sec, F, scale, opts) {
     const tz = rowT[r];
     for (let p = 0; p < iw; p++) {
       const a = colA[p]; if (a < 0) continue;
-      const q = idx[a * nzs + b]; if (q < 0) continue;
-      const tx = colT[p], o = 4 * q;
-      if (sec.topA[q] === sec.topA[q] && zRow[r] > sec.topA[q] + tx * (sec.topB[q] - sec.topA[q])) continue;  // above the fillet surface
+      let q = idx[a * nzs + b]; if (q < 0) continue;
+      const tx = colT[p];
+      if (sec.topA[q] === sec.topA[q] && zRow[r] > sec.topA[q] + tx * (sec.topB[q] - sec.topA[q])) { q = F.idx2 ? F.idx2[a * nzs + b] : -1; if (q < 0) continue; }  // above the fillet surface: void, or the material over it
+      const o = 4 * q;
       const di = 4 * (r * iw + p);
       if (grey && grey[q]) { D[di] = D[di + 1] = D[di + 2] = grey[q]; D[di + 3] = 255; continue; }
       const v = (1 - tx) * (1 - tz) * vals[o] + tx * (1 - tz) * vals[o + 1] + tx * tz * vals[o + 2] + (1 - tx) * tz * vals[o + 3];
@@ -283,9 +291,11 @@ function sectionReadout(cv, sec, F, qty, e) {
   const lb = sec.labels || {}, unit = lb.unit || 'mm', dg = unit === 'µm' ? 1 : 3;
   const pos = (lb.sName || (sec.axis === 'x' ? 'x' : 'y')) + ' ' + fmt(s, dg) + ' ' + unit + ', ' + (lb.zName || 'z') + ' ' + fmt(z, dg + 1) + ' ' + unit;
   if (s < sec.a0 || s > sec.a1 || z < sec.zMin || z > sec.zTop) return pos;
-  const a = bisect(sec.sl, s), b = bisect(sec.zl, z), q = F.idx[a * F.nzs + b];
+  const a = bisect(sec.sl, s), b = bisect(sec.zl, z);
+  let q = F.idx[a * F.nzs + b];
   const tx = q < 0 ? 0 : (s - sec.sl[a]) / (sec.sl[a + 1] - sec.sl[a]);
-  if (q < 0 || (sec.topA[q] === sec.topA[q] && z > sec.topA[q] + tx * (sec.topB[q] - sec.topA[q]))) return pos + ': void (no material)';
+  if (q >= 0 && sec.topA[q] === sec.topA[q] && z > sec.topA[q] + tx * (sec.topB[q] - sec.topA[q])) q = F.idx2 ? F.idx2[a * F.nzs + b] : -1;
+  if (q < 0) return pos + ': void (no material)';
   const tz = (z - sec.zl[b]) / (sec.zl[b + 1] - sec.zl[b]), o = 4 * q, V = F.vals;
   const v = (1 - tx) * (1 - tz) * V[o] + tx * (1 - tz) * V[o + 1] + tx * tz * V[o + 2] + (1 - tx) * tz * V[o + 3];
   return pos + ': ' + sectionPartName(sec, q) + ', ' + sectionQtyLabel(qty) + ' ' + fmt(v, 2) + ' MPa';

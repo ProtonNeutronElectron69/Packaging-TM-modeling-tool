@@ -143,9 +143,11 @@
     const si = g.siParts.map((d, i) => ({ name: d.name, kind: d.kind || 'die', rect: d.rect, top: dieSurfaceStress(view, g, i, 'top'), bottom: dieSurfaceStress(view, g, i, 'bottom') }));
     const dies = g.dies.map((d, i) => Object.assign({ name: d.name, kind: d.kind, rect: d.rect, bumps: bumpLoads(view, g, i), uf: ufTractions(view, g, i) },
       d.kind === 'die' ? { top: si[g.siParts.indexOf(d)].top, bottom: si[g.siParts.indexOf(d)].bottom } : {}));
+    // stacked modules: DDI microbump loads and wafer underfill (or mold) tractions per chiplet
+    const ddi = g.modules.flatMap((m, mi) => m.chiplets.map((c, ci) => ({ name: c.name, module: mi, chiplet: ci, rect: c.rect, bumps: ddiLoads(view, g, mi, ci), wcuf: wcufTractions(view, g, mi, ci) })));
     const solidus = pv(findMaterial(cfg.materials, cfg.bump.solder).solidus || { v: 217 });
     return {
-      T, molten: T > solidus,
+      T, molten: T > solidus, ddi,
       warpage: { signed: w.signed, mag: w.mag, sign: w.sign, signConf: w.signConf, marginal: w.marginal, shape: w.shape, limitHot: w.limitHot, limitRT: w.limitRT, grid: toF32(w.grid), rmin: w.rmin, rmax: w.rmax, ballX: toF32(g.bga.x), ballY: toF32(g.bga.y), ballRes: toF32(w.ballRes), ballW: toF32(w.ballW),
         diagAB: { s: toF32(w.diagAB.s), rel: toF32(w.diagAB.rel), w: toF32(w.diagAB.w), max: w.diagAB.max, min: w.diagAB.min }, diagCD: { s: toF32(w.diagCD.s), rel: toF32(w.diagCD.rel), w: toF32(w.diagCD.w), max: w.diagCD.max, min: w.diagCD.min }, plane: w.plane },
       substrateTop: { grid: toF32(top.grid), mag: top.mag, dies: top.dies },
@@ -179,6 +181,7 @@
       at25: fieldsAt(an, 25, view25),
       sweep: an.temps.reflow.map(T => { const w = warpageJEITA(an.mesh, g, an.fields.get(T), cfg); return { T, signed: w.signed, mag: w.mag, sign: w.sign, signConf: w.signConf, marginal: w.marginal, shape: w.shape }; }),
       cpi: an.uCPI ? (v => g.dies.map((d, i) => bumpLoads(v, g, i)))(an.view(25, 'cpi')) : null,
+      ddiJoin: an.uDDI ? (v => g.modules.flatMap((m, mi) => m.chiplets.map((c, ci) => ddiLoads(v, g, mi, ci))))(an.view(25, 'ddi')) : null,
       cycling: an.temps.cycling.map(T => { const w = warpageJEITA(an.mesh, g, an.fields.get(T), cfg); return { T, signed: w.signed, mag: w.mag, marginal: w.marginal, shape: w.shape }; }),
     };
     if (msg.evaluations !== 'preview') {
@@ -189,6 +192,7 @@
       if (an.temps.cycling.length > 1) {
         progress(id, 0.96, 'Screening all bumps');
         result.screening = g.dies.map((d, i) => screenBumps(an, i));
+        if (g.modules.length) { progress(id, 0.98, 'Screening the DDI microbumps'); result.ddiScreening = g.modules.flatMap((m, mi) => m.chiplets.map((c, ci) => screenDdi(an, mi, ci))); }
       }
     }
     result.totalMs = nowMs() - t0;

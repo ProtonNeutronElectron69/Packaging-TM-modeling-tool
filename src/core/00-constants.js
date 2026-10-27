@@ -93,6 +93,7 @@ const CONST = Object.freeze({
   GF_PER_N: 101.97162,
   // ---- solder fatigue -------------------------------------------------------
   SCREEN_MAX_BUMPS: 20000,
+  SCREEN_MAX_DDI: 5000,      // DDI microbumps screened per chiplet at most (same keep rule; each joint is a 6-unknown series-column Newton)
   SCREEN_KEEP_ROWS: 3,
   SCREEN_CORNER_BLOCK: 10,
   CYCLE_DT_STEP: 10,         // degC between global cycling samples

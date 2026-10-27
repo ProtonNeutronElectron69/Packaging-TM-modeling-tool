@@ -258,22 +258,38 @@ function dieSurfaceStress(view, geom, dieIdx, which) {
 
 /** Per-bump axial and shear forces from the solder-phase stress at each site (Section 8.3). */
 function bumpLoads(view, geom, dieIdx) {
-  const mesh = view.model.mesh, d = geom.dies[dieIdx], T = view.T;
+  const d = geom.dies[dieIdx];
+  return jointLoads(view, d, geom.zt + 0.5 * geom.so, PART.SOLDER, d.abump);
+}
+
+/**
+ * Per-microbump axial and shear forces of chiplet ci of module mi from the DDI
+ * microbump phase at mid-height of the DDI gap. The phase is a Cu pillar and a
+ * solder cap in series, so its axial and shear stresses are those of both.
+ */
+function ddiLoads(view, geom, mi, ci) {
+  const m = geom.modules[mi], c = m.chiplets[ci];
+  const r = jointLoads(view, c, 0.5 * (m.zBaseTop + m.zDdiTop), PART.DDI_SOLDER, c.abump);
+  r.module = mi; r.chiplet = ci;
+  return r;
+}
+
+/** Axial and shear forces N = szz A, V = |(tyz, txz)| A at the joint sites of a bump field at height zmid in elements of a part. */
+function jointLoads(view, d, zmid, part, A) {
+  const mesh = view.model.mesh, T = view.T;
   const sites = dieBumpSites(d);
   const n = sites.x.length;
   const N = new Float64Array(n).fill(NaN), V = new Float64Array(n).fill(NaN), szz = new Float64Array(n).fill(NaN);
-  const zmid = geom.zt + 0.5 * geom.so;
   const kb = findInterval(mesh.zs, zmid);
   const byElem = new Map();
   for (let q = 0; q < n; q++) {
     const i = findInterval(mesh.xs, sites.x[q]), j = findInterval(mesh.ys, sites.y[q]);
-    const e = elementInCell(mesh, i, j, kb, PART.SOLDER);
+    const e = elementInCell(mesh, i, j, kb, part);
     if (e < 0) continue;
     if (!byElem.has(e)) byElem.set(e, []);
     byElem.get(e).push(q);
   }
   const st = { eps: new Float64Array(6), sig: new Float64Array(6) };
-  const A = d.abump;
   for (const [e, list] of byElem) {
     for (const q of list) {
       const [xi, eta, zeta] = naturalCoords(mesh, e, sites.x[q], sites.y[q], zmid);
@@ -313,7 +329,30 @@ function dieCorners(r) {
  * over 50 um x 50 um patches.
  */
 function ufTractions(view, geom, dieIdx) {
-  const mesh = view.model.mesh, d = geom.dies[dieIdx], r = d.rect, T = view.T;
+  const d = geom.dies[dieIdx];
+  return perimeterTractions(view, d.name, d.rect, d.zaf, [PART.UF_FILLET], PART.UF_BUMP);
+}
+
+/**
+ * Wafer underfill (or, for mold-only modules, wafer mold) tractions around
+ * chiplet ci of module mi: chiplet sidewall to the wCUF fillet or mold, and
+ * chiplet active face to the DDI fill near the edge.
+ */
+function wcufTractions(view, geom, mi, ci) {
+  const m = geom.modules[mi], c = m.chiplets[ci];
+  const r = perimeterTractions(view, c.name, c.rect, m.zDdiTop, [PART.WCUF_FILLET, PART.MOLD], PART.DDI_FILL);
+  r.module = mi; r.chiplet = ci; r.fill = geom.wcuf ? 'wcuf' : 'mold';
+  return r;
+}
+
+/**
+ * Tractions along the perimeter of rectangle r (clockwise from corner 1) on
+ * the sidewall just outside it, from z0 up by one patch (first of sideParts
+ * found in the cell), and on the face just below z0, one patch inside the edge
+ * (facePart), each averaged over a TRACTION_PATCH square patch.
+ */
+function perimeterTractions(view, name, r, z0, sideParts, facePart) {
+  const mesh = view.model.mesh, T = view.T;
   const step = CONST.TRACTION_PATCH, ns = CONST.TRACTION_SAMPLES;
   // perimeter walked clockwise from corner 1 (+x, -y): side k runs from corner k to corner k+1, outward normal (nx, ny)
   const cs = dieCorners(r);
@@ -330,6 +369,7 @@ function ufTractions(view, geom, dieIdx) {
     view.point(e, xi, eta, zeta, st);
     return st.sig;
   };
+  const sideSig = (x, y, z) => { for (const p of sideParts) { const sg = sigAt(x, y, z, p); if (sg) return sg; } return sigAt(x, y, z, null); };
   const eps = 1e-6;
   for (const ed of edges) {
     const L = Math.hypot(ed.x1 - ed.x0, ed.y1 - ed.y0);
@@ -342,18 +382,18 @@ function ufTractions(view, geom, dieIdx) {
       for (let a = 0; a < ns; a++) for (let b = 0; b < ns; b++) {
         const ds = (a + 0.5) / ns * step - step / 2;
         const xs = xc + tx * ds, ys = yc + ty * ds;
-        // sidewall patch: just outside the die, z from the active face up by one patch
-        const zS = d.zaf + (b + 0.5) / ns * step;
-        const sg = sigAt(xs + ed.nx * eps, ys + ed.ny * eps, zS, PART.UF_FILLET) || sigAt(xs + ed.nx * eps, ys + ed.ny * eps, zS, null);
+        // sidewall patch: just outside the edge, z from z0 up by one patch
+        const zS = z0 + (b + 0.5) / ns * step;
+        const sg = sideSig(xs + ed.nx * eps, ys + ed.ny * eps, zS);
         if (sg) {
           // traction t = sigma n, n = (nx, ny, 0)
           const t0 = sg[0] * ed.nx + sg[3] * ed.ny, t1 = sg[3] * ed.nx + sg[1] * ed.ny, t2 = sg[5] * ed.nx + sg[4] * ed.ny;
           const tn = t0 * ed.nx + t1 * ed.ny;
           pS += tn; vS += Math.hypot(t0 - tn * ed.nx, t1 - tn * ed.ny, t2); cS++;
         }
-        // active-face patch: inside the die edge by one patch, just below the active face
+        // face patch: inside the edge by one patch, just below z0
         const inX = xs - ed.nx * (b + 0.5) / ns * step, inY = ys - ed.ny * (b + 0.5) / ns * step;
-        const sf = sigAt(inX, inY, d.zaf - eps, PART.UF_BUMP);
+        const sf = sigAt(inX, inY, z0 - eps, facePart);
         if (sf) { pF += sf[2]; vF += Math.hypot(sf[4], sf[5]); cF++; }
       }
       s.push(s0 + sc); px.push(xc); py.push(yc);
@@ -364,7 +404,7 @@ function ufTractions(view, geom, dieIdx) {
     corners.push(s0);
   }
   const mx = arr => arr.reduce((m, v) => isFinite(v) && v > m ? v : m, -Infinity);
-  return { die: d.name, s: Float64Array.from(s), x: Float64Array.from(px), y: Float64Array.from(py), peelSide: Float64Array.from(peelSide), shearSide: Float64Array.from(shearSide), peelFace: Float64Array.from(peelFace), shearFace: Float64Array.from(shearFace), corners, maxPeelSide: mx(peelSide), maxShearSide: mx(shearSide), maxPeelFace: mx(peelFace), maxShearFace: mx(shearFace), T };
+  return { die: name, s: Float64Array.from(s), x: Float64Array.from(px), y: Float64Array.from(py), peelSide: Float64Array.from(peelSide), shearSide: Float64Array.from(shearSide), peelFace: Float64Array.from(peelFace), shearFace: Float64Array.from(shearFace), corners, maxPeelSide: mx(peelSide), maxShearSide: mx(shearSide), maxPeelFace: mx(peelFace), maxShearFace: mx(shearFace), T };
 }
 
 /**

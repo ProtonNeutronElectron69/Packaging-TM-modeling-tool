@@ -67,7 +67,7 @@ function thermalPathPoints(Ta, Tb, tgs, stops) {
 
 /** Short label of one step of the thermal path. */
 function stepLabel(s) {
-  const what = s.branch === 'chain' ? (s.stage < 0 ? 'M' + (4 + s.stage) : 'S' + s.stage) : (s.branch === 'cpi' ? 'chip join' : 'sweep');
+  const what = s.branch === 'chain' ? (s.stage < 0 ? 'M' + (4 + s.stage) : 'S' + s.stage) : (s.branch === 'cpi' ? 'chip join' : (s.branch === 'ddi' ? 'chiplet join' : 'sweep'));
   return what + ' ' + s.Ta + ' -> ' + s.Tb + ' °C';
 }
 
@@ -164,12 +164,14 @@ class Analysis {
     // both sweep branches in the final stage (down first, continuing from the last chain step)
     // stacked modules first (the substrate and everything on it unborn): chip join of the chiplets on their bases, then the
     // wafer underfill cure (wCUF fill only), then the wafer mold cure, then on to the substrate's stress-free temperature
-    let sm = [];
+    // a full analysis also cools the joined module to 25 degC before its fill is born (the 'ddi' branch: DDI microbump
+    // loads at the end of chiplet join, the module counterpart of the chip-join CPI state)
+    let sm = [], smJoin = [], ddi = [];
     if (this.hasModules) {
-      const mp = this.cfg.stack.process, S = CONST.STAGE;
-      if (this.cfg.stack.fill === 'wcuf') sm = seg(mp.Tddi, mp.Twcuf, S.DDI, 'chain').concat(seg(mp.Twcuf, mp.Tmold, S.WCUF, 'chain'));
-      else sm = seg(mp.Tddi, mp.Tmold, S.DDI, 'chain');
-      sm = sm.concat(seg(mp.Tmold, p.Tsub, S.MOLD, 'chain'));
+      const mp = this.cfg.stack.process, S = CONST.STAGE, wcuf = this.cfg.stack.fill === 'wcuf', Tfill = wcuf ? mp.Twcuf : mp.Tmold;
+      smJoin = seg(mp.Tddi, Tfill, S.DDI, 'chain');
+      if (this.opts.evaluations === 'full') ddi = seg(Tfill, 25, S.DDI, 'ddi');
+      sm = smJoin.concat(wcuf ? seg(mp.Twcuf, mp.Tmold, S.WCUF, 'chain') : [], seg(mp.Tmold, p.Tsub, S.MOLD, 'chain'));
     }
     const s0 = Math.abs(p.Tsub - p.Tjoin) > 1e-9 ? seg(p.Tsub, p.Tjoin, 0, 'chain') : [];
     const s1 = seg(p.Tjoin, p.Tuf, 1, 'chain');
@@ -177,7 +179,7 @@ class Analysis {
     const rest = fin === 3 ? seg(p.Tuf, p.Tattach, 2, 'chain').concat(seg(p.Tattach, 25, 3, 'chain')) : seg(p.Tuf, 25, 2, 'chain');
     const ev = temps.all;
     const down = seg(25, Math.min(25, ...ev), fin, 'down', ev), up = seg(25, Math.max(25, ...ev), fin, 'up', ev);
-    this.path = { steps, chain: sm.concat(s0, s1, rest), chainJoin: sm.concat(s0, s1), cpi, up, down, hasCPI: this.opts.evaluations === 'full' };
+    this.path = { steps, chain: sm.concat(s0, s1, rest), chainJoin: sm.concat(s0, s1), cpi, up, down, hasCPI: this.opts.evaluations === 'full', ddiJoin: smJoin, ddi, hasDDI: ddi.length > 0 };
     this.du = new Array(steps.length).fill(null);
     this.rec = new Array(steps.length).fill(null);
     return steps;
@@ -246,6 +248,11 @@ class Analysis {
       for (const k of P.chainJoin.concat(P.cpi)) add(c, k);
       this.uCPI = c;
     } else this.uCPI = null;
+    if (P.hasDDI) {
+      const c = new Float64Array(n);
+      for (const k of P.ddiJoin.concat(P.ddi)) add(c, k);
+      this.uDDI = c;
+    } else this.uDDI = null;
     for (let k = 0; k < this.du.length; k++) if (!(this.du[k] instanceof Float32Array)) this.du[k] = Float32Array.from(this.du[k]);
     this.ck25 = new Map();
     this.timings.total = nowMs() - (this.tAll || nowMs());
@@ -281,7 +288,7 @@ class Analysis {
     return null;
   }
 
-  /** View of the solution at T for post-processing: 'final' (as-assembled) or 'cpi' (chip-join state at 25 degC). */
+  /** View of the solution at T for post-processing: 'final' (as-assembled), 'cpi' (chip-join state at 25 degC) or 'ddi' (stacked modules at the end of chiplet join, 25 degC). */
   view(T, which) { return new StateView(this, T, which || 'final'); }
 
   /**
@@ -329,6 +336,7 @@ class StateView {
     this.an = an; this.model = an.model; this.T = T; this.which = which;
     this.cache = new Map();
     if (which === 'cpi') { this.u = an.uCPI; this.ids = an.path.chainJoin.concat(an.path.cpi); return; }
+    if (which === 'ddi') { this.u = an.uDDI; this.ids = an.path.ddiJoin.concat(an.path.ddi); return; }
     this.ids = an.branchTo(T);
     if (this.ids) { this.u = an.fields.get(T); return; }
     // between evaluation temperatures: blend the neighbouring views
@@ -342,7 +350,7 @@ class StateView {
   state(e) {
     let st = this.cache.get(e);
     if (!st) {
-      st = this.which === 'cpi' ? this.an.elementHistory(e, this.ids) : (this.ids.length ? this.an.elementHistory(e, this.ids, this.an.state25(e)) : this.an.state25(e));
+      st = this.which !== 'final' ? this.an.elementHistory(e, this.ids) : (this.ids.length ? this.an.elementHistory(e, this.ids, this.an.state25(e)) : this.an.state25(e));
       this.cache.set(e, st);
     }
     return st;

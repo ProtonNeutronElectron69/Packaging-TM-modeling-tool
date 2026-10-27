@@ -67,7 +67,7 @@ function thermalPathPoints(Ta, Tb, tgs, stops) {
 
 /** Short label of one step of the thermal path. */
 function stepLabel(s) {
-  const what = s.branch === 'chain' ? 'S' + s.stage : (s.branch === 'cpi' ? 'chip join' : 'sweep');
+  const what = s.branch === 'chain' ? (s.stage < 0 ? 'M' + (4 + s.stage) : 'S' + s.stage) : (s.branch === 'cpi' ? 'chip join' : 'sweep');
   return what + ' ' + s.Ta + ' -> ' + s.Tb + ' °C';
 }
 

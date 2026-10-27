@@ -214,13 +214,17 @@ class FEModel {
     this.nuMax = opts.nuMax || CONST.NU_MAX_GLOBAL;
     const t0 = nowMs();
     this.groups = mesh.groups.map(g => this._prepareGroup(g));
-    this.sections = mesh.geom ? mesh.geom.sub.bands.map(b => buildBandSection(b, this.lib, this.nuMax)) : (opts.sections || []);
+    // layered sections (substrate bands, RDL interposer layers), each with the group it belongs to (birth stage)
+    const bands = mesh.layeredBands || (mesh.geom ? mesh.geom.sub.bands : null);
+    this.sections = bands ? bands.map(b => Object.assign(buildBandSection(b, this.lib, this.nuMax), { group: b.group })) : (opts.sections || []);
     this.upper = bcsrFromElements(mesh.nn, mesh.conn, mesh.ne, 8);
     this.pattern = fullPatternFromUpper(this.upper);
     this.bmap = this._blockMap();
     this.val = new Float64Array(this.pattern.nb * 9);
     this.ndof = 3 * mesh.nn;
     this.constraints = mesh.constraints ? mesh.constraints.dofs : (opts.constraints || new Int32Array(0));
+    // stacked-module stages (negative) add each module's own 3-2-1 support (buildPackageMesh)
+    this.moduleConstraints = mesh.moduleConstraints ? Int32Array.from([...this.constraints, ...mesh.moduleConstraints]) : null;
     this.setupMs = nowMs() - t0;
     this._K33 = new Float64Array(1089); this._f33 = new Float64Array(33);
     this._W = new Float64Array(108); this._s0 = new Float64Array(6);
@@ -264,7 +268,8 @@ class FEModel {
       const constE = mat.elastic.E.type === 'const' && !mat.solidus;
       // the solder phase of the bump layer is an array of separate columns (columnD), any other isotropic material a continuum
       const mk = (E, D) => g.column ? columnD(E, t.nu, D) : isoD(E, t.nu, this.nuMax, D);
-      if (constE) out.Dconst = mk(t.E[0], new Float64Array(36));
+      if (g.series) this._seriesColumn(out, mat, t);
+      else if (constE) out.Dconst = mk(t.E[0], new Float64Array(36));
       else {
         out.Dgrid = new Float64Array(TGRID_N * 36);
         const tmp = new Float64Array(36);
@@ -277,6 +282,37 @@ class FEModel {
       for (let i = 0; i < TGRID_N; i++) { orthoD(materialEC(mat, CONST.TGRID_MIN + i), this.nuMax, tmp); out.Dgrid.set(tmp, 36 * i); }
     }
     return out;
+  }
+
+  /**
+   * Column of two materials in series along z (a DDI microbump: solder cap with a height fraction 1 - f on a
+   * Cu pillar of fraction f): axial and shear compliances add by height,
+   *   1/E = (1 - f)/E_s + f/E_p,  1/G = (1 - f)/G_s + f/G_p,  F = (1 - f) F_s + f F_p,
+   * and columnD carries E with the Poisson ratio that reproduces G (nu = E / 2G - 1).
+   */
+  _seriesColumn(out, mat, t) {
+    const fp = out.series.f, sp = findMaterial(this.lib, out.series.mat), tp = materialTables(sp);
+    out.Dgrid = new Float64Array(TGRID_N * 36);
+    const tmp = new Float64Array(36);
+    for (let i = 0; i < TGRID_N; i++) {
+      const Es = t.E[i], Ep = tp.E[i], Gs = Es / (2 * (1 + t.nu)), Gp = Ep / (2 * (1 + tp.nu));
+      const E = 1 / ((1 - fp) / Es + fp / Ep), G = 1 / ((1 - fp) / Gs + fp / Gp);
+      columnD(E, E / (2 * G) - 1, tmp);
+      out.Dgrid.set(tmp, 36 * i);
+      for (let c = 0; c < 3; c++) out.F[3 * i + c] = (1 - fp) * out.F[3 * i + c] + fp * tp.F[i];
+    }
+  }
+
+  /** Layered section of a layered element (its group's section of that element layer). */
+  sectionOf(e) {
+    const m = this.mesh, k = m.eIJK[3 * e + 2], g = this.groups[m.eGroup[e]];
+    return this.sections[(g.secK || m.subBand)[k]];
+  }
+
+  /** Index of the layered section of a layered element. */
+  sectionIndex(e) {
+    const m = this.mesh, g = this.groups[m.eGroup[e]];
+    return (g.secK || m.subBand)[m.eIJK[3 * e + 2]];
   }
 
   _blockMap() {
@@ -322,7 +358,9 @@ class FEModel {
     for (const sec of this.sections) {
       sectionWmean(sec, Ta, Tb, this._W);
       sec._M = shapeMatrices(this._W, null, sec._M);
+      sec._born = sec.group == null || this.isBorn(this.groups[sec.group], stage);
       sec._V = sectionVstep(sec, Ta, Tb, sec._V);
+      if (!sec._born) sec._V.fill(0);
     }
   }
 
@@ -332,8 +370,9 @@ class FEModel {
     const i = m.eIJK[3 * e], j = m.eIJK[3 * e + 1], k = m.eIJK[3 * e + 2];
     const hx = m.xs[i + 1] - m.xs[i], hy = m.ys[j + 1] - m.ys[j], hz = m.zs[k + 1] - m.zs[k];
     if (g.kind === 'layered') {
-      const sec = this.sections[m.subBand[k]];
+      const sec = this.sectionOf(e);
       elementK33Fast(hx, hy, hz, sec._M, K33);
+      if (!sec._born) return false;
       elementFth(hx, hy, hz, sec._V, null, f33);
       return true;
     }
@@ -376,16 +415,17 @@ class FEModel {
         }
       }
     }
-    if (!noConstraints) this.applyConstraints(rhs);
+    if (!noConstraints) this.applyConstraints(rhs, stage < 0 && this.moduleConstraints ? this.moduleConstraints : this.constraints);
   }
 
   /** Zero rows / columns of the constrained DOFs (diagonal kept), zero rhs. */
-  applyConstraints(rhs) {
+  applyConstraints(rhs, dofs) {
     const P = this.pattern, val = this.val;
+    dofs = dofs || this.constraints;
     const isC = new Uint8Array(this.ndof);
-    for (const d of this.constraints) isC[d] = 1;
+    for (const d of dofs) isC[d] = 1;
     this.isConstrained = isC;
-    for (const d of this.constraints) {
+    for (const d of dofs) {
       const i = Math.floor(d / 3), p = d % 3;
       for (let k = P.rowPtr[i]; k < P.rowPtr[i + 1]; k++) {
         const j = P.col[k], v = 9 * k;
@@ -421,7 +461,7 @@ class FEModel {
       Ta, Tb, stage,
       groups: this.groups.map(g => g.kind === 'layered' ? null : { D: Float64Array.from(g._D), Ma: rows(g._M), s0: Float64Array.from(g._s0), born: g._born }),
       sections: this.sections.map(sec => ({
-        Ma: rows(sec._M), V: Float64Array.from(sec._V),
+        Ma: rows(sec._M), V: Float64Array.from(sec._V), born: sec._born,
         Ds: Array.from({ length: sec.ns }, (_, s) => sectionSubMeanD(sec, s, Ta, Tb)),
         s0s: Array.from({ length: sec.ns }, (_, s) => sectionSubStress(sec, s, Ta, Tb)),
       })),
@@ -431,7 +471,7 @@ class FEModel {
   /** Values per element of a stress history state: element DOFs q (33), then 7 strain monomials + 1 thermal term (x 6) per sub-layer. */
   stateSize(e) {
     const m = this.mesh, g = this.groups[m.eGroup[e]];
-    const ns = g.kind === 'layered' ? this.sections[m.subBand[m.eIJK[3 * e + 2]]].ns : 1;
+    const ns = g.kind === 'layered' ? this.sectionOf(e).ns : 1;
     return 33 + ns * 6 * (STRAIN_MONO + 1);
   }
 
@@ -447,8 +487,8 @@ class FEModel {
     const i = m.eIJK[3 * e], j = m.eIJK[3 * e + 1], k = m.eIJK[3 * e + 2];
     const hx = m.xs[i + 1] - m.xs[i], hy = m.ys[j + 1] - m.ys[j], hz = m.zs[k + 1] - m.zs[k];
     const layered = g.kind === 'layered';
-    const gr = layered ? rec.sections[m.subBand[k]] : rec.groups[m.eGroup[e]];
-    const born = layered || gr.born;
+    const gr = layered ? rec.sections[this.sectionIndex(e)] : rec.groups[m.eGroup[e]];
+    const born = layered ? gr.born !== false : gr.born;
     // incompatible-mode rows of K33 and of the load
     const V8 = hx * hy * hz / 8;
     const c = [V8 * 4 / (hx * hx), V8 * 4 / (hy * hy), V8 * 4 / (hz * hz), V8 * 4 / (hx * hy), V8 * 4 / (hy * hz), V8 * 4 / (hz * hx)];
@@ -482,7 +522,7 @@ class FEModel {
 
   /** Sub-layer index of a layered element at natural coordinate zeta. */
   subLayerAt(e, zeta) {
-    const m = this.mesh, k = m.eIJK[3 * e + 2], sec = this.sections[m.subBand[k]];
+    const m = this.mesh, k = m.eIJK[3 * e + 2], sec = this.sectionOf(e);
     const z = m.zs[k] + 0.5 * (zeta + 1) * (m.zs[k + 1] - m.zs[k]);
     for (let s = 0; s < sec.ns; s++) if (z <= sec.subZ[s][1] + 1e-12) return s;
     return sec.ns - 1;

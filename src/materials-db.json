@@ -79,7 +79,9 @@
     "R69": {"cite": "Aalco, aluminium alloy data sheets 6063-T6 (E 69.5 GPa, CTE 23.5 ppm/K) and 1050A-H14 (E 71 GPa, CTE 24 ppm/K); stockist data.", "url": "https://www.aalco.co.uk/datasheets/Aluminium-Alloy-6063-T6-Extrusions_158.ashx"},
     "R70": {"cite": "Dow Corning, EA-6700 microelectronic adhesive technical data sheet, 2008 (one-part heat-cure silicone for lid and substrate attachment; tensile modulus 560 psi = 3.9 MPa; cure 35 min at 100 degC, 7 min at 125 degC or 5 min at 150 degC).", "url": "https://webaps.ellsworth.com/edl/Actions/GetLibraryFile.aspx?language=en&document=33025"},
     "R71": {"cite": "Dow, DOWSIL 3-6265 Thixotropic adhesive technical data sheet, 2023 (tensile modulus 420 psi = 2.9 MPa; linear CTE by TMA 275 ppm/degC; cure 60 min at 125 degC or 30 min at 150 degC); DOWSIL Q3-6611 (CTE 250 ppm/degC) and 3-6265 HP (215 ppm/degC) for the silicone CTE range.", "url": "https://webaps.ellsworth.com/edl/Actions/GetLibraryFile.aspx?language=en&document=23594"},
-    "R72": {"cite": "Dow, DOWSIL TC-4515 thermally conductive gap filler technical data sheet, 2018 (E-modulus 0.3 MPa by DMA in shear mode; CTE 160 ppm/K from -50 to 150 degC; cure 150 min at 25 degC or 30 min at 80 degC).", "url": "https://webaps.ellsworth.com/edl/Actions/GetLibraryFile.aspx?language=en&document=49204"}
+    "R72": {"cite": "Dow, DOWSIL TC-4515 thermally conductive gap filler technical data sheet, 2018 (E-modulus 0.3 MPa by DMA in shear mode; CTE 160 ppm/K from -50 to 150 degC; cure 150 min at 25 degC or 30 min at 80 degC).", "url": "https://webaps.ellsworth.com/edl/Actions/GetLibraryFile.aspx?language=en&document=49204"},
+    "R73": {"cite": "Eternal Materials, EI-6042 liquid molding compound for WLP / SiP / MUF technical data sheet (silica filler, 82 % solids; CTE 13 and 26 ppm/degC below and above Tg by TMA; Tg 184 degC by DMA; modulus 13 GPa at 25 degC and 5.6 GPa at 150 degC by DMA; in-mold 7 min at 130 degC, post-mold cure 2 h at 180 degC).", "url": "https://www.eternal-group.com/CN/Docs/Upload/WC2023060701186/LDAIYXDIQ2_EI-6042%20TDS.pdf"},
+    "R74": {"cite": "HD MicroSystems, Product Selection Guide, revised December 2013 (photodefinable polyimide HD-4100 and PBO HD-8820, HD-8930: cure temperature, Tg, CTE, tensile modulus and elongation of the cured film).", "url": "https://web.mit.edu/scholvin/www/nt245/Documents/resists.PI.ProductSelectorGuide.pdf"}
   },
   "materials": [
     {
@@ -1978,6 +1980,91 @@
         "type": "const",
         "a": {"v": 23.5, "u": "ppm/°C", "c": "Datasheet", "s": ["R69"]}
       }
+    },
+    {
+      "id": "ei6042", "name": "Eternal EI-6042", "grade": "Liquid molding compound for wafer-level packaging and molded underfill (silica filled)", "category": "mold",
+      "elastic": {
+        "type": "iso",
+        "E": {"type": "table", "T": [25, 150, 184, 230], "v": [13, 5.6, 2.2, 0.65], "interp": "log", "extrap": "hold", "u": "GPa", "c": "Estimated", "s": ["R73"], "n": "The 25 and 150 degC points are the data sheet DMA moduli (13 and 5.6 GPa); the drop through Tg (184 degC by DMA) to a rubbery 0.65 GPa (5 % of the 25 degC value) is assumed. Log-linear interpolation, held constant beyond the end points; replace with a DMA curve."},
+        "nu": {"v": 0.3, "u": "-", "c": "Estimated"}
+      },
+      "cte": {
+        "type": "bilinear",
+        "a1": {"v": 13, "u": "ppm/°C", "c": "Datasheet", "s": ["R73"], "n": "Below Tg, by TMA, after the 2 h post-mold cure at 180 degC."},
+        "a2": {"v": 26, "u": "ppm/°C", "c": "Datasheet", "s": ["R73"], "n": "Above Tg, by TMA."},
+        "TgTMA": {"v": 184, "u": "°C", "c": "Estimated", "s": ["R73"], "n": "Only the DMA Tg is published; used for the CTE transition as well."},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "cure": {"v": 180, "u": "°C", "c": "Datasheet", "s": ["R73"], "n": "In-mold 7 min at 130 degC, then post-mold cure 2 h at 180 degC."},
+      "notes": "Liquid compression molding compound for die-first and RDL-first wafer-level packaging, also sold as a molded underfill."
+    },
+    {
+      "id": "mold_typical", "name": "Typical wafer-level mold (generic)", "grade": "Generic high-filler epoxy mold compound for chip-on-wafer molding", "category": "mold",
+      "elastic": {
+        "type": "iso",
+        "E": {"type": "sigmoid", "Eg": {"v": 20, "u": "GPa", "c": "Estimated", "n": "Representative glassy modulus of a high-filler (about 85 to 90 wt%) mold compound."}, "Er": {"v": 1.0, "u": "GPa", "c": "Estimated", "n": "Assumed 5 % of the glassy modulus."}, "TgDMA": {"v": 170, "u": "°C", "c": "Estimated"}, "w": {"v": 8, "u": "°C", "c": "Estimated"}},
+        "nu": {"v": 0.3, "u": "-", "c": "Estimated"}
+      },
+      "cte": {
+        "type": "bilinear",
+        "a1": {"v": 9, "u": "ppm/°C", "c": "Estimated", "n": "Representative low-CTE wafer mold value."},
+        "a2": {"v": 33, "u": "ppm/°C", "c": "Estimated"},
+        "TgTMA": {"v": 165, "u": "°C", "c": "Estimated"},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "cure": {"v": 175, "u": "°C", "c": "Estimated", "n": "Typical post-mold cure temperature."},
+      "notes": "Generic stiffer, lower-CTE alternative to the bundled liquid compound for trend studies; every value is assumed. Replace with your compound's data sheet and DMA data."
+    },
+    {
+      "id": "hd4100", "name": "HD MicroSystems HD-4100", "grade": "Photodefinable polyimide (solvent negative), RDL dielectric", "category": "rdl",
+      "elastic": {
+        "type": "iso",
+        "E": {"type": "sigmoid", "Eg": {"v": 3.3, "u": "GPa", "c": "Datasheet", "s": ["R74"], "n": "Tensile modulus of the cured film."}, "Er": {"v": 0.33, "u": "GPa", "c": "Estimated", "n": "Modulus above Tg not published; assumed 10 % of the glassy modulus."}, "TgDMA": {"v": 330, "u": "°C", "c": "Datasheet", "s": ["R74"], "n": "Tg as published (method not stated); used for the modulus transition."}, "w": {"v": 8, "u": "°C", "c": "Estimated"}},
+        "nu": {"v": 0.34, "u": "-", "c": "Estimated", "n": "Typical of cured polyimide and PBO films; not published."}
+      },
+      "cte": {
+        "type": "bilinear",
+        "a1": {"v": 35, "u": "ppm/°C", "c": "Datasheet", "s": ["R74"], "n": "CTE of the cured film below Tg; used in-plane and through-thickness alike."},
+        "a2": {"v": 105, "u": "ppm/°C", "c": "Estimated", "n": "Not published; assumed 3 x alpha1."},
+        "TgTMA": {"v": 330, "u": "°C", "c": "Datasheet", "s": ["R74"], "n": "Tg as published (method not stated); used for the CTE transition."},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "cure": {"v": 375, "u": "°C", "c": "Datasheet", "s": ["R74"]},
+      "notes": "Photodefinable polyimide for redistribution layers and stress buffers; cured at 375 degC."
+    },
+    {
+      "id": "hd8820", "name": "HD MicroSystems HD-8820", "grade": "Photodefinable PBO (aqueous positive), RDL dielectric", "category": "rdl",
+      "elastic": {
+        "type": "iso",
+        "E": {"type": "sigmoid", "Eg": {"v": 2.1, "u": "GPa", "c": "Datasheet", "s": ["R74"], "n": "Tensile modulus of the cured film."}, "Er": {"v": 0.21, "u": "GPa", "c": "Estimated", "n": "Modulus above Tg not published; assumed 10 % of the glassy modulus."}, "TgDMA": {"v": 280, "u": "°C", "c": "Datasheet", "s": ["R74"], "n": "Tg as published (method not stated); used for the modulus transition."}, "w": {"v": 8, "u": "°C", "c": "Estimated"}},
+        "nu": {"v": 0.34, "u": "-", "c": "Estimated", "n": "Typical of cured polyimide and PBO films; not published."}
+      },
+      "cte": {
+        "type": "bilinear",
+        "a1": {"v": 60, "u": "ppm/°C", "c": "Datasheet", "s": ["R74"], "n": "CTE of the cured film below Tg; used in-plane and through-thickness alike."},
+        "a2": {"v": 180, "u": "ppm/°C", "c": "Estimated", "n": "Not published; assumed 3 x alpha1."},
+        "TgTMA": {"v": 280, "u": "°C", "c": "Datasheet", "s": ["R74"], "n": "Tg as published (method not stated); used for the CTE transition."},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "cure": {"v": 300, "u": "°C", "c": "Datasheet", "s": ["R74"]},
+      "notes": "Positive-tone polybenzoxazole for redistribution layers; cured at 300 degC."
+    },
+    {
+      "id": "hd8930", "name": "HD MicroSystems HD-8930", "grade": "Low-temperature-cure PBO (aqueous positive), RDL dielectric", "category": "rdl",
+      "elastic": {
+        "type": "iso",
+        "E": {"type": "sigmoid", "Eg": {"v": 1.8, "u": "GPa", "c": "Datasheet", "s": ["R74"], "n": "Tensile modulus of the cured film."}, "Er": {"v": 0.18, "u": "GPa", "c": "Estimated", "n": "Modulus above Tg not published; assumed 10 % of the glassy modulus."}, "TgDMA": {"v": 240, "u": "°C", "c": "Datasheet", "s": ["R74"], "n": "Tg as published (method not stated); used for the modulus transition."}, "w": {"v": 8, "u": "°C", "c": "Estimated"}},
+        "nu": {"v": 0.34, "u": "-", "c": "Estimated", "n": "Typical of cured polyimide and PBO films; not published."}
+      },
+      "cte": {
+        "type": "bilinear",
+        "a1": {"v": 80, "u": "ppm/°C", "c": "Datasheet", "s": ["R74"], "n": "CTE of the cured film below Tg; used in-plane and through-thickness alike."},
+        "a2": {"v": 240, "u": "ppm/°C", "c": "Estimated", "n": "Not published; assumed 3 x alpha1."},
+        "TgTMA": {"v": 240, "u": "°C", "c": "Datasheet", "s": ["R74"], "n": "Tg as published (method not stated); used for the CTE transition."},
+        "delta": {"v": 3, "u": "°C", "c": "Estimated"}
+      },
+      "cure": {"v": 200, "u": "°C", "c": "Datasheet", "s": ["R74"]},
+      "notes": "Low-temperature-cure polybenzoxazole (200 degC) for fan-out and organic interposer RDL; its Tg lies inside the reflow range."
     }
   ]
 }

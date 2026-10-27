@@ -172,14 +172,15 @@ function substrateTopWarpage(mesh, geom, u) {
 }
 
 /**
- * Nodal-averaged stress tensor on one surface (top or bottom) of a die from the
- * Gauss-point stresses of the adjacent die elements, extrapolated to nodes and
- * averaged only among elements of that die. Returns grids over the die columns.
+ * Nodal-averaged stress tensor on one surface (top or bottom) of a silicon part
+ * (geom.siParts: monolithic dies, chiplets, Si bases of stacked modules) from
+ * the Gauss-point stresses of the adjacent elements of that part, extrapolated
+ * to nodes and averaged only among them. Returns grids over the part's columns.
  */
 function dieSurfaceStress(view, geom, dieIdx, which) {
-  const mesh = view.model.mesh, d = geom.dies[dieIdx], T = view.T;
+  const mesh = view.model.mesh, d = geom.siParts[dieIdx], T = view.T;
   const top = which === 'top';
-  const kPlane = planeIndex(mesh, top ? d.ztop : d.zaf);
+  const kPlane = planeIndex(mesh, top ? d.ztop : d.zb);
   const kElem = top ? kPlane - 1 : kPlane;
   const zetaFace = top ? 1 : -1;
   const i0 = findInterval(mesh.xs, d.rect.x0 + 1e-9), i1 = findInterval(mesh.xs, d.rect.x1 - 1e-9) + 1;
@@ -190,9 +191,9 @@ function dieSurfaceStress(view, geom, dieIdx, which) {
   let gpPeak = -Infinity, gpPeakAll = -Infinity;
   const band = CONST.DIE_EDGE_BAND;
   const inner = { x0: d.rect.x0 + band, x1: d.rect.x1 - band, y0: d.rect.y0 + band, y1: d.rect.y1 - band };
-  const group = mesh.G.die[dieIdx];
+  const group = mesh.groupIndex[d.gkey];
   for (let i = i0; i < i1; i++) for (let j = j0; j < j1; j++) {
-    const e = elementInCell(mesh, i, j, kElem, PART.DIE);
+    const e = elementInCell(mesh, i, j, kElem, d.part);
     if (e < 0 || mesh.eGroup[e] !== group) continue;
     for (let g = 0; g < 8; g++) {
       view.point(e, HEX_XI[g] * GP2, HEX_ETA[g] * GP2, HEX_ZETA[g] * GP2, st);
@@ -379,7 +380,7 @@ function ufTractions(view, geom, dieIdx) {
  */
 function layeredPointStress(view, e, xi, eta, zeta, st) {
   const model = view.model, mesh = model.mesh, k = mesh.eIJK[3 * e + 2];
-  const sec = model.sections[mesh.subBand[k]], z0 = mesh.zs[k], hz = mesh.zs[k + 1] - z0;
+  const sec = model.sectionOf(e), z0 = mesh.zs[k], hz = mesh.zs[k + 1] - z0;
   const O = [2, 4, 5], Pp = [0, 1, 3];
   const avg = [0, 0, 0];
   for (const [za, zb] of sec.subZ) {
@@ -486,13 +487,20 @@ function sectionStress(view, geom, cut) {
   // wedge surface z at both ends of each such quad, so the plot can clip the cell to the fillet
   out.topA = new Float32Array(n).fill(NaN); out.topB = new Float32Array(n).fill(NaN);
   const surf = s => geom.zaf + filletHeight(geom, alongY ? c : s, alongY ? s : c).h;
+  // wafer underfill fillets of stacked modules: the wedge above the chiplet bottom (the mold fills the rest of the cell)
+  const surfW = s => { const x = alongY ? c : s, y = alongY ? s : c, m = dieAt(geom, x, y); return m && m.kind === 'module' ? m.zDdiTop + wcufHeight(geom, m, x, y).h : NaN; };
   quads.forEach((Q, t) => {
+    if (Q.part === PART.WCUF_FILLET) {
+      const m = dieAt(geom, alongY ? c : 0.5 * (sl[Q.a] + sl[Q.a + 1]), alongY ? 0.5 * (sl[Q.a] + sl[Q.a + 1]) : c);
+      if (m && m.kind === 'module' && zl[Q.b] >= m.zDdiTop - 1e-9) { out.topA[t] = surfW(sl[Q.a]); out.topB[t] = surfW(sl[Q.a + 1]); }
+      return;
+    }
     if (Q.part !== PART.UF_FILLET || zl[Q.b] < geom.zaf - 1e-9) return;
     out.topA[t] = surf(sl[Q.a]); out.topB[t] = surf(sl[Q.a + 1]);
   });
   const lib = model.lib;
   out.groups = model.groups.map(gr => ({ name: gr.name, part: gr.part,
-    material: gr.kind === 'layered' ? (topRow && topRow.row.type === 'sr' ? findMaterial(lib, topRow.row.mat).name : '') : (gr.material ? gr.material.name : '') }));
+    material: gr.kind === 'layered' ? (gr.part === PART.RDL ? 'RDL stack' : (topRow && topRow.row.type === 'sr' ? findMaterial(lib, topRow.row.mat).name : '')) : (gr.material ? gr.material.name : '') }));
   return out;
 }
 

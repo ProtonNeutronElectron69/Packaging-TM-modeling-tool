@@ -2,7 +2,7 @@
 
 const STEPS = [
   { n: 1, label: 'Package', render: renderPackagePanel },
-  { n: 2, label: 'Dies and floorplan', render: renderDiesPanel },
+  { n: 2, label: 'Dies, modules and floorplan', render: renderDiesPanel },
   { n: 3, label: 'Underfill, lid, stiffener', render: renderConstructPanel },
   { n: 4, label: 'Materials', render: renderMaterialsPanel },
   { n: 5, label: 'Process and loads', render: renderProcessPanel },
@@ -119,19 +119,46 @@ function renderValidation(root) {
   root.append(h('h3', null, 'Checks'), box);
 }
 
-// ---- step 2: dies ----
+// ---- step 2: dies and stacked modules ----
 function renderDiesPanel(root) {
   const cfg = app.cfg;
-  root.append(h('h2', null, '2. Dies and floorplan'));
-  root.append(h('div', { class: 'muted small' }, 'Drag dies on the floorplan, press R to rotate, Delete to remove. Double-click the floorplan to fit. Scroll to zoom, drag the background to pan.'));
+  root.append(h('h2', null, '2. Dies, modules and floorplan'));
+  root.append(h('div', { class: 'muted small' }, 'Drag dies, stacked modules and chiplets on the floorplan (a chiplet moves within its module), press R to rotate the selection, Delete to remove it. Double-click the floorplan to fit. Scroll to zoom, drag the background to pan.'));
+  const nd = cfg.dies.length;
   const list = h('div', tip('dieList', { class: 'die-list' }));
-  cfg.dies.forEach((d, i) => list.append(h('div', { class: 'die-row' + (i === app.selectedDie ? ' sel' : '') }, h('span', { style: 'flex:1;cursor:pointer', onclick: () => { app.selectedDie = i; renderContext(); floorplan.draw(); } }, d.name + ' ' + d.sx + '×' + d.sy + '×' + d.t + ' mm at (' + d.x + ', ' + d.y + ')' + (d.rot ? ' rot 90°' : '')), h('button', tip('rotate', { class: 'small', onclick: () => rotateDie(i) }), 'Rotate'), h('button', tip('duplicate', { class: 'small', onclick: () => duplicateDie(i) }), 'Duplicate'), h('button', tip('deleteDie', { class: 'small', onclick: () => deleteDie(i) }), 'Delete'))));
-  root.append(list, h('div', { class: 'row' }, h('button', tip('addDie', { onclick: addDie }), '+ Add die')));
+  cfg.dies.forEach((d, i) => list.append(h('div', { class: 'die-row' + (i === app.selectedDie ? ' sel' : '') }, h('span', { style: 'flex:1;cursor:pointer', onclick: () => selectObject(i) }, d.name + ' ' + d.sx + '×' + d.sy + '×' + d.t + ' mm at (' + d.x + ', ' + d.y + ')' + (d.rot ? ' rot 90°' : '')), h('button', tip('rotate', { class: 'small', onclick: () => rotateDie(i) }), 'Rotate'), h('button', tip('duplicate', { class: 'small', onclick: () => duplicateDie(i) }), 'Duplicate'), h('button', tip('deleteDie', { class: 'small', onclick: () => deleteDie(i) }), 'Delete'))));
+  cfg.modules.forEach((m, mi) => list.append(h('div', { class: 'die-row' + (nd + mi === app.selectedDie ? ' sel' : '') }, h('span', { style: 'flex:1;cursor:pointer', onclick: () => selectObject(nd + mi) }, m.name + ': ' + (m.base === 'rdl' ? 'RDL' : 'Si') + ' base ' + m.sx + '×' + m.sy + ' mm, ' + m.chiplets.length + ' chiplet' + (m.chiplets.length === 1 ? '' : 's') + ' at (' + m.x + ', ' + m.y + ')' + (m.rot ? ' rot 90°' : '')), h('button', tip('rotate', { class: 'small', onclick: () => rotateModule(mi) }), 'Rotate'), h('button', tip('duplicateModule', { class: 'small', onclick: () => duplicateModule(mi) }), 'Duplicate'), h('button', tip('deleteModule', { class: 'small', onclick: () => deleteModule(mi) }), 'Delete'))));
+  root.append(list, h('div', { class: 'row' }, h('button', tip('addDie', { onclick: addDie }), '+ Add die'), h('button', tip('addModuleSi', { onclick: () => addModule('si') }), '+ Add Si-base module'), h('button', tip('addModuleRdl', { onclick: () => addModule('rdl') }), '+ Add RDL module')));
   root.append(h('h3', null, 'Floorplan snapping'));
   root.append(h('div', { class: 'field' }, h('label', null, 'Grid snap', help('snap')), h('select', { onchange: e => { floorplan.snap = +e.target.value; } }, ...[0.01, 0.05, 0.1, 0.25, 0.5, 1].map(s => h('option', { value: s, selected: floorplan.snap === s ? '' : null }, s + ' mm'))), h('span')));
-  root.append(h('div', { class: 'row small' }, h('label', tip('snapEdges'), h('input', { type: 'checkbox', checked: floorplan.snapEdges ? '' : null, onchange: e => { floorplan.snapEdges = e.target.checked; } }), ' snap to other dies\' edges'), h('label', tip('snapCenter'), h('input', { type: 'checkbox', checked: floorplan.snapCenter ? '' : null, onchange: e => { floorplan.snapCenter = e.target.checked; } }), ' snap to substrate centerlines')));
-  const d = cfg.dies[app.selectedDie];
-  if (!d) return;
+  root.append(h('div', { class: 'row small' }, h('label', tip('snapEdges'), h('input', { type: 'checkbox', checked: floorplan.snapEdges ? '' : null, onchange: e => { floorplan.snapEdges = e.target.checked; } }), ' snap to other dies\' edges'), h('label', tip('snapCenter'), h('input', { type: 'checkbox', checked: floorplan.snapCenter ? '' : null, onchange: e => { floorplan.snapCenter = e.target.checked; } }), ' snap to substrate (or module) centerlines')));
+  const sel = selectedObject();
+  if (sel.kind === 'die') renderDieEditor(root, sel.die);
+  else if (sel.kind === 'module') renderModuleEditor(root, sel);
+  root.append(h('h4', null, 'Package-global flip chip bump technology'));
+  root.append(materialTierLegend());
+  root.append(numField('Standoff height', () => cfg.bump.standoff, v => { cfg.bump.standoff = v; }, { unit: 'µm', scale: 1000, min: 0.02, max: 0.2, help: 'standoff' }));
+  root.append(selectField('Solder alloy', () => cfg.bump.solder, v => { cfg.bump.solder = v; const est = solderEstimatedGroups(C.findMaterial(cfg.materials, v)); if (est.length) toast('The ' + C.findMaterial(cfg.materials, v).name + ' data include placeholder values flagged Estimated (' + est.join(', ') + '). Replace them in the Materials step before relying on fatigue or bump results.', 'warn', 9000); }, materialOptions('solder'), { section: 'materials', help: 'solder' }));
+  const gd = app.geom && app.geom.dies[app.selectedDie];
+  if (gd) root.append(h('div', { class: 'kv' }, kl('d_eff (equal-volume cylinder)', 'deff'), h('span', null, fmt(gd.deff * 1000, 1) + ' µm'), kl('bumps', 'nbumps'), h('span', null, gd.nbx + ' × ' + gd.nby + (gd.peripheral ? ' peripheral' : '') + ' = ' + C.dieBumpSites(gd).x.length), kl('solder area fraction f_b', 'fb'), h('span', null, fmt(gd.density, 3)), h('span', { class: 'k' }, 'joint volume'), h('span', null, fmtE(gd.profile.volume, 3) + ' mm³')));
+  if (cfg.modules.length) renderStackTechnology(root);
+  renderValidation(root);
+}
+
+/** Flip chip (C4) or DDI bump field inputs of a die, module base or chiplet. */
+function bumpFieldFields(root, b, full) {
+  root.append(selectField('Array type', () => b.type, v => { b.type = v; renderContext(); }, [{ value: 'full', label: 'full area' }, { value: 'peripheral', label: 'peripheral rows' }], { help: 'arrayType' }));
+  if (b.type === 'peripheral') root.append(numField('Peripheral rows', () => b.rows, v => { b.rows = Math.round(v); }, { min: 1, max: 50, step: 1, help: 'rows' }));
+  if (!full) { root.append(numField('Edge keep-out', () => b.keepout, v => { b.keepout = v; }, { unit: 'µm', scale: 1000, min: 0, max: 5, help: 'ddiKeepout' })); return; }
+  root.append(numField('Pitch x', () => b.px, v => { b.px = v; }, { unit: 'µm', scale: 1000, min: 0.02, max: 2, plo: 0.08, phi: 0.5, help: 'bumpPitch' }));
+  root.append(numField('Pitch y', () => b.py, v => { b.py = v; }, { unit: 'µm', scale: 1000, min: 0.02, max: 2, plo: 0.08, phi: 0.5, help: 'bumpPitch' }));
+  root.append(numField('Edge keep-out', () => b.keepout, v => { b.keepout = v; }, { unit: 'µm', scale: 1000, min: 0, max: 5, help: 'keepout' }));
+  root.append(numField('UBM diameter', () => b.ubm, v => { b.ubm = v; }, { unit: 'µm', scale: 1000, min: 0.005, max: 1, help: 'ubm' }));
+  root.append(numField('SRO diameter', () => b.sro, v => { b.sro = v; }, { unit: 'µm', scale: 1000, min: 0.005, max: 1, help: 'sro' }));
+  root.append(numField('Maximum bump diameter', () => b.dmax, v => { b.dmax = v; }, { unit: 'µm', scale: 1000, min: 0.005, max: 1.5, help: 'dmax' }));
+}
+
+function renderDieEditor(root, d) {
   root.append(h('h3', null, 'Selected die: ' + d.name));
   root.append(h('div', { class: 'field' }, h('label', null, 'Name', helpTip('dieName')), h('input', { type: 'text', value: d.name, onchange: e => { d.name = e.target.value; onConfigChanged('geometry'); } }), h('span')));
   root.append(numField('Center x', () => d.x, v => { d.x = v; }, { unit: 'mm', min: -100, max: 100, help: 'dieX' }));
@@ -140,23 +167,88 @@ function renderDiesPanel(root) {
   root.append(numField('Size y', () => d.sy, v => { d.sy = v; }, { unit: 'mm', min: 0.5, max: 60, plo: 2, phi: 35, help: 'dieSize' }));
   root.append(numField('Thickness', () => d.t, v => { d.t = v; }, { unit: 'mm', min: 0.05, max: 1.5, plo: 0.1, phi: 0.8, help: 'dieT' }));
   root.append(selectField('Rotation', () => d.rot, v => { d.rot = +v; }, [{ value: '0', label: '0°' }, { value: '90', label: '90°' }], { help: 'rot' }));
-  root.append(selectField('Si elastic model', () => d.si, v => { d.si = v; }, [{ value: 'aniso', label: 'anisotropic cubic (100), edges <110>' }, { value: 'iso', label: 'isotropic 130 GPa, ν 0.28' }], { help: 'siModel', section: 'materials' }));
+  root.append(selectField('Si elastic model', () => d.si, v => { d.si = v; }, SI_MODELS, { help: 'siModel', section: 'materials' }));
   root.append(h('h4', null, 'Bump field'));
-  root.append(selectField('Array type', () => d.bump.type, v => { d.bump.type = v; renderContext(); }, [{ value: 'full', label: 'full area' }, { value: 'peripheral', label: 'peripheral rows' }], { help: 'arrayType' }));
-  if (d.bump.type === 'peripheral') root.append(numField('Peripheral rows', () => d.bump.rows, v => { d.bump.rows = Math.round(v); }, { min: 1, max: 50, step: 1, help: 'rows' }));
-  root.append(numField('Pitch x', () => d.bump.px, v => { d.bump.px = v; }, { unit: 'µm', scale: 1000, min: 0.02, max: 2, plo: 0.08, phi: 0.5, help: 'bumpPitch' }));
-  root.append(numField('Pitch y', () => d.bump.py, v => { d.bump.py = v; }, { unit: 'µm', scale: 1000, min: 0.02, max: 2, plo: 0.08, phi: 0.5, help: 'bumpPitch' }));
-  root.append(numField('Edge keep-out', () => d.bump.keepout, v => { d.bump.keepout = v; }, { unit: 'µm', scale: 1000, min: 0, max: 5, help: 'keepout' }));
-  root.append(numField('UBM diameter', () => d.bump.ubm, v => { d.bump.ubm = v; }, { unit: 'µm', scale: 1000, min: 0.005, max: 1, help: 'ubm' }));
-  root.append(numField('SRO diameter', () => d.bump.sro, v => { d.bump.sro = v; }, { unit: 'µm', scale: 1000, min: 0.005, max: 1, help: 'sro' }));
-  root.append(numField('Maximum bump diameter', () => d.bump.dmax, v => { d.bump.dmax = v; }, { unit: 'µm', scale: 1000, min: 0.005, max: 1.5, help: 'dmax' }));
-  root.append(h('h4', null, 'Package-global bump technology'));
-  root.append(materialTierLegend());
-  root.append(numField('Standoff height', () => cfg.bump.standoff, v => { cfg.bump.standoff = v; }, { unit: 'µm', scale: 1000, min: 0.02, max: 0.2, help: 'standoff' }));
-  root.append(selectField('Solder alloy', () => cfg.bump.solder, v => { cfg.bump.solder = v; const est = solderEstimatedGroups(C.findMaterial(cfg.materials, v)); if (est.length) toast('The ' + C.findMaterial(cfg.materials, v).name + ' data include placeholder values flagged Estimated (' + est.join(', ') + '). Replace them in the Materials step before relying on fatigue or bump results.', 'warn', 9000); }, materialOptions('solder'), { section: 'materials', help: 'solder' }));
-  const gd = app.geom && app.geom.dies[app.selectedDie];
-  if (gd) root.append(h('div', { class: 'kv' }, kl('d_eff (equal-volume cylinder)', 'deff'), h('span', null, fmt(gd.deff * 1000, 1) + ' µm'), kl('bumps', 'nbumps'), h('span', null, gd.nbx + ' × ' + gd.nby + (gd.peripheral ? ' peripheral' : '') + ' = ' + C.dieBumpSites(gd).x.length), kl('solder area fraction f_b', 'fb'), h('span', null, fmt(gd.density, 3)), h('span', { class: 'k' }, 'joint volume'), h('span', null, fmtE(gd.profile.volume, 3) + ' mm³')));
-  renderValidation(root);
+  bumpFieldFields(root, d.bump, true);
+}
+const SI_MODELS = [{ value: 'aniso', label: 'anisotropic cubic (100), edges <110>' }, { value: 'iso', label: 'isotropic 130 GPa, ν 0.28' }];
+
+/** Inputs of a stacked module (base, flip chip bumps, chiplets) and of its selected chiplet. */
+function renderModuleEditor(root, sel) {
+  const cfg = app.cfg, m = sel.mod, mi = sel.mi;
+  const gm = app.geom && app.geom.dies[cfg.dies.length + mi];
+  root.append(h('h3', null, 'Selected module: ' + m.name, helpTip('moduleIntro')));
+  root.append(h('div', { class: 'field' }, h('label', null, 'Name', helpTip('moduleName')), h('input', { type: 'text', value: m.name, onchange: e => { m.name = e.target.value; onConfigChanged('geometry'); } }), h('span')));
+  root.append(numField('Center x', () => m.x, v => { m.x = v; }, { unit: 'mm', min: -100, max: 100, help: 'dieX' }));
+  root.append(numField('Center y', () => m.y, v => { m.y = v; }, { unit: 'mm', min: -100, max: 100, help: 'dieY' }));
+  root.append(numField('Base size x', () => m.sx, v => { m.sx = v; }, { unit: 'mm', min: 0.5, max: 80, plo: 2, phi: 60, help: 'baseSize' }));
+  root.append(numField('Base size y', () => m.sy, v => { m.sy = v; }, { unit: 'mm', min: 0.5, max: 80, plo: 2, phi: 60, help: 'baseSize' }));
+  root.append(selectField('Rotation', () => m.rot, v => { m.rot = +v; }, [{ value: '0', label: '0°' }, { value: '90', label: '90° (chiplets turn with it)' }], { help: 'moduleRot' }));
+  root.append(selectField('Base', () => m.base, v => { m.base = v; renderContext(); }, [{ value: 'si', label: 'Si base die or Si interposer' }, { value: 'rdl', label: 'organic RDL interposer' }], { help: 'baseType' }));
+  if (m.base === 'si') {
+    root.append(numField('Si base thickness', () => m.tBase, v => { m.tBase = v; }, { unit: 'µm', scale: 1000, min: 0.02, max: 1.5, plo: 0.05, phi: 0.8, help: 'baseT' }));
+    root.append(selectField('Si elastic model', () => m.si, v => { m.si = v; }, SI_MODELS, { help: 'siModel', section: 'materials' }));
+    root.append(numField('TSV Cu area fraction', () => m.tsv, v => { m.tsv = v; }, { unit: '%', scale: 100, min: 0, max: 0.4, plo: 0, phi: 0.1, help: 'tsv' }));
+  } else renderRdlStack(root, m);
+  root.append(h('h4', null, 'Flip chip (C4) bump field under the base'));
+  bumpFieldFields(root, m.bump, true);
+  root.append(h('h4', null, 'Chiplets', helpTip('chipletList')));
+  const list = h('div', { class: 'die-list' });
+  m.chiplets.forEach((c, ci) => list.append(h('div', { class: 'die-row' + (ci === sel.ci ? ' sel' : '') }, h('span', { style: 'flex:1;cursor:pointer', onclick: () => selectObject(cfg.dies.length + mi, ci) }, c.name + ' ' + c.sx + '×' + c.sy + ' mm at (' + c.x + ', ' + c.y + ')' + (c.rot ? ' rot 90°' : '')), h('button', tip('rotate', { class: 'small', onclick: () => rotateChiplet(mi, ci) }), 'Rotate'), h('button', tip('duplicateChiplet', { class: 'small', onclick: () => duplicateChiplet(mi, ci) }), 'Duplicate'), h('button', tip('deleteChiplet', { class: 'small', onclick: () => deleteChiplet(mi, ci) }), 'Delete'))));
+  root.append(list, h('div', { class: 'row' }, h('button', tip('addChiplet', { onclick: () => addChiplet(mi) }), '+ Add chiplet'), sel.ci >= 0 ? h('button', tip('selectModuleBase', { class: 'small', onclick: () => selectObject(cfg.dies.length + mi, -1) }), 'Back to the module') : null));
+  if (gm) root.append(h('div', { class: 'kv' }, kl('Module height above the C4 bumps', 'moduleH'), h('span', null, fmt(gm.t * 1000, 0) + ' µm (base ' + fmt(gm.tBase * 1000, 1) + ' + DDI ' + fmt(cfg.stack.ddi.standoff * 1000, 0) + ' + chiplet ' + fmt(cfg.stack.chipletT * 1000, 0) + ')')));
+  const c = sel.chip;
+  if (!c) return;
+  root.append(h('h4', null, 'Selected chiplet: ' + c.name));
+  root.append(h('div', { class: 'field' }, h('label', null, 'Name', helpTip('chipletName')), h('input', { type: 'text', value: c.name, onchange: e => { c.name = e.target.value; onConfigChanged('geometry'); } }), h('span')));
+  root.append(numField('Center x from module center', () => c.x, v => { c.x = v; }, { unit: 'mm', min: -60, max: 60, help: 'chipletXY' }));
+  root.append(numField('Center y from module center', () => c.y, v => { c.y = v; }, { unit: 'mm', min: -60, max: 60, help: 'chipletXY' }));
+  root.append(numField('Size x', () => c.sx, v => { c.sx = v; }, { unit: 'mm', min: 0.2, max: 60, plo: 1, phi: 35, help: 'chipletSize' }));
+  root.append(numField('Size y', () => c.sy, v => { c.sy = v; }, { unit: 'mm', min: 0.2, max: 60, plo: 1, phi: 35, help: 'chipletSize' }));
+  root.append(selectField('Rotation', () => c.rot, v => { c.rot = +v; }, [{ value: '0', label: '0°' }, { value: '90', label: '90°' }], { help: 'rot' }));
+  root.append(selectField('Si elastic model', () => c.si, v => { c.si = v; }, SI_MODELS, { help: 'siModel', section: 'materials' }));
+  root.append(h('div', { class: 'small muted' }, 'Thickness: all chiplets share the package-wide chiplet thickness below.'));
+  root.append(h('h4', null, 'DDI microbump field'));
+  bumpFieldFields(root, c.ddi, false);
+  const gc = gm && gm.chiplets[sel.ci];
+  if (gc) root.append(h('div', { class: 'kv' }, kl('microbumps', 'nbumps'), h('span', null, gc.nbx + ' × ' + gc.nby + (gc.peripheral ? ' peripheral' : '') + ' = ' + C.dieBumpSites(gc).x.length), kl('DDI solder area fraction', 'ddiFb'), h('span', null, fmt(gc.density, 3))));
+}
+
+/** Layer table of an organic RDL interposer (rows top to bottom, chiplet side first) with a generator. */
+function renderRdlStack(root, m) {
+  const total = m.rdl.reduce((t, r) => t + r.t, 0);
+  root.append(h('div', { class: 'row' }, h('b', null, 'RDL interposer stack (top to bottom): ' + fmt(total * 1000, 1) + ' µm'), helpTip('rdlStack')));
+  const gen = { n: 4, dielT: 5, cuT: 4 };
+  root.append(h('div', { class: 'row small' }, 'Cu layers ', h('input', tip('rdlGenN', { type: 'number', value: 4, class: 'grow', onchange: e => { gen.n = +e.target.value; } })), ' dielectric µm ', h('input', tip('rdlGenDiel', { type: 'number', value: 5, class: 'grow', onchange: e => { gen.dielT = +e.target.value; } })), ' Cu µm ', h('input', tip('rdlGenCu', { type: 'number', value: 4, class: 'grow', onchange: e => { gen.cuT = +e.target.value; } })),
+    h('button', tip('rdlGen', { class: 'small', onclick: () => { const diel = (m.rdl.find(r => r.type === 'diel') || {}).mat || 'hd4100'; m.rdl = C.generateRdlStack({ n: Math.max(1, Math.round(gen.n)), dielT: gen.dielT / 1000, cuT: gen.cuT / 1000, diel }); onConfigChanged('geometry', { released: true }); renderContext(); } }), 'Generate')));
+  const tbl = h('table', { class: 'stack-table' }, h('tr', null, h('th', null, 'Row'), h('th', null, 'Type', helpTip('rowType')), h('th', null, 'Material', helpTip('rowMat')), h('th', null, 'Thickness µm', helpTip('rowT')), h('th', null, 'Cu ratio / via', helpTip('rowFrac')), h('th', null, 'Kind', helpTip('rowKind')), h('th')));
+  m.rdl.forEach((r, i) => {
+    const typeSel = h('select', { onchange: e => { r.type = e.target.value; if (r.type === 'cu') { r.fill = r.mat || r.fill || 'hd4100'; r.r = r.r || 0.5; r.kind = r.kind || 'signal'; delete r.mat; delete r.via; } else { r.mat = r.fill || r.mat || 'hd4100'; r.via = r.via || 0; delete r.fill; delete r.r; delete r.kind; } onConfigChanged('geometry', { released: true }); renderContext(); } }, h('option', { value: 'diel', selected: r.type === 'diel' ? '' : null }, 'dielectric'), h('option', { value: 'cu', selected: r.type === 'cu' ? '' : null }, 'Cu pattern'));
+    const key = r.type === 'cu' ? 'fill' : 'mat';
+    const matSel = h('select', tip('matTier', { onchange: e => { r[key] = e.target.value; paintMaterialSelect(e.target); onConfigChanged('materials'); } }), ...materialOptions('rdl').map(o => h('option', { value: o.value, class: o.cls, selected: r[key] === o.value ? '' : null }, o.label)));
+    paintMaterialSelect(matSel);
+    const tIn = h('input', { type: 'number', step: 0.5, value: fmtInput(r.t * 1000), onchange: e => { r.t = +e.target.value / 1000; onConfigChanged('geometry', { released: true }); } });
+    const frac = r.type === 'cu' ? h('input', { type: 'number', step: 0.05, min: 0, max: 1, value: r.r, 'data-tip': HELP.residual, onchange: e => { r.r = Math.min(1, Math.max(0, +e.target.value)); onConfigChanged('materials'); } })
+      : h('input', { type: 'number', step: 0.01, min: 0, max: 1, value: r.via || 0, 'data-tip': HELP.via, onchange: e => { r.via = Math.min(1, Math.max(0, +e.target.value)); onConfigChanged('materials'); } });
+    const kind = r.type === 'cu' ? h('select', { 'data-tip': HELP.kind, onchange: e => { r.kind = e.target.value; onConfigChanged('materials'); } }, h('option', { value: 'plane', selected: r.kind === 'plane' ? '' : null }, 'plane'), h('option', { value: 'signal', selected: r.kind === 'signal' ? '' : null }, 'signal')) : h('span');
+    const btns = h('span', null, h('button', { class: 'small', 'data-tip': TIPS.rowAdd, onclick: () => { m.rdl.splice(i + 1, 0, { type: 'diel', t: 0.005, mat: (m.rdl.find(q => q.type === 'diel') || {}).mat || 'hd4100', via: 0 }); onConfigChanged('geometry', { released: true }); renderContext(); } }, '+'), h('button', { class: 'small', 'data-tip': TIPS.rowDel, onclick: () => { if (m.rdl.length > 1) m.rdl.splice(i, 1); onConfigChanged('geometry', { released: true }); renderContext(); } }, '−'));
+    tbl.append(h('tr', null, h('td', null, r.type === 'cu' ? (r.name || 'R' + (i + 1)) : String(i + 1)), h('td', null, typeSel), h('td', null, matSel), h('td', null, tIn), h('td', null, frac), h('td', null, kind), h('td', null, btns)));
+  });
+  root.append(tbl);
+}
+
+/** Package-wide stacked-module technology: chiplet thickness and the DDI microbump. */
+function renderStackTechnology(root) {
+  const st = app.cfg.stack, dd = st.ddi;
+  root.append(h('h4', null, 'Package-wide stacked-module technology', helpTip('stackTech')));
+  root.append(numField('Chiplet thickness (all chiplets)', () => st.chipletT, v => { st.chipletT = v; }, { unit: 'µm', scale: 1000, min: 0.05, max: 1.5, plo: 0.1, phi: 0.8, help: 'chipletT' }));
+  root.append(numField('DDI standoff (base top to chiplet)', () => dd.standoff, v => { dd.standoff = v; }, { unit: 'µm', scale: 1000, min: 0.005, max: 0.1, plo: 0.01, phi: 0.06, help: 'ddiStandoff' }));
+  root.append(numField('Cu pillar height', () => dd.pillarH, v => { dd.pillarH = v; }, { unit: 'µm', scale: 1000, min: 0, max: 0.099, help: 'ddiPillar' }));
+  root.append(numField('Microbump diameter', () => dd.d, v => { dd.d = v; }, { unit: 'µm', scale: 1000, min: 0.003, max: 0.2, plo: 0.01, phi: 0.06, help: 'ddiD' }));
+  root.append(numField('DDI pitch x', () => dd.px, v => { dd.px = v; }, { unit: 'µm', scale: 1000, min: 0.005, max: 0.5, plo: 0.02, phi: 0.15, help: 'ddiPitch' }));
+  root.append(numField('DDI pitch y', () => dd.py, v => { dd.py = v; }, { unit: 'µm', scale: 1000, min: 0.005, max: 0.5, plo: 0.02, phi: 0.15, help: 'ddiPitch' }));
+  root.append(selectField('Microbump solder', () => dd.solder, v => { dd.solder = v; }, materialOptions('solder'), { section: 'materials', help: 'ddiSolder' }));
+  root.append(h('div', { class: 'kv' }, kl('DDI solder area fraction', 'ddiFb'), h('span', null, fmt(Math.PI * dd.d * dd.d / (4 * dd.px * dd.py), 3)), kl('Solder cap height', 'ddiPillar'), h('span', null, fmt((dd.standoff - dd.pillarH) * 1000, 1) + ' µm')));
 }
 
 // ---- step 3: underfill, lid, stiffener ----
@@ -167,8 +259,20 @@ function renderConstructPanel(root) {
   root.append(h('h3', null, 'Capillary underfill'));
   root.append(selectField('Material', () => cfg.underfill.mat, v => { cfg.underfill.mat = v; }, materialOptions('underfill'), { section: 'materials', help: 'ufMat' }));
   root.append(numField('Fillet width W_f', () => cfg.underfill.Wf, v => { cfg.underfill.Wf = v; }, { unit: 'mm', min: 0.05, max: 5, plo: 0.3, phi: 2, help: 'Wf' }));
-  root.append(numField('Fillet height H_f (fraction of die thickness)', () => cfg.underfill.Hf, v => { cfg.underfill.Hf = v; }, { min: 0.05, max: 1, help: 'Hf' }));
+  root.append(numField(cfg.modules.length ? 'Fillet height H_f (fraction of die or module height)' : 'Fillet height H_f (fraction of die thickness)', () => cfg.underfill.Hf, v => { cfg.underfill.Hf = v; }, { min: 0.05, max: 1, help: 'Hf' }));
   root.append(numField('Effective stress-free temperature', () => cfg.process.Tuf, v => { cfg.process.Tuf = v; }, { unit: '°C', min: 0, max: 300, help: 'Tuf', section: 'process' }));
+  if (cfg.modules.length) {
+    const st = cfg.stack;
+    root.append(h('h3', null, 'Stacked modules: die-to-die fill and wafer mold', helpTip('fillIntro')));
+    root.append(selectField('DDI fill', () => st.fill, v => { st.fill = v; renderContext(); }, [{ value: 'wcuf', label: 'wafer underfill (wCUF) in the DDI gap, plus wafer mold' }, { value: 'mold', label: 'wafer mold only (molded underfill)' }], { help: 'fillType' }));
+    if (st.fill === 'wcuf') {
+      root.append(selectField('Wafer underfill material', () => st.wcuf.mat, v => { st.wcuf.mat = v; }, materialOptions('underfill'), { section: 'materials', help: 'wcufMat' }));
+      root.append(numField('wCUF fillet width', () => st.wcuf.Wf, v => { st.wcuf.Wf = v; }, { unit: 'mm', min: 0.01, max: 3, plo: 0.05, phi: 1, help: 'wcufWf' }));
+      root.append(numField('wCUF fillet height (fraction of chiplet thickness)', () => st.wcuf.Hf, v => { st.wcuf.Hf = v; }, { min: 0.02, max: 1, help: 'wcufHf' }));
+    }
+    root.append(selectField('Wafer mold material', () => st.moldMat, v => { st.moldMat = v; }, materialOptions('mold'), { section: 'materials', help: 'moldMat' }));
+    root.append(h('div', { class: 'small muted' }, 'The mold fills every module area not covered by chiplet silicon, out to the base edge and up to the chiplet backsides. Its stress-free temperatures are in step 5.'));
+  }
   if (cfg.packageType === 'lid') {
     const L = cfg.lid;
     root.append(h('h3', null, 'Hat lid'));
@@ -316,6 +420,14 @@ function renderProcessPanel(root) {
     tl.append(h('tr', null, h('td', null, s), h('td', null, ev, help(hk)), h('td', null, inp)));
   }
   tl.append(h('tr', null, h('td', null, 'End'), h('td', null, 'As-assembled state'), h('td', null, '25 (evaluation)')));
+  if (cfg.modules.length) {
+    // stacked modules are built first, as free bodies, then joined to the substrate in S1
+    const mp = cfg.stack.process;
+    const rows = [['M1', 'Chiplets, bases and DDI microbumps born (chiplet join)', 'Tddi'], cfg.stack.fill === 'wcuf' ? ['M2', 'Wafer underfill born (cure)', 'Twcuf'] : null, ['M3', 'Wafer mold born (cure)', 'Tmold']].filter(Boolean);
+    const head = h('tr', null, h('td', { colspan: 3, class: 'small muted' }, 'Stacked modules, before S0 (each module free, not yet on the substrate):'));
+    tl.insertBefore(head, tl.children[1]);
+    rows.reverse().forEach(([st, ev, key]) => tl.insertBefore(h('tr', null, h('td', null, st), h('td', null, ev, help(key)), h('td', null, h('input', { type: 'number', step: 1, value: mp[key], 'data-tip': TIPS[key], onchange: e => { mp[key] = +e.target.value; onConfigChanged('process'); } }))), head.nextSibling));
+  }
   root.append(tl);
   root.append(h('div', { class: 'row small' }, h('button', tip('TsubBtn', { class: 'small', onclick: () => { p.Tsub = 217; onConfigChanged('process'); renderContext(); } }), 'T_sub = solder solidus (217)'), h('button', tip('TsubBtn2', { class: 'small', onclick: () => { p.Tsub = 200; onConfigChanged('process'); renderContext(); } }), 'T_sub = ABF cure (200)')));
   root.append(h('h3', null, 'Reflow warpage sweep'));
@@ -354,14 +466,14 @@ function loadConfigFile() {
   const inp = h('input', { type: 'file', accept: '.json,application/json' });
   inp.addEventListener('change', () => {
     const f = inp.files[0]; if (!f) return;
-    f.text().then(t => { try { const c = C.parseConfig(t); app.cfg = c; app.selectedDie = 0; app.results = null; app.currentFields = null; onConfigChanged('geometry', { released: true }); renderAll(); toast('Configuration loaded: ' + (c.name || f.name), 'ok'); } catch (e) { toast('Could not load: ' + e.message, 'error'); } });
+    f.text().then(t => { try { const c = C.parseConfig(t, MATERIALS_DB); app.cfg = c; app.selectedDie = 0; app.selectedChiplet = -1; app.results = null; app.currentFields = null; onConfigChanged('geometry', { released: true }); renderAll(); toast('Configuration loaded: ' + (c.name || f.name), 'ok'); } catch (e) { toast('Could not load: ' + e.message, 'error'); } });
   });
   inp.click();
 }
 function loadPreset(id) {
   const [w, v] = id.split(':');
   app.cfg = C.presetConfig(MATERIALS_DB, w, v);
-  app.selectedDie = 0; app.results = null; app.currentFields = null;
+  app.selectedDie = 0; app.selectedChiplet = -1; app.results = null; app.currentFields = null;
   onConfigChanged('geometry', { released: true });
   floorplan.zoomFit();
   renderAll();

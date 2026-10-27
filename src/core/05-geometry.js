@@ -29,8 +29,60 @@ function bumpAxis(c, L, k, p) {
 }
 
 /**
- * Derived geometry from a configuration: z levels, die rectangles, bump fields
- * and sites, fillet, lid / stiffener footprints, BGA ball sites.
+ * Rectangle, flip chip (C4) bump field and bump sites of an object on the
+ * substrate's bump layer (a monolithic die or a module base) of footprint
+ * w x h centred at (cx, cy), with bump pitch (px, py) in package axes.
+ */
+function c4Field(cx, cy, w, h, bump, px, py, so) {
+  const rect = { x0: cx - w / 2, x1: cx + w / 2, y0: cy - h / 2, y1: cy + h / 2 };
+  const prof = bumpProfile(bump.ubm, bump.sro, bump.dmax, so);
+  const f = bumpFieldRects(cx, cy, w, h, rect, bump, px, py);
+  const abump = Math.PI * prof.deff * prof.deff / 4;
+  return Object.assign(f, { cx, cy, w, h, rect, px, py, profile: prof, deff: prof.deff, abump, density: abump / (px * py) });
+}
+
+/** Bump field rectangle (and the inner void of a peripheral array) of a rectangular footprint. */
+function bumpFieldRects(cx, cy, w, h, rect, bump, px, py) {
+  const ax = bumpAxis(cx, w, bump.keepout, px), ay = bumpAxis(cy, h, bump.keepout, py);
+  const field = (ax.n > 0 && ay.n > 0) ? {
+    x0: Math.max(rect.x0, ax.first - px / 2), x1: Math.min(rect.x1, ax.last + px / 2),
+    y0: Math.max(rect.y0, ay.first - py / 2), y1: Math.min(rect.y1, ay.last + py / 2),
+  } : null;
+  let inner = null;
+  const N = Math.max(1, Math.round(bump.rows || 1));
+  if (field && bump.type === 'peripheral' && ax.n > 2 * N && ay.n > 2 * N) {
+    inner = { x0: ax.first + (N - 0.5) * px, x1: ax.last - (N - 0.5) * px, y0: ay.first + (N - 0.5) * py, y1: ay.last - (N - 0.5) * py };
+  }
+  return { nbx: ax.n, nby: ay.n, bx0: ax.first, by0: ay.first, field, inner, rows: N, peripheral: !!inner };
+}
+
+/** Total thickness (mm) of a stack of rows. */
+function stackThickness(rows) { return rows.reduce((t, r) => t + r.t, 0); }
+
+/**
+ * Element bands of an organic RDL interposer whose bottom is at z0: the rows
+ * (listed top to bottom) bottom-up with z ranges, split into
+ * MIN_LAYERS_PER_REGION layered bands of equal thickness (as a substrate group).
+ */
+function rdlBands(rowsTopDown, z0) {
+  const rows = [];
+  let z = z0;
+  for (let i = rowsTopDown.length - 1; i >= 0; i--) { rows.push({ idx: i, row: rowsTopDown[i], z0: z, z1: z + rowsTopDown[i].t }); z += rowsTopDown[i].t; }
+  const nb = CONST.MIN_LAYERS_PER_REGION, bands = [];
+  for (let q = 0; q < nb; q++) {
+    const a = z0 + (z - z0) * q / nb, b = z0 + (z - z0) * (q + 1) / nb;
+    const subs = [];
+    for (const r of rows) { const lo = Math.max(a, r.z0), hi = Math.min(b, r.z1); if (hi - lo > 1e-12) subs.push({ row: r.row, rowIdx: r.idx, z0: lo, z1: hi }); }
+    bands.push({ z0: a, z1: b, subs });
+  }
+  return { total: z - z0, rows, bands };
+}
+
+/**
+ * Derived geometry from a configuration: z levels, the objects on the flip chip
+ * bump layer (g.dies: monolithic dies, then module bases), module chiplets and
+ * DDI fields, silicon parts for the die stress (g.siParts), fillets, lid /
+ * stiffener footprints, BGA ball sites.
  */
 function deriveGeometry(cfg) {
   const sub = substrateBands(cfg.substrate.layers);
@@ -39,34 +91,55 @@ function deriveGeometry(cfg) {
   const zaf = zt + so;
   const sx = cfg.substrate.sx, sy = cfg.substrate.sy;
   const substrate = { x0: -sx / 2, x1: sx / 2, y0: -sy / 2, y1: sy / 2 };
+  const siParts = [];
   const dies = cfg.dies.map((d, i) => {
     const rot = d.rot === 90;
     const w = rot ? d.sy : d.sx, h = rot ? d.sx : d.sy;
     const px = rot ? d.bump.py : d.bump.px, py = rot ? d.bump.px : d.bump.py;
-    const rect = { x0: d.x - w / 2, x1: d.x + w / 2, y0: d.y - h / 2, y1: d.y + h / 2 };
-    const prof = bumpProfile(d.bump.ubm, d.bump.sro, d.bump.dmax, so);
-    const ax = bumpAxis(d.x, w, d.bump.keepout, px), ay = bumpAxis(d.y, h, d.bump.keepout, py);
-    const field = (ax.n > 0 && ay.n > 0) ? {
-      x0: Math.max(rect.x0, ax.first - px / 2), x1: Math.min(rect.x1, ax.last + px / 2),
-      y0: Math.max(rect.y0, ay.first - py / 2), y1: Math.min(rect.y1, ay.last + py / 2),
-    } : null;
-    let inner = null;
-    const N = Math.max(1, Math.round(d.bump.rows || 1));
-    if (field && d.bump.type === 'peripheral' && ax.n > 2 * N && ay.n > 2 * N) {
-      inner = { x0: ax.first + (N - 0.5) * px, x1: ax.last - (N - 0.5) * px, y0: ay.first + (N - 0.5) * py, y1: ay.last - (N - 0.5) * py };
-    }
-    const abump = Math.PI * prof.deff * prof.deff / 4;
-    const density = abump / (px * py);
-    return {
-      index: i, id: d.id, name: d.name, cx: d.x, cy: d.y, w, h, t: d.t, rect, si: d.si || 'aniso',
-      px, py, nbx: ax.n, nby: ay.n, bx0: ax.first, by0: ay.first, field, inner, rows: N,
-      peripheral: !!inner, profile: prof, deff: prof.deff, abump, density,
-      zaf, ztop: zaf + d.t,
-    };
+    const o = Object.assign(c4Field(d.x, d.y, w, h, d.bump, px, py, so), {
+      index: i, kind: 'die', cfgIndex: i, id: d.id, name: d.name, t: d.t, si: d.si || 'aniso', zaf, zb: zaf, ztop: zaf + d.t, gkey: 'die' + i, part: PART.DIE,
+    });
+    siParts.push(o);
+    return o;
   });
-  const tmax = dies.reduce((m, d) => Math.max(m, d.t), 0);
-  const g = { cfg, sub, zt, zaf, so, substrate, dies, tmax, type: cfg.packageType };
+  const mods = cfg.modules || [];
+  const st = mods.length ? cfg.stack : null;
+  const modules = mods.map((m, mi) => {
+    const rot = m.rot === 90;
+    const w = rot ? m.sy : m.sx, h = rot ? m.sx : m.sy;
+    const px = rot ? m.bump.py : m.bump.px, py = rot ? m.bump.px : m.bump.py;
+    const rdl = m.base === 'rdl';
+    const tBase = rdl ? stackThickness(m.rdl) : m.tBase;
+    const zBaseTop = zaf + tBase, zDdiTop = zBaseTop + st.ddi.standoff, H = tBase + st.ddi.standoff + st.chipletT;
+    const o = Object.assign(c4Field(m.x, m.y, w, h, m.bump, px, py, so), {
+      index: cfg.dies.length + mi, kind: 'module', modIndex: mi, id: m.id, name: m.name, t: H, zaf, ztop: zaf + H,
+      base: rdl ? 'rdl' : 'si', tBase, zBaseTop, zDdiTop, si: m.si || 'aniso', tsv: rdl ? 0 : Math.max(0, m.tsv || 0),
+    });
+    if (rdl) o.rdl = rdlBands(m.rdl, zaf);
+    // chiplets: centres rotated with the module, sizes and DDI pitch swapped by the module and the chiplet rotation
+    const dpx = st.ddi.px, dpy = st.ddi.py, abump = Math.PI * st.ddi.d * st.ddi.d / 4;
+    o.chiplets = m.chiplets.map((c, ci) => {
+      const ccx = m.x + (rot ? -c.y : c.x), ccy = m.y + (rot ? c.x : c.y);
+      const swap = rot !== (c.rot === 90);
+      const cw = swap ? c.sy : c.sx, ch = swap ? c.sx : c.sy;
+      const cpx = swap ? dpy : dpx, cpy = swap ? dpx : dpy;
+      const rect = { x0: ccx - cw / 2, x1: ccx + cw / 2, y0: ccy - ch / 2, y1: ccy + ch / 2 };
+      const f = bumpFieldRects(ccx, ccy, cw, ch, rect, c.ddi, cpx, cpy);
+      return Object.assign(f, {
+        index: ci, modIndex: mi, id: c.id, name: m.name + ' / ' + c.name, short: c.name, cx: ccx, cy: ccy, w: cw, h: ch, rect, px: cpx, py: cpy,
+        t: st.chipletT, si: c.si || 'aniso', zaf: zDdiTop, zb: zDdiTop, ztop: zDdiTop + st.chipletT, deff: st.ddi.d, abump, density: abump / (cpx * cpy),
+        gkey: 'chip' + mi + '_' + ci, part: PART.CHIPLET, kind: 'chiplet',
+      });
+    });
+    for (const c of o.chiplets) siParts.push(c);
+    if (!rdl) siParts.push({ kind: 'base', modIndex: mi, name: m.name + ' (Si base)', rect: o.rect, cx: o.cx, cy: o.cy, w, h, t: tBase, zb: zaf, ztop: zBaseTop, gkey: 'base' + mi, part: PART.BASE_SI });
+    return o;
+  });
+  const objs = dies.concat(modules);
+  const tmax = objs.reduce((m, d) => Math.max(m, d.t), 0);
+  const g = { cfg, sub, zt, zaf, so, substrate, dies: objs, monoDies: dies, modules, siParts, tmax, type: cfg.packageType, stack: st };
   g.uf = { Wf: cfg.underfill.Wf, Hf: cfg.underfill.Hf };
+  if (st) g.wcuf = st.fill === 'wcuf' ? { Wf: st.wcuf.Wf, Hf: st.wcuf.Hf } : null;
   if (cfg.packageType === 'lid') {
     const L = cfg.lid;
     const outer = { x0: -L.ox / 2, x1: L.ox / 2, y0: -L.oy / 2, y1: L.oy / 2 };
@@ -74,7 +147,7 @@ function deriveGeometry(cfg) {
     const zLidBot = zaf + tmax + L.blt;
     g.lid = {
       outer, inner, adhT: L.adhT, zAdhTop: zt + L.adhT, zLidBot, zLidTop: zLidBot + L.tPlate,
-      footH: so + tmax + L.blt - L.adhT, blt: dies.map(d => zLidBot - d.ztop),
+      footH: so + tmax + L.blt - L.adhT, blt: objs.map(d => zLidBot - d.ztop),
     };
   }
   if (cfg.packageType === 'stiffener') {
@@ -129,10 +202,12 @@ function cellBumpFraction(d, cell) {
  * wedges between dies, and gaps narrower than Wf filled to Hf times the
  * thinner neighbouring die. Returns {h, inFootprint}.
  */
-function filletHeight(g, x, y) {
-  const Wf = g.uf.Wf, Hf = g.uf.Hf;
+function filletHeight(g, x, y) { return wedgeHeight(g.dies, g.uf.Wf, g.uf.Hf, x, y); }
+
+/** Fillet wedge height at (x, y) around a set of rectangles with thicknesses t (see filletHeight). */
+function wedgeHeight(objs, Wf, Hf, x, y) {
   let h = 0, inFp = false;
-  for (const d of g.dies) {
+  for (const d of objs) {
     const dist = distToRect(d.rect, x, y);
     if (dist <= Wf + 1e-12) {
       inFp = true;
@@ -140,9 +215,9 @@ function filletHeight(g, x, y) {
     }
   }
   // narrow gaps between die pairs
-  for (let a = 0; a < g.dies.length; a++) for (let b = a + 1; b < g.dies.length; b++) {
-    const A = g.dies[a].rect, B = g.dies[b].rect;
-    const tmin = Math.min(g.dies[a].t, g.dies[b].t);
+  for (let a = 0; a < objs.length; a++) for (let b = a + 1; b < objs.length; b++) {
+    const A = objs[a].rect, B = objs[b].rect;
+    const tmin = Math.min(objs[a].t, objs[b].t);
     const oy0 = Math.max(A.y0, B.y0), oy1 = Math.min(A.y1, B.y1);
     const ox0 = Math.max(A.x0, B.x0), ox1 = Math.min(A.x1, B.x1);
     const gx = Math.max(A.x0 - B.x1, B.x0 - A.x1), gy = Math.max(A.y0 - B.y1, B.y0 - A.y1);
@@ -158,8 +233,26 @@ function filletHeight(g, x, y) {
   return { h, inFootprint: inFp };
 }
 
+/**
+ * Wafer underfill (wCUF) fillet height above the DDI top (chiplet bottom) at
+ * (x, y) on module m outside its chiplets: the same wedge rule around the
+ * chiplets, clipped at the base edge (the wafer mold fills the rest). Mold-only
+ * modules have none.
+ */
+function wcufHeight(g, m, x, y) {
+  if (!g.wcuf || !pointInRect(m.rect, x, y)) return { h: 0, inFootprint: false };
+  return wedgeHeight(m.chiplets, g.wcuf.Wf, g.wcuf.Hf, x, y);
+}
+
+/** Object on the flip chip bump layer (die or module base) whose footprint holds (x, y), or null. */
 function dieAt(g, x, y) {
   for (const d of g.dies) if (x > d.rect.x0 && x < d.rect.x1 && y > d.rect.y0 && y < d.rect.y1) return d;
+  return null;
+}
+
+/** Chiplet of module m whose footprint holds (x, y), or null. */
+function chipletAt(m, x, y) {
+  for (const c of m.chiplets) if (x > c.rect.x0 && x < c.rect.x1 && y > c.rect.y0 && y < c.rect.y1) return c;
   return null;
 }
 
@@ -190,18 +283,20 @@ function validateConfig(cfg, g) {
   pos(cfg.bump.standoff, 'Bump standoff');
   pos(cfg.bga.pitch, 'BGA pitch');
   pos(cfg.underfill.Wf, 'Fillet width'); pos(cfg.underfill.Hf, 'Fillet height fraction');
-  if (!cfg.dies.length) err('Add at least one die.');
+  const mods = cfg.modules || [];
+  if (!cfg.dies.length && !mods.length) err('Add at least one die or stacked module.');
   try { g = g || deriveGeometry(cfg); } catch (e) { err('Geometry could not be derived: ' + e.message); return { errors, warnings }; }
+  const bumpChecks = (d, b, i, who) => {
+    for (const [v, n] of [[b.px, 'bump pitch x'], [b.py, 'bump pitch y'], [b.ubm, 'UBM diameter'], [b.sro, 'SRO diameter'], [b.dmax, 'maximum bump diameter']]) if (!(v > 0)) err(who + ': ' + n + ' must be positive.', i);
+    if (b.keepout < 0) err(who + ': bump keep-out cannot be negative.', i);
+    if (!d.field) err(who + ': the bump field is empty (keep-out larger than half the footprint).', i);
+    if (b.dmax < Math.max(b.ubm, b.sro)) err(who + ': maximum bump diameter is smaller than the UBM or SRO diameter.', i);
+    if (b.dmax >= Math.min(d.px, d.py)) err(who + ': maximum bump diameter reaches the bump pitch (bumps would touch).', i);
+  };
   g.dies.forEach((d, i) => {
-    const c = cfg.dies[i];
-    for (const [v, n] of [[c.sx, 'x size'], [c.sy, 'y size'], [c.t, 'thickness'], [c.bump.px, 'bump pitch x'], [c.bump.py, 'bump pitch y'],
-      [c.bump.ubm, 'UBM diameter'], [c.bump.sro, 'SRO diameter'], [c.bump.dmax, 'maximum bump diameter']]) {
-      if (!(v > 0)) err(d.name + ': ' + n + ' must be positive.', i);
-    }
-    if (c.bump.keepout < 0) err(d.name + ': bump keep-out cannot be negative.', i);
-    if (!d.field) err(d.name + ': the bump field is empty (keep-out larger than half the die).', i);
-    if (c.bump.dmax < Math.max(c.bump.ubm, c.bump.sro)) err(d.name + ': maximum bump diameter is smaller than the UBM or SRO diameter.', i);
-    if (c.bump.dmax >= Math.min(d.px, d.py)) err(d.name + ': maximum bump diameter reaches the bump pitch (bumps would touch).', i);
+    const c = d.kind === 'die' ? cfg.dies[d.cfgIndex] : mods[d.modIndex];
+    for (const [v, n] of [[c.sx, 'x size'], [c.sy, 'y size'], [d.t, 'thickness']]) if (!(v > 0)) err(d.name + ': ' + n + ' must be positive.', i);
+    bumpChecks(d, c.bump, i, d.name);
     const s = g.substrate;
     if (d.rect.x0 < s.x0 - 1e-9 || d.rect.x1 > s.x1 + 1e-9 || d.rect.y0 < s.y0 - 1e-9 || d.rect.y1 > s.y1 + 1e-9) err(d.name + ' lies outside the substrate.', i);
     else if (Math.min(d.rect.x0 - s.x0, s.x1 - d.rect.x1, d.rect.y0 - s.y0, s.y1 - d.rect.y1) < 2) warn(d.name + ' edge is within 2 mm of the substrate edge.', i);
@@ -218,8 +313,49 @@ function validateConfig(cfg, g) {
       else if (cl < g.uf.Wf) err('Underfill fillet of ' + d.name + ' intersects the ' + what + ' footprint.', i);
       else if (cl < g.uf.Wf + 0.5) warn('Underfill fillet of ' + d.name + ' is within 0.5 mm of the ' + what + '.', i);
     }
-    if (c.t < CONST.BOUNDS.dieT[0] || c.t > CONST.BOUNDS.dieT[1]) err(d.name + ': die thickness outside 0.05 to 1.5 mm.', i);
+    if (d.kind === 'die') {
+      if (c.t < CONST.BOUNDS.dieT[0] || c.t > CONST.BOUNDS.dieT[1]) err(d.name + ': die thickness outside 0.05 to 1.5 mm.', i);
+      return;
+    }
+    // stacked module: base, chiplets, DDI microbumps
+    const mi = d.modIndex, merr = (text, ci) => errors.push({ level: 'error', text, die: i, mod: mi, chip: ci }), mwarn = (text, ci) => warnings.push({ level: 'warning', text, die: i, mod: mi, chip: ci });
+    if (d.base === 'si') { if (!(c.tBase >= CONST.BOUNDS.baseT[0] && c.tBase <= CONST.BOUNDS.baseT[1])) merr(d.name + ': Si base thickness outside 0.02 to 1.5 mm.'); }
+    else {
+      if (!c.rdl.length) merr(d.name + ': the RDL interposer stack is empty.');
+      c.rdl.forEach((r, k) => { if (!(r.t > 0)) merr(d.name + ': thickness of RDL row ' + (k + 1) + ' must be positive.'); });
+    }
+    if (!(d.tsv >= 0 && d.tsv < 0.5)) merr(d.name + ': TSV Cu fraction outside 0 to 0.5.');
+    if (!d.chiplets.length) merr(d.name + ': add at least one chiplet.');
+    d.chiplets.forEach((ch, ci) => {
+      const cc = c.chiplets[ci];
+      if (!(cc.sx > 0 && cc.sy > 0)) merr(ch.name + ': size must be positive.', ci);
+      const r = ch.rect, b = d.rect;
+      const inset = Math.min(r.x0 - b.x0, b.x1 - r.x1, r.y0 - b.y0, b.y1 - r.y1);
+      if (inset < -1e-9) merr(ch.name + ' extends beyond its base.', ci);
+      else if (g.wcuf && inset < g.wcuf.Wf - 1e-9) mwarn('Wafer underfill fillet of ' + ch.name + ' reaches the base edge and is clipped there.', ci);
+      if (!(cc.ddi.keepout >= 0)) merr(ch.name + ': DDI keep-out cannot be negative.', ci);
+      if (!ch.field) merr(ch.name + ': the DDI microbump field is empty (keep-out larger than half the chiplet).', ci);
+      for (let cj = ci + 1; cj < d.chiplets.length; cj++) {
+        const gap = rectGap(r, d.chiplets[cj].rect);
+        if (gap < -1e-9) merr(ch.name + ' overlaps ' + d.chiplets[cj].short + '.', ci);
+        else if (gap < CONST.CHIPLET_GAP_WARN) mwarn('Gap between ' + ch.name + ' and ' + d.chiplets[cj].short + ' is ' + (gap * 1000).toFixed(0) + ' µm: fill flow risk.', ci);
+      }
+    });
   });
+  if (mods.length) {
+    const st = cfg.stack, dd = st.ddi;
+    const B = CONST.BOUNDS;
+    if (!(st.chipletT >= B.dieT[0] && st.chipletT <= B.dieT[1])) err('Chiplet thickness outside 0.05 to 1.5 mm.');
+    if (!(dd.standoff >= B.ddiStandoff[0] && dd.standoff <= B.ddiStandoff[1])) err('DDI standoff outside 5 to 100 µm.');
+    if (!(dd.pillarH >= 0 && dd.pillarH < dd.standoff)) err('DDI Cu pillar height must be at least 0 and below the DDI standoff (the solder cap needs a height).');
+    if (!(dd.d > 0 && dd.px > 0 && dd.py > 0)) err('DDI microbump diameter and pitch must be positive.');
+    else if (dd.d >= Math.min(dd.px, dd.py)) err('DDI microbump diameter reaches the DDI pitch (bumps would touch).');
+    if (st.fill === 'wcuf') { pos(st.wcuf.Wf, 'Wafer underfill fillet width'); pos(st.wcuf.Hf, 'Wafer underfill fillet height fraction'); if (st.wcuf.Hf > 1) err('Wafer underfill fillet height fraction above 1 (above the chiplet backside).'); }
+    for (const [k, n] of [['Tddi', 'Chiplet join'], ['Twcuf', 'Wafer underfill cure'], ['Tmold', 'Wafer mold cure']]) {
+      const T = st.process[k];
+      if (!(T >= CONST.TGRID_MIN && T <= CONST.TGRID_MAX)) err(n + ' temperature outside ' + CONST.TGRID_MIN + ' to ' + CONST.TGRID_MAX + ' °C.');
+    }
+  }
   if (cfg.bump.standoff < CONST.BOUNDS.standoff[0] || cfg.bump.standoff > CONST.BOUNDS.standoff[1]) err('Standoff outside 20 to 200 µm.');
   const core = cfg.substrate.layers.find(r => r.type === 'core');
   if (core && (core.t < CONST.BOUNDS.coreT[0] || core.t > CONST.BOUNDS.coreT[1])) err('Core thickness outside 0.1 to 2.0 mm.');

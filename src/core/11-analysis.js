@@ -19,8 +19,9 @@ function modelTgs(cfg, groups, maxStage) {
   const out = [];
   const seen = new Set();
   const add = id => { if (!id || seen.has(id)) return; seen.add(id); for (const t of materialTgs(findMaterial(cfg.materials, id))) out.push(t.T); };
-  for (const g of groups) if (maxStage == null || g.stage <= maxStage) add(g.mat);
-  for (const r of cfg.substrate.layers) { add(r.mat); add(r.fill); }
+  for (const g of groups) if (maxStage == null || g.stage <= maxStage) { add(g.mat); for (const id of g.layerMats || []) add(id); }
+  // the substrate is born in stage 0 (the stacked-module stages before it do not see its Tg values)
+  if (maxStage == null || maxStage >= 0) for (const r of cfg.substrate.layers) { add(r.mat); add(r.fill); }
   return out;
 }
 
@@ -117,10 +118,16 @@ class Analysis {
    * the evaluation temperatures, those born by each stage for its steps), solder solidus.
    */
   setupPath(groups) {
-    this.finalStage = this.cfg.packageType === 'bare' ? 2 : 3;
-    this.tgs = modelTgs(this.cfg, groups);
-    this.stageTgs = [0, 1, 2, 3].map(s => modelTgs(this.cfg, groups, s));
-    this.solidus = pv(findMaterial(this.cfg.materials, this.cfg.bump.solder).solidus || { v: 217 });
+    const c = this.cfg;
+    this.finalStage = c.packageType === 'bare' ? 2 : 3;
+    this.hasModules = !!(c.modules && c.modules.length);
+    this.tgs = modelTgs(c, groups);
+    const S = CONST.STAGE, stages = this.hasModules ? [S.DDI, S.WCUF, S.MOLD, 0, 1, 2, 3] : [0, 1, 2, 3];
+    this.stageTgs = new Map(stages.map(s => [s, modelTgs(c, groups, s)]));
+    this.solidus = pv(findMaterial(c.materials, c.bump.solder).solidus || { v: 217 });
+    // the path also stops at the DDI microbump solidus when the package has stacked modules
+    this.solidi = [this.solidus];
+    if (this.hasModules) { const s = findMaterial(c.materials, c.stack.ddi.solder).solidus; if (s) this.solidi.push(pv(s)); }
     return this;
   }
 
@@ -129,10 +136,9 @@ class Analysis {
     const c = this.cfg, kind = this.opts.evaluations;
     if (kind === 'preview') return { all: [25], cycling: [], reflow: [25] };
     const cyc = temperatureSamples(c.cycling.Tmin, c.cycling.Tmax, this.tgs, [25]);
-    const solidus = pv(findMaterial(c.materials, c.bump.solder).solidus || { v: 217 });
-    // reflow sweep: 15 degC steps above the cycling range, refined to 10 degC near a Tg, plus report temperatures and the solidus
+    // reflow sweep: 15 degC steps above the cycling range, refined to 10 degC near a Tg, plus report temperatures and the solidi
     const ref = [];
-    const set = new Set([25, c.reflow.peak, solidus, solidus + 1].concat(c.reflow.reportTemps));
+    const set = new Set([25, c.reflow.peak].concat(this.solidi.flatMap(s => [s, s + 1]), c.reflow.reportTemps));
     for (let T = Math.ceil(c.cycling.Tmax / CONST.REFLOW_DT) * CONST.REFLOW_DT; T <= c.reflow.peak; T += CONST.REFLOW_DT) set.add(T);
     for (const tg of this.tgs) for (let T = Math.ceil((tg - CONST.CYCLE_TG_BAND) / CONST.REFLOW_DT_FINE) * CONST.REFLOW_DT_FINE; T <= tg + CONST.CYCLE_TG_BAND; T += CONST.REFLOW_DT_FINE) set.add(T);
     for (const T of set) if (T >= 25 && T <= c.reflow.peak) ref.push(T);
@@ -148,7 +154,7 @@ class Analysis {
     this.temps = temps;
     const steps = [];
     const seg = (Ta, Tb, stage, branch, stops) => {
-      const pts = thermalPathPoints(Ta, Tb, this.stageTgs[stage], (stops || []).concat([this.solidus]));
+      const pts = thermalPathPoints(Ta, Tb, this.stageTgs.get(stage), (stops || []).concat(this.solidi));
       const ids = [];
       for (let k = 1; k < pts.length; k++) { steps.push({ Ta: pts[k - 1], Tb: pts[k], stage, branch }); ids.push(steps.length - 1); }
       return ids;
@@ -156,13 +162,22 @@ class Analysis {
     // solve order (consecutive steps of similar shape warm-start each other): S0, S1, the chip-join branch (needed
     // for the bump loads of a full analysis only; it continues the stage-1 cooling), the rest of the chain, then
     // both sweep branches in the final stage (down first, continuing from the last chain step)
+    // stacked modules first (the substrate and everything on it unborn): chip join of the chiplets on their bases, then the
+    // wafer underfill cure (wCUF fill only), then the wafer mold cure, then on to the substrate's stress-free temperature
+    let sm = [];
+    if (this.hasModules) {
+      const mp = this.cfg.stack.process, S = CONST.STAGE;
+      if (this.cfg.stack.fill === 'wcuf') sm = seg(mp.Tddi, mp.Twcuf, S.DDI, 'chain').concat(seg(mp.Twcuf, mp.Tmold, S.WCUF, 'chain'));
+      else sm = seg(mp.Tddi, mp.Tmold, S.DDI, 'chain');
+      sm = sm.concat(seg(mp.Tmold, p.Tsub, S.MOLD, 'chain'));
+    }
     const s0 = Math.abs(p.Tsub - p.Tjoin) > 1e-9 ? seg(p.Tsub, p.Tjoin, 0, 'chain') : [];
     const s1 = seg(p.Tjoin, p.Tuf, 1, 'chain');
     const cpi = this.opts.evaluations === 'full' ? seg(p.Tuf, 25, 1, 'cpi') : [];
     const rest = fin === 3 ? seg(p.Tuf, p.Tattach, 2, 'chain').concat(seg(p.Tattach, 25, 3, 'chain')) : seg(p.Tuf, 25, 2, 'chain');
     const ev = temps.all;
     const down = seg(25, Math.min(25, ...ev), fin, 'down', ev), up = seg(25, Math.max(25, ...ev), fin, 'up', ev);
-    this.path = { steps, chain: s0.concat(s1, rest), chainJoin: s0.concat(s1), cpi, up, down, hasCPI: this.opts.evaluations === 'full' };
+    this.path = { steps, chain: sm.concat(s0, s1, rest), chainJoin: sm.concat(s0, s1), cpi, up, down, hasCPI: this.opts.evaluations === 'full' };
     this.du = new Array(steps.length).fill(null);
     this.rec = new Array(steps.length).fill(null);
     return steps;

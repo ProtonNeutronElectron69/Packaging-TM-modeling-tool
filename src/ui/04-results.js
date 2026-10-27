@@ -1,5 +1,8 @@
 // ===== UI: step 6, run controls, results views, 3D, sensitivity, verification, report ====
 
+/** Silicon parts with die stress maps (monolithic dies, chiplets, Si bases); results saved before stacked modules list dies only. */
+const siList = f => f.si || f.dies;
+
 const CONFIDENCE = {
   warpage: 'Moderate confidence; most sensitive to stress-free temperature assumptions and polymer properties above Tg.',
   dieInterior: 'Moderate confidence.',
@@ -43,8 +46,8 @@ function renderRunPanel(root) {
   root.append(h('div', { class: 'card' }, h('h3', null, 'Signed warpage, JEITA, 25 °C', helpTip('warpSigned')), h('div', { class: 'big' }, um(w.signed) + ' µm', w.marginal ? h('span', { class: 'badge Handbook', 'data-tip': 'The diagonal sum that sets the JEITA sign is only ' + fmt(100 * w.signConf, 0) + ' % of the magnitude (saddle or ring shape); the sign can flip between neighbouring states while the magnitude barely changes. Compare magnitudes.' }, 'marginal sign') : null), h('div', { class: 'sub' }, shapeText(w) + '; magnitude ' + um(w.mag) + ' µm; RT reference ' + (w.limitRT * 1000) + ' µm' + (base ? delta(w.signed * 1000, base.at25.warpage.signed * 1000, ' µm', 1) : '')), whatThisMeans('warpage', res)));
   const peak = res.sweep.reduce((m, r) => Math.abs(r.signed) > Math.abs(m.signed) ? r : m, res.sweep[0]);
   root.append(h('div', { class: 'card' }, h('h3', null, 'Reflow sweep peak'), h('div', { class: 'big' }, um(peak.signed) + ' µm at ' + peak.T + ' °C'), h('div', { class: 'sub' }, 'JEITA limit for ' + cfg.bga.pitch + ' mm pitch: ' + (w.limitHot * 1000) + ' µm → ' + (Math.abs(peak.signed) <= w.limitHot ? 'within limit' : 'exceeds limit') + (base ? delta(peak.signed * 1000, base.sweep.reduce((m, r) => Math.abs(r.signed) > Math.abs(m.signed) ? r : m, base.sweep[0]).signed * 1000, ' µm', 1) : ''))));
-  f.dies.forEach((d, i) => {
-    const bd = base && base.at25.dies[i];
+  siList(f).forEach((d, i) => {
+    const bd = base && siList(base.at25)[i];
     root.append(h('div', { class: 'card' }, h('h3', null, d.name + ' backside stress', helpTip('peakNodal')), h('div', { class: 'big' }, fmt(d.top.peakInterior, 1) + ' MPa'), h('div', { class: 'sub' }, 'interior peak (0.5 mm edge band excluded), max principal, nodal averaged; Gauss-point peak ' + fmt(d.top.gpPeakInterior, 1) + ' MPa' + (bd ? delta(d.top.peakInterior, bd.top.peakInterior, ' MPa', 1) : '') + (cfg.limits.dieStrength ? '; margin to strength ' + fmt(cfg.limits.dieStrength - d.top.peakInterior, 0) + ' MPa' : '')), h('div', { class: 'sub' }, 'corner patches 1 / 2 / 3 / 4 (comparative): ' + d.top.corners.map(c => fmt(c.value, 0)).join(' / ') + ' MPa'), h('div', { class: 'conf' }, CONFIDENCE.dieInterior + ' Corner values: ' + CONFIDENCE.corner)));
   });
   res.cpi.forEach((b, i) => {
@@ -330,15 +333,15 @@ function renderDieStressView(root, res, f, Tsel) {
   const which = app.dieStressFace || 'top';
   root.append(h('div', { class: 'row' }, ...[['top', 'Backside (top surface)', 'faceTop'], ['bottom', 'Active face', 'faceBottom']].map(([k, l, t]) => h('button', tip(t, { class: which === k ? 'primary small' : 'small', onclick: () => { app.dieStressFace = k; renderCenter(); } }), l))));
   let mn = Infinity, mx = -Infinity;
-  for (const d of f.dies) for (const v of d[which].smax) if (isFinite(v)) { mn = Math.min(mn, v); mx = Math.max(mx, v); }
+  for (const d of siList(f)) for (const v of d[which].smax) if (isFinite(v)) { mn = Math.min(mn, v); mx = Math.max(mx, v); }
   const scale = makeScale(mn, mx, mn < 0);
   const left = h('div');
-  left.append(mapCanvas(res, (ctx, X, Y, sc) => { for (const d of f.dies) { drawGridField(ctx, d[which].xs, d[which].ys, d[which].smax, scale, X, Y, 1); const r = d.rect, b = C.CONST.DIE_EDGE_BAND; ctx.setLineDash([2, 2]); ctx.strokeStyle = cssVar('--muted'); ctx.strokeRect(X(r.x0 + b), Y(r.y1 - b), (r.x1 - r.x0 - 2 * b) * sc, (r.y1 - r.y0 - 2 * b) * sc); ctx.setLineDash([]); ctx.strokeStyle = cssVar('--text'); ctx.beginPath(); ctx.arc(X(d[which].peakX), Y(d[which].peakY), 4, 0, 6.3); ctx.stroke(); drawCornerNumbers(ctx, r, X, Y); } }));
+  left.append(mapCanvas(res, (ctx, X, Y, sc) => { for (const d of siList(f)) { drawGridField(ctx, d[which].xs, d[which].ys, d[which].smax, scale, X, Y, 1); const r = d.rect, b = C.CONST.DIE_EDGE_BAND; ctx.setLineDash([2, 2]); ctx.strokeStyle = cssVar('--muted'); ctx.strokeRect(X(r.x0 + b), Y(r.y1 - b), (r.x1 - r.x0 - 2 * b) * sc, (r.y1 - r.y0 - 2 * b) * sc); ctx.setLineDash([]); ctx.strokeStyle = cssVar('--text'); ctx.beginPath(); ctx.arc(X(d[which].peakX), Y(d[which].peakY), 4, 0, 6.3); ctx.stroke(); drawCornerNumbers(ctx, r, X, Y); } }));
   left.append(legendRow(scale, 'maximum principal stress, MPa, nodal averaged within the die'));
   left.append(lineKey([{ label: 'die outline', color: cssVar('--text'), dash: [4, 3] }, { label: 'inner edge of the 0.5 mm edge band (excluded from the interior peak)', color: cssVar('--muted'), dash: [2, 2] }, { label: 'interior peak', color: cssVar('--text'), marker: 'circle' }]));
   left.append(h('div', { class: 'small muted' }, 'Die corners 1 to 4 run clockwise from the bottom-right (+x, −y) corner.'));
   const right = h('div');
-  for (const d of f.dies) {
+  for (const d of siList(f)) {
     const s = d[which];
     right.append(h('div', { class: 'card' }, h('h3', null, d.name + ', ' + (which === 'top' ? 'backside' : 'active face')),
       h('div', { class: 'kv' }, kl('Interior peak (nodal averaged)', 'peakNodal'), h('b', { 'data-tip': 'Gauss-point peak in the interior: ' + fmt(s.gpPeakInterior, 1) + ' MPa; nodal extrapolation can differ meaningfully from Gauss-point values' }, fmt(s.peakInterior, 1) + ' MPa at (' + fmt(s.peakX, 1) + ', ' + fmt(s.peakY, 1) + ')'), kl('Interior peak (Gauss points)', 'peakGauss'), h('span', null, fmt(s.gpPeakInterior, 1) + ' MPa'), kl('Whole-face Gauss-point peak', 'peakAll'), h('span', null, fmt(s.gpPeakAll, 1) + ' MPa (includes singular edge region)'), ...s.corners.flatMap(c => [kl(c.name + ', 100 µm patch', 'cornerPatch'), h('span', null, fmt(c.value, 1) + ' MPa')]), ...s.midEdges.flatMap(c => [kl(c.name + ', 100 µm patch', 'cornerPatch'), h('span', null, fmt(c.value, 1) + ' MPa')]), cfg.limits.dieStrength ? kl('Margin to die strength', 'margin') : null, cfg.limits.dieStrength ? h('span', { class: cfg.limits.dieStrength > s.peakInterior ? 'ok' : 'bad' }, fmt(cfg.limits.dieStrength - s.peakInterior, 0) + ' MPa') : null),
@@ -399,18 +402,21 @@ function renderFatigueView(root, res) {
   app.submodelSelection = sel;
   const nxySel = h('select', tip('subRes'), ...[12, 16, 20].map(n => h('option', { value: n, selected: cfg.submodel.nxy === n ? '' : null }, n + ' × ' + n + ' × ' + (n === 12 ? 10 : n === 16 ? 14 : 18))));
   nxySel.addEventListener('change', () => { cfg.submodel.nxy = +nxySel.value; cfg.submodel.nz = +nxySel.value === 12 ? 10 : (+nxySel.value === 16 ? 14 : 18); });
-  right.append(h('div', { class: 'card' }, h('h3', null, 'Screening ranking'), ...res.screening.map(s => h('div', null, h('b', null, s.die), h('table', { class: 'small' }, h('tr', null, h('th', null, 'select', helpTip('selectSite')), h('th', null, 'x'), h('th', null, 'y'), h('th', null, 'ΔW_proxy MPa', helpTip('dWproxy')), h('th', null, 'Δε̄p', helpTip('dEproxy'))), ...s.top.slice(0, 8).map(t => { const key = s.dieIdx + ':' + t.q; return h('tr', null, h('td', null, h('input', { type: 'checkbox', checked: sel.has(key) ? '' : null, onchange: e => { if (e.target.checked) sel.add(key); else sel.delete(key); } })), h('td', null, fmt(t.x, 2)), h('td', null, fmt(t.y, 2)), h('td', null, fmtE(t.dW, 3)), h('td', null, fmtE(t.dE, 3))); })), h('div', tip('stab', { class: 'small muted' }), 'stabilization (last two cycles): ' + fmtE(s.stab[s.top[0] ? s.top[0].q : 0], 2) + (s.subsampled ? '; subsampled' : '') + '; ' + fmt(s.ms / 1000, 1) + ' s'))),
+  right.append(h('div', { class: 'card' }, h('h3', null, 'Screening ranking'), ...res.screening.map(s => h('div', null, h('b', null, s.die), h('table', { class: 'small' }, h('tr', null, h('th', null, 'select', helpTip('selectSite')), h('th', null, 'x'), h('th', null, 'y'), h('th', null, 'ΔW_proxy MPa', helpTip('dWproxy')), h('th', null, 'Δε̄p', helpTip('dEproxy'))), ...s.top.slice(0, 8).map(t => { const key = s.dieIdx + ':' + t.q; return h('tr', null, h('td', null, h('input', { type: 'checkbox', checked: sel.has(key) ? '' : null, disabled: submodelAllowed(res, s.dieIdx) ? null : '', 'data-tip': submodelAllowed(res, s.dieIdx) ? null : TIPS.subNotAllowed, onchange: e => { if (e.target.checked) sel.add(key); else sel.delete(key); } })), h('td', null, fmt(t.x, 2)), h('td', null, fmt(t.y, 2)), h('td', null, fmtE(t.dW, 3)), h('td', null, fmtE(t.dE, 3))); })), h('div', tip('stab', { class: 'small muted' }), 'stabilization (last two cycles): ' + fmtE(s.stab[s.top[0] ? s.top[0].q : 0], 2) + (s.subsampled ? '; subsampled' : '') + '; ' + fmt(s.ms / 1000, 1) + ' s'))),
     h('div', { class: 'row' }, h('label', null, 'Submodel resolution ', nxySel), h('button', tip('runSub', { class: 'primary', onclick: () => runSubmodels(res) }), '▶ Run bump submodels for selected sites'))));
   for (const sm of app.submodels) right.append(renderSubmodelCard(sm));
   root.append(h('div', { class: 'grid2' }, left, right));
 }
+/** Bump submodels need a Si slice above the joint: not under an organic RDL interposer or a Si base thinner than the slice. */
+function submodelAllowed(res, dieIdx) { const d = res.geometry.dies[dieIdx]; return !d || d.sub !== false; }
 function defaultSubmodelSelection(res) {
   const sel = new Set();
   const all = [];
-  res.screening.forEach(s => s.top.slice(0, 4).forEach(t => all.push({ key: s.dieIdx + ':' + t.q, dW: t.dW, die: s.dieIdx })));
+  const screens = res.screening.filter(s => submodelAllowed(res, s.dieIdx));
+  screens.forEach(s => s.top.slice(0, 4).forEach(t => all.push({ key: s.dieIdx + ':' + t.q, dW: t.dW, die: s.dieIdx })));
   all.sort((a, b) => b.dW - a.dW);
   for (const a of all.slice(0, 4)) sel.add(a.key);
-  res.screening.forEach(s => { if (s.top[0] && !Array.from(sel).some(k => k.startsWith(s.dieIdx + ':'))) sel.add(s.dieIdx + ':' + s.top[0].q); });
+  screens.forEach(s => { if (s.top[0] && !Array.from(sel).some(k => k.startsWith(s.dieIdx + ':'))) sel.add(s.dieIdx + ':' + s.top[0].q); });
   return sel;
 }
 function runSubmodels(res) {
@@ -556,7 +562,10 @@ function update3D() {
   let scale;
   if (v.color === 'warpage') { let mn = Infinity, mx = -Infinity; for (let n = 0; n < coords.length / 3; n++) { const z = u[3 * n + 2]; mn = Math.min(mn, z); mx = Math.max(mx, z); } scale = makeScale(mn * 1000, mx * 1000, true); }
   else if (v.color === 'stress') { let mx = 0, mn = Infinity; for (const s of stress) { mx = Math.max(mx, s); mn = Math.min(mn, s); } scale = makeScale(mn, mx, mn < 0); }
-  const partCol = [[0.85, 0.78, 0.65], [0.72, 0.72, 0.72], [0.91, 0.72, 0.42], [0.91, 0.72, 0.42], [0.48, 0.65, 0.84], [0.84, 0.63, 0.84], [0.75, 0.54, 0.35], [0.62, 0.79, 0.65], [0.75, 0.54, 0.35], [0.62, 0.79, 0.65]];
+  // by PART index: substrate, solder, underfill, fillet, die, TIM, lid, lid adhesive, stiffener, stiffener adhesive, then the stacked-module
+  // parts: chiplets, Si base, TSV Cu, RDL, DDI microbumps, DDI fill, wafer underfill fillet, wafer mold
+  const partCol = [[0.85, 0.78, 0.65], [0.72, 0.72, 0.72], [0.91, 0.72, 0.42], [0.91, 0.72, 0.42], [0.48, 0.65, 0.84], [0.84, 0.63, 0.84], [0.75, 0.54, 0.35], [0.62, 0.79, 0.65], [0.75, 0.54, 0.35], [0.62, 0.79, 0.65],
+    [0.48, 0.65, 0.84], [0.62, 0.69, 0.77], [0.85, 0.6, 0.36], [0.78, 0.7, 0.49], [0.72, 0.72, 0.72], [0.91, 0.72, 0.42], [0.91, 0.72, 0.42], [0.56, 0.56, 0.56]];
   const ex = v.scale;
   let k = 0;
   const tri = [[0, 1, 2], [0, 2, 3]];
@@ -681,7 +690,8 @@ function reportBody(res) {
   const add = (k, v, c) => tbl.append(h('tr', null, h('td', null, k), h('td', null, v), h('td', { class: 'small muted' }, c)));
   add('Signed warpage at 25 °C (JEITA)', um(w.signed) + ' µm (' + (w.sign > 0 ? 'convex' : 'concave') + ')', CONFIDENCE.warpage);
   for (const r of res.sweep.filter(r => cfg.reflow.reportTemps.includes(r.T))) add('Signed warpage at ' + r.T + ' °C', um(r.signed) + ' µm (limit ' + w.limitHot * 1000 + ')', CONFIDENCE.warpage);
-  f.dies.forEach((d, i) => { add(d.name + ' backside interior peak stress', fmt(d.top.peakInterior, 1) + ' MPa', CONFIDENCE.dieInterior); add(d.name + ' backside corner patches 1 / 2 / 3 / 4', d.top.corners.map(c => fmt(c.value, 0)).join(' / ') + ' MPa', CONFIDENCE.corner); add(d.name + ' active-face interior peak', fmt(d.bottom.peakInterior, 1) + ' MPa', CONFIDENCE.dieInterior); add(d.name + ' worst CPI bump shear / axial', gf(res.cpi[i].worstV) + ' / ' + gf(res.cpi[i].worstN) + ' gf', CONFIDENCE.bumps); add(d.name + ' underfill max sidewall peel / shear', fmt(d.uf.maxPeelSide, 1) + ' / ' + fmt(d.uf.maxShearSide, 1) + ' MPa', CONFIDENCE.corner); });
+  siList(f).forEach(d => { add(d.name + ' backside interior peak stress', fmt(d.top.peakInterior, 1) + ' MPa', CONFIDENCE.dieInterior); add(d.name + ' backside corner patches 1 / 2 / 3 / 4', d.top.corners.map(c => fmt(c.value, 0)).join(' / ') + ' MPa', CONFIDENCE.corner); add(d.name + ' active-face interior peak', fmt(d.bottom.peakInterior, 1) + ' MPa', CONFIDENCE.dieInterior); });
+  f.dies.forEach((d, i) => { add(d.name + ' worst CPI bump shear / axial', gf(res.cpi[i].worstV) + ' / ' + gf(res.cpi[i].worstN) + ' gf', CONFIDENCE.bumps); add(d.name + ' underfill max sidewall peel / shear', fmt(d.uf.maxPeelSide, 1) + ' / ' + fmt(d.uf.maxShearSide, 1) + ' MPa', CONFIDENCE.corner); });
   if (res.screening) res.screening.forEach(s => add(s.die + ' worst ΔW_proxy', fmtE(s.top[0] ? s.top[0].dW : NaN, 3) + ' MPa/cycle', CONFIDENCE.fatigue));
   for (const sm of app.submodels) add('Submodel ' + sm.die + ' (' + fmt(sm.site.x, 1) + ', ' + fmt(sm.site.y, 1) + ') ΔW / Syed life', fmtE(sm.dW, 3) + ' MPa, ' + fmt(sm.life.syedEnergy, 0) + ' cycles', CONFIDENCE.fatigue);
   div.append(tbl);
@@ -713,7 +723,8 @@ function exportCSV() {
   const lines = ['section,quantity,value,unit'];
   lines.push('warpage,signed_25C,' + f.warpage.signed * 1000 + ',um', 'warpage,magnitude_25C,' + f.warpage.mag * 1000 + ',um');
   for (const r of res.sweep) lines.push('warpage_sweep,T=' + r.T + ',' + r.signed * 1000 + ',um');
-  f.dies.forEach((d, i) => { lines.push('die_stress,' + d.name + '_top_interior_peak,' + d.top.peakInterior + ',MPa', 'die_stress,' + d.name + '_bottom_interior_peak,' + d.bottom.peakInterior + ',MPa'); d.top.corners.forEach(c => lines.push('die_stress,' + d.name + '_top_' + c.name.replace(/[^\w+-]+/g, '_').replace(/_$/, '') + ',' + c.value + ',MPa')); lines.push('bumps,' + d.name + '_cpi_worst_shear,' + res.cpi[i].worstV + ',N', 'bumps,' + d.name + '_cpi_worst_axial,' + res.cpi[i].worstN + ',N', 'uf,' + d.name + '_max_sidewall_peel,' + d.uf.maxPeelSide + ',MPa', 'uf,' + d.name + '_max_sidewall_shear,' + d.uf.maxShearSide + ',MPa'); });
+  siList(f).forEach(d => { lines.push('die_stress,' + d.name + '_top_interior_peak,' + d.top.peakInterior + ',MPa', 'die_stress,' + d.name + '_bottom_interior_peak,' + d.bottom.peakInterior + ',MPa'); d.top.corners.forEach(c => lines.push('die_stress,' + d.name + '_top_' + c.name.replace(/[^\w+-]+/g, '_').replace(/_$/, '') + ',' + c.value + ',MPa')); });
+  f.dies.forEach((d, i) => { lines.push('bumps,' + d.name + '_cpi_worst_shear,' + res.cpi[i].worstV + ',N', 'bumps,' + d.name + '_cpi_worst_axial,' + res.cpi[i].worstN + ',N', 'uf,' + d.name + '_max_sidewall_peel,' + d.uf.maxPeelSide + ',MPa', 'uf,' + d.name + '_max_sidewall_shear,' + d.uf.maxShearSide + ',MPa'); });
   if (res.screening) res.screening.forEach(s => lines.push('fatigue,' + s.die + '_worst_dW_proxy,' + (s.top[0] ? s.top[0].dW : '') + ',MPa'));
   for (const sm of app.submodels) lines.push('submodel,' + sm.die + '_' + sm.site.x + '_' + sm.site.y + '_dW,' + sm.dW + ',MPa', 'submodel,' + sm.die + '_' + sm.site.x + '_' + sm.site.y + '_life_syed,' + sm.life.syedEnergy + ',cycles');
   lines.push('', 'ball_x_mm,ball_y_mm,warpage_residual_25C_um,w_25C_um');
@@ -734,9 +745,14 @@ function limitationsList(res) {
     'Bumps are homogenized in the global model as a superposed solder phase and underfill phase sharing nodes (Voigt). The solder phase is an array of separate columns between the two pads: axial stiffness E and transverse shear stiffness G only, no in-plane membrane stiffness or Poisson coupling (a numerical floor of 0.1 %), since separate joints carry no in-plane force and do not take the die\'s in-plane strain. The bump screening drives each joint the same way, as a free-standing column: its axial and transverse shear strains follow the bump layer, its in-plane stresses are zero.',
     'The underfill fillet is a linear wedge: box elements under its sloped surface carry their stiffness and thermal load scaled by the fraction of the box below the surface, so the fillet acts as a continuous wedge without sloped elements; peel and shear at the fillet surface are approximate.',
     'Solder above its solidus (217 °C for SAC305) is represented by a modulus floor of 1 % of E(217 °C); states above the solidus are flagged "solder molten".',
-    'Uniform temperature only: no power maps or gradients. No BGA balls or PCB (second-level), no mold compound, no passives, no moisture swelling, no Cu plasticity, no fracture mechanics, no initial substrate warpage from fabrication, no gravity.',
+    'Uniform temperature only: no power maps or gradients. No BGA balls or PCB (second-level), no package-level mold compound (the wafer mold of stacked modules is modeled), no passives, no moisture swelling, no Cu plasticity, no fracture mechanics, no initial substrate warpage from fabrication, no gravity.',
     'Singular quantities (die corners, interface corners, fatigue indices) are mesh dependent and reported as comparative metrics over fixed physical patches.',
     'Fatigue constants come from other joint geometries and constitutive models; lives are order-of-magnitude and best used as ratios against a pinned baseline. The submodel assumes the solder is stress-free at 25 °C in the as-assembled state; its elastic parts follow the same incremental rule from that state. Its cross-section shows the change from 25 °C or, as an option, the total stress, which adds the global as-assembled stress at 25 °C of each submodel element (silicon, underfill and substrate from the global model; solder 0 by the assumption above).',
+    'Stacked modules (a Si base die or interposer, or an organic RDL interposer, with one layer of chiplets): each module is built first as a free body, before the substrate stage: chiplets, base and DDI microbumps are born at the chiplet join temperature, then the wafer underfill at its cure temperature (wCUF fill), then the wafer mold at its cure temperature; the module then goes to the substrate stress-free temperature and is joined by its flip chip bumps in S1 like a die. The constraint of the wafer before singulation and of a carrier (RDL-first interposers) is ignored. During those stages each module rests on a statically determinate three-point support, which carries no force under its self-equilibrated thermal load; the not-yet-born bumps and underfill below it pull with 1e-6 of their stiffness (about 2e-4 of E α ΔT in its stress, verification V18).',
+    'Stacked-module geometry: the wafer mold fills every module area not covered by chiplet silicon, out to the base edge and flush with the chiplet backsides (no overmold); the wafer underfill fillet is a linear wedge around each chiplet on the base top (cells it cuts carry wCUF and mold by their volume fractions), clipped at the base edge; the flip chip underfill fillet height is a fraction of the module height; the lid TIM covers the whole module top. All chiplets share one thickness and one DDI microbump technology.',
+    'DDI microbumps are homogenized like the flip chip bumps: a microbump column phase superposed on the DDI fill (wafer underfill or mold), the column a Cu pillar and a solder cap in series (axial and shear stiffness only). TSV copper in a Si base is superposed on the Si by the parallel (Voigt) rule; the BEOL of the base and chiplets is not modeled. An RDL interposer is homogenized per layer like the substrate and integrated layer by layer.',
+    'Stacked modules add element layers (at least four through the base, the DDI gap and the chiplets), so Draft cannot always reach its DOF cap: h_min then stops at the preset h_max and the mesh stays above the cap. The solver needs about two to three times the iterations per step of a monolithic package of the same size (more in the first module steps on coarse meshes), so module packages take markedly longer to run.',
+    'Results of stacked modules in this version: warpage, die stress on every chiplet and Si base, flip chip bump loads, screening and underfill tractions under each module base. DDI microbump loads and screening, wafer underfill tractions and the module parts of the report follow in the next update; bump submodels need a Si base at least 50 µm thick (not under an RDL interposer).',
     'Silicon elastic constants are temperature independent; Cu and metals are elastic.',
     'Poisson ratios are clamped to 0.45 in the global hexahedral elements (B-bar elements in the submodel accept up to 0.49).',
     'Layered substrate bands use the continuum-shell form of each sub-layer stiffness (plane-stress in-plane block, uncoupled thickness modulus), because one thickness strain shared by all sub-layers of a band over-constrains the Poisson expansion (0.7 % warpage bias against lamination theory).',

@@ -7,7 +7,7 @@
 // again after opening. The format is in src/core/16-results-file.js.
 
 /** View settings saved with the results, so the file opens where the user left off. */
-const RESULTS_VIEW_KEYS = ['selectedT', 'resultsView', 'selectedDie', 'dirty', 'section', 'sectionQty', 'sectionPhase', 'sectionMesh', 'sectionExag', 'sectionRange',
+const RESULTS_VIEW_KEYS = ['selectedT', 'resultsView', 'selectedDie', 'selectedChiplet', 'dirty', 'section', 'sectionQty', 'sectionPhase', 'sectionMesh', 'sectionExag', 'sectionRange',
   'subSection', 'bumpState', 'bumpComp', 'dieStressFace', 'showOverlay', 'exaggeration', 'cutLine', 'view3dOpts', 'submodelSelection', 'sensInputs'];
 
 function resultsFileName() {
@@ -123,7 +123,8 @@ async function openResultsFile(file, name) {
 
 /** Put the contents of a results file in place of the current configuration and results. */
 function applyResultsFile(t) {
-  app.cfg = t.config; app.selectedDie = 0;
+  // a file from before stacked modules gets the empty module list; materials are added only when a module is added
+  app.cfg = C.normalizeConfig(t.config); app.selectedDie = 0; app.selectedChiplet = -1;
   onConfigChanged('geometry', { released: true });
   app.results = t.results;
   app.baseline = t.baseline === 'results' ? t.results : (t.baseline || null);

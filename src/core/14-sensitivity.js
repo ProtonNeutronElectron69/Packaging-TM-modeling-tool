@@ -129,7 +129,7 @@ function sensitivityOutputs(an) {
   const wPeak = an.fields.has(peakT) ? warpageJEITA(an.mesh, g, an.fields.get(peakT), cfg).signed : NaN;
   let sPeak = -Infinity;
   const view25 = an.view(25);
-  for (let d = 0; d < g.dies.length; d++) sPeak = Math.max(sPeak, dieSurfaceStress(view25, g, d, 'top').peakInterior);
+  for (let d = 0; d < g.siParts.length; d++) sPeak = Math.max(sPeak, dieSurfaceStress(view25, g, d, 'top').peakInterior);
   let dW = -Infinity;
   if (an.temps.cycling.length > 1) for (let d = 0; d < g.dies.length; d++) { const sc = screenBumps(an, d); if (sc.top.length) dW = Math.max(dW, sc.top[0].dW); }
   return { warpRT: w25, warpPeak: wPeak, dieStress: sPeak, dW };

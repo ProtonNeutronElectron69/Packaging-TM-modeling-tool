@@ -173,6 +173,7 @@ const TIPS = {
   viewReport: 'Printable report and CSV export.',
   saveResults: 'Save every result in memory as one results file (.fcbgares): the configuration, the analysis and the temperatures already viewed, cross-sections, bump screening and submodels, baseline, sensitivity and verification, plus the analysis behind them, so the file opens later with other temperatures, sections and new submodels available without solving again. Size: the analysis takes 4 bytes per DOF per thermal-path step (about 140 MB for the default package at Standard), plus the results (25 MB in all at Draft).',
   openResults: 'Open a results file (.fcbgares) saved earlier: it replaces the current configuration and results, shows the saved views at once and then loads the analysis behind them into the worker. You can also drop the file on the window (desktop app: File > Open results, Ctrl+O).',
+  runDialogOk: 'Close this message. The results of a finished run stay in the Results tab; nothing is lost by closing it.',
   restoreAnalysis: 'Re-runs the analysis behind these results with the configuration, mesh preset and worker count they were computed with, so other temperatures and the bump submodels work again.',
   tempSelect: 'Evaluation temperature of the displayed state. States between computed samples are interpolated linearly in temperature.',
   overlay: 'Field drawn on the floorplan: warpage of the substrate bottom or top, die stress, bump forces at chip join or as assembled, or the fatigue screening index.',

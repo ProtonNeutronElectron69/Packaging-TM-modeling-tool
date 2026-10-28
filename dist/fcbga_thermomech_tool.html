@@ -147,6 +147,17 @@ canvas.map { background: var(--panel); border: 1px solid var(--border); border-r
 #modal-body { flex: 1 1 auto; min-height: 0; }
 .modal-head { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--border); font-weight: 600; }
 #modal-body { padding: 12px 16px; overflow: auto; }
+/* end-of-run dialogs */
+.run-dialog h4 { margin: 12px 0 4px; font-size: 13px; }
+.run-banner { font-weight: 600; font-size: 15px; padding: 8px 12px; border-radius: 6px; margin-bottom: 10px; border: 1px solid; }
+.run-banner.ok { color: var(--ok); border-color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+.run-banner.warn { color: var(--warn); border-color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.run-banner.bad { color: var(--err); border-color: var(--err); background: color-mix(in srgb, var(--err) 12%, transparent); }
+table.run-stats { width: 100%; border-collapse: collapse; font-size: 12px; }
+table.run-stats td { padding: 3px 6px; border-bottom: 1px solid var(--border); vertical-align: top; }
+table.run-stats td:first-child { color: var(--muted); white-space: nowrap; width: 1%; padding-right: 14px; }
+.run-log { font-family: var(--mono); font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 200px; overflow: auto; background: var(--panel2); padding: 6px 8px; border-radius: 4px; }
+.run-buttons { justify-content: flex-end; margin-top: 12px; }
 #toasts { position: fixed; right: 14px; bottom: 44px; display: flex; flex-direction: column; gap: 6px; z-index: 60; }
 .toast { background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--accent); padding: 8px 12px; border-radius: 6px; box-shadow: var(--shadow); font-size: 12px; max-width: 380px; }
 .toast.error { border-left-color: var(--err); } .toast.warn { border-left-color: var(--warn); } .toast.ok { border-left-color: var(--ok); }
@@ -7667,7 +7678,7 @@ function restoreAnalysisState(st, opts) {
       progress(id, i / msg.steps.length, 'Thermal path: ' + stepLabel(steps[k]));
       const r = an.solveStep(k);
       post({ type: 'partial', id, payload: { k, du: r.u } }, [r.u.buffer]);
-      out.push({ k, iters: r.iters, ms: r.ms, relres: r.relres, precond: r.precond, rebuilt: r.rebuilt, label: r.label, pcMs: r.pcMs, warm: r.warm });
+      out.push({ k, iters: r.iters, ms: r.ms, relres: r.relres, converged: r.converged, fallback: r.fallback, precond: r.precond, rebuilt: r.rebuilt, label: r.label, pcMs: r.pcMs, warm: r.warm });
     });
     return { log: out };
   }
@@ -8118,7 +8129,8 @@ class WorkerClient {
     this.worker = DESKTOP ? new DesktopWorker() : new Worker(URL.createObjectURL(new Blob([CORE_SRC, '\n', WORKER_SRC], { type: 'text/javascript' })));
     this.worker.onmessage = ev => this._onMessage(ev.data);
     this.worker.onerror = ev => {
-      for (const p of this.pending.values()) p.reject(new Error(ev.message || 'worker error'));
+      // the worker itself died (browser worker error, or the desktop compute process exited): a crash, not a job error
+      for (const p of this.pending.values()) p.reject(Object.assign(new Error(ev.message || 'The worker stopped unexpectedly.'), { crashed: true }));
       this.pending.clear(); this.busy = false;
       if (ev.exited) {
         // the desktop compute process is gone, and with it any analysis it held: restart on the next request
@@ -8386,6 +8398,7 @@ const TIPS = {
   viewReport: 'Printable report and CSV export.',
   saveResults: 'Save every result in memory as one results file (.fcbgares): the configuration, the analysis and the temperatures already viewed, cross-sections, bump screening and submodels, baseline, sensitivity and verification, plus the analysis behind them, so the file opens later with other temperatures, sections and new submodels available without solving again. Size: the analysis takes 4 bytes per DOF per thermal-path step (about 140 MB for the default package at Standard), plus the results (25 MB in all at Draft).',
   openResults: 'Open a results file (.fcbgares) saved earlier: it replaces the current configuration and results, shows the saved views at once and then loads the analysis behind them into the worker. You can also drop the file on the window (desktop app: File > Open results, Ctrl+O).',
+  runDialogOk: 'Close this message. The results of a finished run stay in the Results tab; nothing is lost by closing it.',
   restoreAnalysis: 'Re-runs the analysis behind these results with the configuration, mesh preset and worker count they were computed with, so other temperatures and the bump submodels work again.',
   tempSelect: 'Evaluation temperature of the displayed state. States between computed samples are interpolated linearly in temperature.',
   overlay: 'Field drawn on the floorplan: warpage of the substrate bottom or top, die stress, bump forces at chip join or as assembled, or the fatigue screening index.',
@@ -9037,6 +9050,17 @@ function progressLog(text) {
   if (j.log.length > 40) j.log.shift();
 }
 
+/** Copy of the running job's record for the end-of-run dialog (src/ui/00f-runreport.js), or null. */
+function progressSnapshot() {
+  const j = runProgress.job; if (!j) return null;
+  const now = performance.now();
+  return {
+    label: j.label, kind: j.kind, preset: j.preset, elapsed: now - j.t0, dof: j.dof, msg: j.msg, frac: j.frac,
+    steps: j.steps.map(s => ({ label: s.label, note: s.note, state: s.state, ms: s.t0 ? (s.t1 || now) - s.t0 : 0 })),
+    solves: j.solves.slice(), log: j.log.slice(-12), workers: j.rows.size,
+  };
+}
+
 function progressEnd() {
   clearInterval(runProgress.timer); runProgress.timer = null;
   runProgress.job = null;
@@ -9189,6 +9213,151 @@ function renderProgressPanel() {
   panel.append(
     h('h4', null, h('span', { class: 'sdot ' + j.colour }), j.label, h('span', { class: 'sub' }, sub), h('span', { class: 'sub', style: 'margin-left:auto' }, progressTimes(j, now))),
     h('div', { class: 'pgrid' }, steps, right));
+}
+
+'use strict';
+// ===== UI: end-of-run dialogs ==================================================
+// When a job the user started ends, a dialog says so: a green one with the key figures of the run (times,
+// mesh, PCG iterations, the headline result) when it finished, a red one when it failed, crashed or was
+// cancelled (what happened, where it stopped, what is kept, what to try). startRun() and runSensitivity()
+// take a snapshot of the progress record (progressSnapshot()) before closing it and pass it here.
+
+/** Kind of failure: 'crashed' (the worker or compute process died), 'cancelled' (the user stopped it) or 'failed' (the job threw). */
+function failureKind(err) {
+  if (!err) return 'failed';
+  if (err.message === 'cancelled') return 'cancelled';
+  return err.crashed ? 'crashed' : 'failed';
+}
+
+const RUN_FAIL_TITLE = { crashed: 'crashed', failed: 'failed', cancelled: 'was cancelled' };
+
+/** Two-column table of label and value rows; rows with a null value are left out. */
+function runStatsTable(rows) {
+  return h('table', { class: 'run-stats' }, ...rows.filter(r => r && r[1] !== null && r[1] !== undefined && r[1] !== '').map(([k, v]) => h('tr', null, h('td', null, k), h('td', null, v))));
+}
+
+/** Step durations from the progress record, as a table. */
+function runStepsTable(snap, finished) {
+  const steps = (snap && snap.steps || []).filter(s => s.ms > 0 || s.state === 'run').map(s => finished && s.state === 'run' ? Object.assign({}, s, { state: 'done' }) : s);
+  if (!steps.length) return null;
+  return h('div', null, h('h4', null, 'Steps'), h('table', { class: 'run-stats' },
+    ...steps.map(s => h('tr', null, h('td', null, s.label + (s.note ? ' (' + s.note + ')' : '')), h('td', null, s.state === 'run' ? 'stopped here after ' + fmtDur(s.ms) : fmtDur(s.ms))))));
+}
+
+/** PCG summary of a solver log: number of solves, total, mean and largest iteration count, fallbacks to the other preconditioner. */
+function pcgSummary(log) {
+  if (!log || !log.length) return null;
+  let tot = 0, max = 0, fallback = 0, ms = 0;
+  for (const r of log) { tot += r.iters; max = Math.max(max, r.iters); if (r.fallback) fallback++; ms += r.ms || 0; }
+  return { n: log.length, tot, mean: tot / log.length, max, fallback, ms };
+}
+
+function runDialogButtons(extra) {
+  return h('div', { class: 'row run-buttons' }, ...(extra || []), h('button', tip('runDialogOk', { class: 'primary', onclick: closeModal }), 'OK'));
+}
+
+/** Rows that describe one kind of job's result: a global analysis, bump submodels or the verification suite. */
+function runResultRows(msg, res, snap) {
+  const rows = [];
+  if (msg.type === 'run' && res && res.meshInfo) {
+    const mi = res.meshInfo, pcg = pcgSummary(res.solverLog), nw = res.workers || 1;
+    rows.push(['Mesh', mi.nDof.toLocaleString() + ' DOF, ' + mi.nElem.toLocaleString() + ' elements (' + (res.preset || msg.preset) + ')']);
+    rows.push(['Parallel workers', String(nw)]);
+    if (pcg) {
+      rows.push(['Thermal path', pcg.n + ' linear solves' + (msg.evaluations === 'preview' ? ' (process chain to 25 °C)' : '')]);
+      rows.push(['PCG iterations', pcg.tot.toLocaleString() + ' in total; ' + fmt(pcg.mean, 0) + ' per solve on average, ' + pcg.max + ' at most']);
+      rows.push(['Solver time', fmtDur(pcg.ms) + (nw > 1 ? ' summed over the ' + nw + ' workers (the wall time of the thermal path is in the steps below)' : '')]);
+      if (pcg.fallback) rows.push(['Preconditioner', pcg.fallback + ' solve' + (pcg.fallback === 1 ? '' : 's') + ' needed the fallback preconditioner']);
+    }
+    if (res.screening && res.screening.length) rows.push(['Bump screening', res.screening.reduce((n, s) => n + s.nSites, 0).toLocaleString() + ' sites in ' + fmt(res.screening.reduce((m, s) => m + (s.ms || 0), 0) / 1000, 1) + ' s']);
+    if (res.at25 && res.at25.warpage) rows.push(['RT signed warpage', um(res.at25.warpage.signed) + ' µm at 25 °C (moderate confidence)']);
+  } else if (msg.type === 'submodels' && Array.isArray(res)) {
+    rows.push(['Bump submodels', res.length + ' sites, ' + msg.nxy + ' × ' + msg.nxy + ' × ' + msg.nz + ' voxels each']);
+    const steps = res.reduce((n, s) => n + (s.steps || 0), 0), cut = res.reduce((n, s) => n + (s.cutbacks || 0), 0);
+    rows.push(['Adaptive steps', steps.toLocaleString() + ' in total, ' + cut + ' cutback' + (cut === 1 ? '' : 's')]);
+    const worst = res.reduce((m, s) => (s.dW > (m ? m.dW : -Infinity) ? s : m), null);
+    if (worst) rows.push(['Largest ΔW per cycle', fmtE(worst.dW, 3) + ' MPa (' + worst.die + ' bump at ' + fmt(worst.site.x, 2) + ', ' + fmt(worst.site.y, 2) + ' mm; comparative only)']);
+    const unstable = res.filter(s => s.stabWarn).length;
+    if (unstable) rows.push(['Stabilization', unstable + ' of ' + res.length + ' sites changed by more than 5 % between the last two cycles; run more cycles']);
+  } else if (msg.type === 'verify' && Array.isArray(res)) {
+    const fails = res.filter(r => !r.pass);
+    rows.push(['Tests', res.length + ' run, ' + (res.length - fails.length) + ' passed' + (fails.length ? ', ' + fails.length + ' failed (' + fails.map(r => r.id).join(', ') + ')' : '')]);
+  }
+  if (snap && snap.dof && !rows.some(r => r[0] === 'Mesh')) rows.unshift(['Mesh', snap.dof.toLocaleString() + ' DOF']);
+  return rows;
+}
+
+/** Dialog for a job that finished: what ran, how long it took and its key figures. */
+function runFinishedDialog(label, msg, res, snap) {
+  const failedTests = msg.type === 'verify' && Array.isArray(res) ? res.filter(r => !r.pass).length : 0;
+  const unconverged = msg.type === 'run' && res && res.solverLog ? res.solverLog.filter(r => r.converged === false).length : 0;
+  const warn = failedTests > 0 || unconverged > 0;
+  const rows = [['Total time', fmtDur(snap ? snap.elapsed : 0) + ' (min:s)'], snap && snap.preset ? ['Settings', snap.preset] : null, ...runResultRows(msg, res, snap)];
+  if (unconverged) rows.push(['Warning', unconverged + ' linear solve' + (unconverged === 1 ? '' : 's') + ' did not reach the residual tolerance; treat the results with care']);
+  const body = h('div', { class: 'run-dialog' },
+    h('div', { class: 'run-banner ' + (warn ? 'warn' : 'ok') }, warn ? '⚠ Finished with warnings' : '✓ Finished successfully'),
+    runStatsTable(rows), runStepsTable(snap, true), runDialogButtons());
+  showModal(label + (warn ? ' finished with warnings' : ' finished'), body);
+}
+
+/** What the user keeps after a failed, crashed or cancelled job. */
+function runKeptText(msg, kind) {
+  if (!app.results) return 'No results were in memory before this job.';
+  if (app.analysisLost === 'stopped') return 'Results already shown are kept, but the analysis behind them was in the compute process that stopped; use Restore analysis above the results to view other temperatures or run submodels.';
+  if (app.analysisLost === true) return 'Results already shown are kept; restarting the worker discarded the analysis behind them, so use Restore analysis above the results to view other temperatures or run submodels.';
+  return msg.type === 'run' ? 'The results of the previous run are kept unchanged.' : 'The results in memory are kept unchanged.';
+}
+
+/** Suggestions for the next try, by kind of failure. */
+function runAdvice(kind, err) {
+  if (kind === 'cancelled') return [];
+  if (kind === 'crashed') return [
+    'The most common cause is running out of memory. Check the memory estimate in the run panel (step 6) against the computer\'s memory.',
+    'Fewer parallel workers need less memory (each helper holds its own copy of the stiffness model); a coarser mesh preset needs much less.',
+    'Close other memory-heavy programs and run again.',
+  ];
+  const m = (err && err.message) || '';
+  const tips = [];
+  if (/converg|PCG|residual/i.test(m)) tips.push('A linear solve did not converge. Check the inputs for extreme stiffness contrasts (for example a near-zero modulus) or very thin layers, then run again.');
+  if (/memory|allocation|Array buffer/i.test(m)) tips.push('The job ran out of memory; use fewer parallel workers or a coarser mesh preset.');
+  tips.push('Check the input messages in steps 1 to 5 and run again. If it fails the same way, save the configuration (step 1) and the details below so the failure can be reproduced.');
+  return tips;
+}
+
+/** Dialog for a job that failed, crashed or was cancelled: what happened, where it stopped, what is kept and what to try. */
+function runFailedDialog(label, msg, err, snap) {
+  const kind = failureKind(err);
+  const where = snap ? (snap.msg || '') : '';
+  const rows = [
+    ['What happened', kind === 'cancelled' ? 'Cancelled by you.' : kind === 'crashed' ? (err.message || 'The worker stopped unexpectedly.') : (err && err.message) || 'Unknown error.'],
+    ['Stopped after', fmtDur(snap ? snap.elapsed : 0) + ' (min:s)' + (snap && snap.frac > 0 ? ', about ' + Math.round(100 * snap.frac) + ' % through' : '')],
+    where ? ['Last progress message', where] : null,
+    snap && snap.dof ? ['Mesh', snap.dof.toLocaleString() + ' DOF' + (snap.preset ? ' (' + snap.preset + ')' : '')] : null,
+    snap && snap.solves && snap.solves.length ? ['Solves completed', snap.solves.length + ' (' + snap.solves.reduce((a, b) => a + b, 0).toLocaleString() + ' PCG iterations)'] : null,
+    ['What is kept', runKeptText(msg, kind)],
+  ];
+  const advice = runAdvice(kind, err);
+  const details = [];
+  if (snap && snap.log && snap.log.length) details.push(h('div', null, h('b', null, 'Last log lines'), h('pre', { class: 'run-log' }, snap.log.join('\n'))));
+  if (err && err.stack && kind !== 'cancelled') details.push(h('div', null, h('b', null, 'Error details'), h('pre', { class: 'run-log' }, String(err.stack))));
+  const body = h('div', { class: 'run-dialog' },
+    h('div', { class: 'run-banner ' + (kind === 'cancelled' ? 'warn' : 'bad') }, kind === 'cancelled' ? '■ Cancelled' : kind === 'crashed' ? '✕ Crashed' : '✕ Failed'),
+    runStatsTable(rows), runStepsTable(snap),
+    advice.length ? h('div', null, h('h4', null, 'What to try'), h('ul', null, ...advice.map(a => h('li', null, a)))) : null,
+    details.length ? h('details', null, h('summary', null, 'Details for troubleshooting'), ...details) : null,
+    runDialogButtons((app.analysisLost === true || app.analysisLost === 'stopped') && app.results && app.results.request ? [h('button', tip('restoreAnalysis', { onclick: () => { closeModal(); restoreAnalysis(); } }), 'Restore analysis')] : null));
+  showModal(label + ' ' + RUN_FAIL_TITLE[kind], body);
+}
+
+/** Dialog at the end of a sensitivity run: cases run and failed, time; a failure dialog when the base case is missing. */
+function sensitivityDialog(nCases, nFailed, ms, ok, snap, firstErr) {
+  if (!ok) { runFailedDialog('Sensitivity', { type: 'sensitivity' }, firstErr || new Error('The base case did not finish, so no sensitivities could be computed.'), snap); return; }
+  const warn = nFailed > 0;
+  const body = h('div', { class: 'run-dialog' },
+    h('div', { class: 'run-banner ' + (warn ? 'warn' : 'ok') }, warn ? '⚠ Finished with failed cases' : '✓ Finished successfully'),
+    runStatsTable([['Total time', fmtDur(ms) + ' (min:s)'], snap && snap.preset ? ['Settings', snap.preset] : null, ['Cases', nCases + ' run (the base case and two per input)' + (warn ? ', ' + nFailed + ' failed; their inputs are left out of the charts' : '')], firstErr ? ['First failure', firstErr.message] : null]),
+    runDialogButtons());
+  showModal('Sensitivity' + (warn ? ' finished with failed cases' : ' finished'), body);
 }
 
 // ===== UI: canvas plotting, colormaps, contour maps ===========================
@@ -10588,8 +10757,7 @@ function runFull() {
     app.results = res; app.fieldsCache.clear(); app.sectionCache.clear(); app.sectionDraft = null; app.currentFields = res.at25; app.selectedT = 25; app.dirty = false;
     app.screening = res.screening || null; app.submodels = [];
     setCenterTab('results'); renderAll();
-    toast('Analysis complete in ' + fmt(res.totalMs / 1000, 1) + ' s (' + res.meshInfo.nDof + ' DOF, ' + res.workers + ' worker' + (res.workers > 1 ? 's' : '') + ').', 'ok');
-  }).catch(err => { if (err.message !== 'cancelled') toast('Analysis failed: ' + err.message, 'error', 9000); });
+  }).catch(err => { if (err.message !== 'cancelled' && !err.reported) toast('Analysis failed: ' + err.message, 'error', 9000); });
 }
 function runPreview() {
   if (app.validation.errors.length) return;
@@ -10599,7 +10767,7 @@ function runPreview() {
     app.results = res; app.fieldsCache.clear(); app.sectionCache.clear(); app.sectionDraft = null; app.currentFields = res.at25; app.selectedT = 25;
     floorplan.draw();
     renderContext();
-  }).catch(err => { if (err.message !== 'cancelled') toast('Preview failed: ' + err.message, 'error'); });
+  }).catch(err => { if (err.message !== 'cancelled' && !err.reported) toast('Preview failed: ' + err.message, 'error'); });
 }
 /**
  * Run one job with its progress in the status bar (one job at a time; a new job cancels the running one).
@@ -10608,7 +10776,9 @@ function runPreview() {
  * worker instead, so that running or cancelling them never discards it. opts.onPartial receives streamed results.
  * msg may also be a function (send, progress) => Promise for a job of several messages, where send(m) posts one
  * message and progress(frac, text) reports. opts.cancel replaces the restart of the main worker on cancel, for jobs that
- * only read from it.
+ * only read from it. opts.notify: true shows the end-of-run dialog (src/ui/00f-runreport.js) when the job finishes or
+ * fails, 'fail' only when it fails, false never; by default analyses, submodels and verification notify. A failure
+ * shown in a dialog carries err.reported, so callers skip their own message.
  */
 function startRun(msg, label, opts) {
   opts = opts || {};
@@ -10624,9 +10794,18 @@ function startRun(msg, label, opts) {
   const p = typeof msg === 'function'
     ? msg(m => { if (app.job !== job) return Promise.reject(new Error('cancelled')); return client.send(m, onProgress, opts.onPartial); }, onProgress)
     : client.send(msg, onProgress, opts.onPartial);
-  const settle = () => { if (side) client.stop(); if (app.job !== job) return false; app.job = null; progressEnd(); return true; };
-  p.then(() => { if (settle()) setStatus(label + ' done in ' + fmt((performance.now() - t0) / 1000, 1) + ' s', null); }, () => { if (settle()) setStatus('Ready', null); });
-  return p;
+  const notify = opts.notify !== undefined ? opts.notify : ['run', 'submodels', 'verify'].includes(one.type);
+  // the record is copied before it closes, for the end-of-run dialog; null when the job was cancelled or replaced
+  const settle = () => { if (side) client.stop(); if (app.job !== job) return null; const snap = progressSnapshot() || {}; app.job = null; progressEnd(); return snap; };
+  return p.then(res => {
+    const snap = settle();
+    if (snap) { setStatus(label + ' done in ' + fmt((performance.now() - t0) / 1000, 1) + ' s', null); if (notify === true) runFinishedDialog(label, one, res, snap); }
+    return res;
+  }, err => {
+    const snap = settle();
+    if (snap) { setStatus(label + ' ' + RUN_FAIL_TITLE[failureKind(err)], null); if (notify && err.message !== 'cancelled') { runFailedDialog(label, one, err, snap); err.reported = true; } }
+    throw err;
+  });
 }
 /**
  * Cancel the running job. Side and sensitivity workers are simply stopped; anything else runs on the main worker,
@@ -10653,7 +10832,7 @@ function restoreAnalysis() {
     if (res.screening) app.screening = res.screening;
     renderAll();
     toast('Analysis restored; other temperatures and the bump submodels are available again.', 'ok');
-  }).catch(err => { if (err.message !== 'cancelled') toast('Restore failed: ' + err.message, 'error', 9000); });
+  }).catch(err => { if (err.message !== 'cancelled' && !err.reported) toast('Restore failed: ' + err.message, 'error', 9000); });
 }
 /** Notice above the results while the analysis behind them is not in the worker (null otherwise). */
 function analysisLostNotice() {
@@ -10677,7 +10856,7 @@ function checkMeshSensitivity() {
   const order = ['draft', 'standard', 'fine'];
   const cur = app.cfg.mesh.preset, next = order[Math.min(order.indexOf(cur) + 1, 2)];
   if (next === cur) { toast('Already at the finest preset.', 'warn'); return; }
-  const run = preset => startRun({ type: 'run', cfg: app.cfg, preset, evaluations: 'preview', workers: app.workers }, 'Mesh check at ' + preset, { side: true });
+  const run = preset => startRun({ type: 'run', cfg: app.cfg, preset, evaluations: 'preview', workers: app.workers }, 'Mesh check at ' + preset, { side: true, notify: 'fail' });
   run(cur).then(a => run(next).then(b => {
     const wa = a.at25.warpage.signed, wb = b.at25.warpage.signed;
     const sa = a.at25.dies[0].top.peakInterior, sb = b.at25.dies[0].top.peakInterior;
@@ -10685,14 +10864,14 @@ function checkMeshSensitivity() {
     const pc = (x, y) => fmt(100 * Math.abs(x / y - 1), 1) + ' %';
     const conv = [wa / wb, sa / sb, fa / fb].every(r => Math.abs(r - 1) < 0.05);
     showModal('Mesh sensitivity: ' + cur + ' → ' + next, h('div', null, h('table', null, h('tr', null, h('th'), h('th', null, cur + ' (' + a.meshInfo.nDof + ' DOF)'), h('th', null, next + ' (' + b.meshInfo.nDof + ' DOF)'), h('th', null, 'change')), h('tr', null, h('td', null, 'RT signed warpage'), h('td', null, um(wa) + ' µm'), h('td', null, um(wb) + ' µm'), h('td', null, pc(wa, wb))), h('tr', null, h('td', null, 'Die interior peak stress'), h('td', null, fmt(sa, 1) + ' MPa'), h('td', null, fmt(sb, 1) + ' MPa'), h('td', null, pc(sa, sb))), h('tr', null, h('td', null, 'Worst bump shear force'), h('td', null, fmt(fa, 3) + ' N'), h('td', null, fmt(fb, 3) + ' N'), h('td', null, pc(fa, fb)))), h('p', { class: conv ? 'ok' : 'warnc' }, conv ? 'Verdict: converged within 5 %.' : 'Verdict: results still mesh-sensitive; use the finer preset for decisions.')));
-  })).catch(e => { if (e.message !== 'cancelled') toast(e.message, 'error'); });
+  })).catch(e => { if (e.message !== 'cancelled' && !e.reported) toast(e.message, 'error'); });
 }
 function runCoreStudy() {
   const A = C.presetConfig(MATERIALS_DB, 'coreStudy', 'A'), B = C.presetConfig(MATERIALS_DB, 'coreStudy', 'B');
   const preset = app.cfg.mesh.preset;
-  startRun({ type: 'run', cfg: A, preset, evaluations: 'preview' }, 'Core study A (0.4 mm)', { side: true }).then(ra => startRun({ type: 'run', cfg: B, preset, evaluations: 'preview' }, 'Core study B (0.8 mm)', { side: true }).then(rb => {
+  startRun({ type: 'run', cfg: A, preset, evaluations: 'preview' }, 'Core study A (0.4 mm)', { side: true, notify: 'fail' }).then(ra => startRun({ type: 'run', cfg: B, preset, evaluations: 'preview' }, 'Core study B (0.8 mm)', { side: true, notify: 'fail' }).then(rb => {
     showModal('Core thickness study (bare die, 3-2-3)', h('div', null, h('table', null, h('tr', null, h('th'), h('th', null, 'A: 0.4 mm core'), h('th', null, 'B: 0.8 mm core')), h('tr', null, h('td', null, 'RT signed warpage'), h('td', null, um(ra.at25.warpage.signed) + ' µm'), h('td', null, um(rb.at25.warpage.signed) + ' µm')), h('tr', null, h('td', null, 'Die backside interior peak'), h('td', null, fmt(ra.at25.dies[0].top.peakInterior, 1) + ' MPa'), h('td', null, fmt(rb.at25.dies[0].top.peakInterior, 1) + ' MPa')), h('tr', null, h('td', null, 'Worst CPI bump shear'), h('td', null, gf(ra.cpi[0].worstV) + ' gf'), h('td', null, gf(rb.cpi[0].worstV) + ' gf'))), h('p', { class: 'small muted' }, 'Resonac TEG-like construction [R2]; Cu thickness per layer (15 µm) is not stated by the source and was assumed.')));
-  })).catch(e => { if (e.message !== 'cancelled') toast(e.message, 'error'); });
+  })).catch(e => { if (e.message !== 'cancelled' && !e.reported) toast(e.message, 'error'); });
 }
 
 // ---- results views in the center area ----
@@ -10921,7 +11100,7 @@ function runSubmodels(res) {
   const jobs = keys.map(k => { const [die, q] = k.split(':').map(Number); const s = res.screening[die]; return { die, site: { x: s.x[q], y: s.y[q], ix: s.ix[q], iy: s.iy[q] } }; });
   const onPartial = r => { app.submodels = app.submodels.filter(x => !(x.dieIdx === r.dieIdx && x.site.ix === r.site.ix && x.site.iy === r.site.iy)); app.submodels.push(r); renderCenter(); };
   const p = startRun({ type: 'submodels', jobs, nxy: cfg.submodel.nxy, nz: cfg.submodel.nz, workers: app.workers }, 'Bump submodels (' + jobs.length + ' sites)', { onPartial });
-  p.then(() => renderCenter()).catch(e => { if (e.message !== 'cancelled') toast('Submodel failed: ' + e.message, 'error', 9000); });
+  p.then(() => renderCenter()).catch(e => { if (e.message !== 'cancelled' && !e.reported) toast('Submodel failed: ' + e.message, 'error', 9000); });
 }
 function renderSubmodelCard(sm) {
   const c1 = h('canvas', tip('hysteresis', { class: 'plot' }));
@@ -11125,24 +11304,25 @@ function runSensitivity(inputs, nWorkers) {
   setStatus('Sensitivity: 0/' + cases.length, 0);
   progressMsg(0, 'Sensitivity: 0/' + cases.length);
   let stopped = false;  // cases rejected by a cancel are dropped, not reported as failures
+  let nFailed = 0, firstErr = null, snap = null;
   const job = { label: 'sensitivity', cancel: () => { stopped = true; for (const p of pool) p.stop(); } };
   app.job = job;
-  const cancelAll = () => { job.cancel(); if (app.job === job) { app.job = null; progressEnd(); } };
+  const cancelAll = () => { job.cancel(); if (app.job === job) { app.job = null; snap = progressSnapshot(); progressEnd(); } };
   return new Promise((resolve) => {
     const launch = w => {
       if (next >= cases.length) return;
       const c = cases[next++];
-      w.send({ type: 'sensitivityCase', cfg: c.cfg }).then(r => { if (stopped) return; results[c.id + (c.side ? ':' + c.side : '')] = { r, c }; done++; progressMsg(done / cases.length, 'Sensitivity: ' + done + '/' + cases.length); setStatus('Sensitivity: ' + done + '/' + cases.length, done / cases.length); if (done === cases.length) finish(); else launch(w); }).catch(e => { if (stopped) return; toast('Sensitivity case failed: ' + e.message, 'error'); done++; if (done === cases.length) finish(); else launch(w); });
+      w.send({ type: 'sensitivityCase', cfg: c.cfg }).then(r => { if (stopped) return; results[c.id + (c.side ? ':' + c.side : '')] = { r, c }; done++; progressMsg(done / cases.length, 'Sensitivity: ' + done + '/' + cases.length); setStatus('Sensitivity: ' + done + '/' + cases.length, done / cases.length); if (done === cases.length) finish(); else launch(w); }).catch(e => { if (stopped) return; nFailed++; if (!firstErr) firstErr = e; progressLog('Sensitivity case ' + c.id + (c.side ? ' (' + c.side + ')' : '') + ' failed: ' + e.message); done++; if (done === cases.length) finish(); else launch(w); });
     };
     const finish = () => {
       cancelAll();
       const base = results.__base && results.__base.r;
-      if (!base) { setStatus('Ready', null); resolve(); return; }
+      if (!base) { setStatus('Sensitivity failed', null); sensitivityDialog(cases.length, nFailed, performance.now() - t0, false, snap, firstErr); resolve(); return; }
       const byInput = {};
       for (const inp of inputs) { const lo = results[inp.id + ':lo'], hi = results[inp.id + ':hi']; if (lo && hi) byInput[inp.id] = { lo: lo.r, hi: hi.r, loValue: lo.c.value, hiValue: hi.c.value, baseValue: lo.c.base }; }
       app.sensitivity = Object.assign(C.tornadoFromCases(inputs, base, byInput), { hash: C.configHashes(cfg).model, ms: performance.now() - t0 });
       setStatus('Sensitivity done in ' + fmt((performance.now() - t0) / 1000, 0) + ' s', null);
-      renderCenter(); resolve();
+      renderCenter(); sensitivityDialog(cases.length, nFailed, performance.now() - t0, true, snap, firstErr); resolve();
     };
     for (const w of pool) launch(w);
   });
@@ -11165,7 +11345,7 @@ function runVerify(all) {
   app.verifying = new Set(ids);
   // partial results stream in; the suite runs on its own worker so that cancelling it keeps the analysis
   const onPartial = r => { app.verification = app.verification.filter(x => x.id !== r.id); app.verification.push(r); if (app.verifying) app.verifying.delete(r.id); renderCenter(); };
-  startRun({ type: 'verify', ids, presets: ['draft', 'standard'] }, 'Verification', { side: true, onPartial }).then(results => { for (const r of results) { app.verification = app.verification.filter(x => x.id !== r.id); app.verification.push(r); } app.verifying = null; renderCenter(); }).catch(e => { app.verifying = null; renderCenter(); if (e.message !== 'cancelled') toast(e.message, 'error'); });
+  startRun({ type: 'verify', ids, presets: ['draft', 'standard'] }, 'Verification', { side: true, onPartial }).then(results => { for (const r of results) { app.verification = app.verification.filter(x => x.id !== r.id); app.verification.push(r); } app.verifying = null; renderCenter(); }).catch(e => { app.verifying = null; renderCenter(); if (e.message !== 'cancelled' && !e.reported) toast(e.message, 'error'); });
 }
 
 // ---- report and CSV ----
@@ -12068,10 +12248,12 @@ document.addEventListener('dieselect', () => { if (app.step === 2) renderContext
 document.addEventListener('themechange', () => { if (app.centerTab === 'floorplan') { floorplan.draw(); xsection.draw(); } else renderCenter(); });
 
 function defaultCancel() {
+  const job = app.job, snap = progressSnapshot();
   const lost = cancelRunning();
   setStatus('Cancelled', null);
-  if (lost) { toast('Job cancelled. Restarting the worker discarded the analysis behind the results: the views already loaded stay visible; use Restore analysis in the results to view other temperatures or run submodels.', 'warn', 9000); if (app.centerTab !== 'floorplan') renderCenter(); }
-  else toast('Job cancelled. Results in memory are kept.', 'warn');
+  if (lost && app.centerTab !== 'floorplan') renderCenter();
+  if (job && snap) runFailedDialog(snap.label, { type: snap.kind === 'analysis' ? 'run' : snap.kind }, new Error('cancelled'), snap);
+  else toast('Nothing was running.', 'warn');
 }
 
 // ---- init ----

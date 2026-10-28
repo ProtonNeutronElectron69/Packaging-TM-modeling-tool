@@ -190,7 +190,8 @@ class WorkerClient {
     this.worker = DESKTOP ? new DesktopWorker() : new Worker(URL.createObjectURL(new Blob([CORE_SRC, '\n', WORKER_SRC], { type: 'text/javascript' })));
     this.worker.onmessage = ev => this._onMessage(ev.data);
     this.worker.onerror = ev => {
-      for (const p of this.pending.values()) p.reject(new Error(ev.message || 'worker error'));
+      // the worker itself died (browser worker error, or the desktop compute process exited): a crash, not a job error
+      for (const p of this.pending.values()) p.reject(Object.assign(new Error(ev.message || 'The worker stopped unexpectedly.'), { crashed: true }));
       this.pending.clear(); this.busy = false;
       if (ev.exited) {
         // the desktop compute process is gone, and with it any analysis it held: restart on the next request

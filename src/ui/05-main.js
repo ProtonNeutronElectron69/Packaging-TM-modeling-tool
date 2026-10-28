@@ -66,10 +66,12 @@ document.addEventListener('dieselect', () => { if (app.step === 2) renderContext
 document.addEventListener('themechange', () => { if (app.centerTab === 'floorplan') { floorplan.draw(); xsection.draw(); } else renderCenter(); });
 
 function defaultCancel() {
+  const job = app.job, snap = progressSnapshot();
   const lost = cancelRunning();
   setStatus('Cancelled', null);
-  if (lost) { toast('Job cancelled. Restarting the worker discarded the analysis behind the results: the views already loaded stay visible; use Restore analysis in the results to view other temperatures or run submodels.', 'warn', 9000); if (app.centerTab !== 'floorplan') renderCenter(); }
-  else toast('Job cancelled. Results in memory are kept.', 'warn');
+  if (lost && app.centerTab !== 'floorplan') renderCenter();
+  if (job && snap) runFailedDialog(snap.label, { type: snap.kind === 'analysis' ? 'run' : snap.kind }, new Error('cancelled'), snap);
+  else toast('Nothing was running.', 'warn');
 }
 
 // ---- init ----

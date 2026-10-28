@@ -86,7 +86,7 @@
       progress(id, i / msg.steps.length, 'Thermal path: ' + stepLabel(steps[k]));
       const r = an.solveStep(k);
       post({ type: 'partial', id, payload: { k, du: r.u } }, [r.u.buffer]);
-      out.push({ k, iters: r.iters, ms: r.ms, relres: r.relres, precond: r.precond, rebuilt: r.rebuilt, label: r.label, pcMs: r.pcMs, warm: r.warm });
+      out.push({ k, iters: r.iters, ms: r.ms, relres: r.relres, converged: r.converged, fallback: r.fallback, precond: r.precond, rebuilt: r.rebuilt, label: r.label, pcMs: r.pcMs, warm: r.warm });
     });
     return { log: out };
   }

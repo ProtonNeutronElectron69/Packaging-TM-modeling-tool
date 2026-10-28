@@ -119,6 +119,17 @@ function progressLog(text) {
   if (j.log.length > 40) j.log.shift();
 }
 
+/** Copy of the running job's record for the end-of-run dialog (src/ui/00f-runreport.js), or null. */
+function progressSnapshot() {
+  const j = runProgress.job; if (!j) return null;
+  const now = performance.now();
+  return {
+    label: j.label, kind: j.kind, preset: j.preset, elapsed: now - j.t0, dof: j.dof, msg: j.msg, frac: j.frac,
+    steps: j.steps.map(s => ({ label: s.label, note: s.note, state: s.state, ms: s.t0 ? (s.t1 || now) - s.t0 : 0 })),
+    solves: j.solves.slice(), log: j.log.slice(-12), workers: j.rows.size,
+  };
+}
+
 function progressEnd() {
   clearInterval(runProgress.timer); runProgress.timer = null;
   runProgress.job = null;

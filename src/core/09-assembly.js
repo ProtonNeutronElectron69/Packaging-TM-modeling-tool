@@ -384,17 +384,22 @@ class FEModel {
 
   /**
    * Assemble K with the step's mean stiffness (full block CSR values) and the thermal load of the step
-   * from Ta to Tb in a stage. Unborn elements keep UNBORN_SCALE x stiffness
-   * and no load.
+   * from Ta to Tb in a stage. Unborn elements keep UNBORN_SCALE x stiffness and no load, except in the
+   * stacked-module stages (negative): there only the born module parts are assembled and every node
+   * outside them is held, so each module stands alone on its own 3-2-1 support and the substrate, not yet
+   * part of the process, neither moves nor holds the modules back.
    */
   assembleStep(Ta, Tb, stage, rhs, noConstraints) {
     this.prepareStep(Ta, Tb, stage);
     const m = this.mesh, val = this.val, bmap = this.bmap;
     val.fill(0); rhs.fill(0);
     const K33 = this._K33, f33 = this._f33, cond = this._cond;
+    const moduleStage = stage < 0 && !!this.moduleConstraints;
+    this.activeKey = moduleStage ? 'stage' + stage : 'all';  // the preconditioner's aggregates follow it (LinearSolver._buildPC)
     for (let e = 0; e < m.ne; e++) {
       const g = this.groups[m.eGroup[e]];
       const born = this.isBorn(g, stage);
+      if (moduleStage && !born) continue;
       const scale = m.eScale[e] * (born ? 1 : CONST.UNBORN_SCALE);
       f33.fill(0);
       const hasF = this.elementSystem(e, K33, f33);
@@ -415,8 +420,26 @@ class FEModel {
         }
       }
     }
-    if (!noConstraints) this.applyConstraints(rhs, stage < 0 && this.moduleConstraints ? this.moduleConstraints : this.constraints);
+    if (!noConstraints) this.applyConstraints(rhs, moduleStage ? this.moduleStageConstraints(stage) : this.constraints);
   }
+
+  /** Elements born in a stacked-module stage and the nodes they touch (cached per stage). */
+  moduleStageSet(stage) {
+    this._modSets = this._modSets || new Map();
+    let set = this._modSets.get(stage);
+    if (set) return set;
+    const m = this.mesh, elems = new Uint8Array(m.ne), nodes = new Uint8Array(m.nn);
+    for (let e = 0; e < m.ne; e++) if (this.isBorn(this.groups[m.eGroup[e]], stage)) { elems[e] = 1; for (let a = 0; a < 8; a++) nodes[m.conn[8 * e + a]] = 1; }
+    const fixed = new Set(this.moduleConstraints);
+    for (let n = 0; n < m.nn; n++) if (!nodes[n]) { fixed.add(3 * n); fixed.add(3 * n + 1); fixed.add(3 * n + 2); }
+    set = { elems, nodes, dofs: Int32Array.from(fixed).sort() };
+    this._modSets.set(stage, set);
+    return set;
+  }
+  /** Constrained DOFs of a stacked-module stage: each module's 3-2-1 support and every node no born element touches. */
+  moduleStageConstraints(stage) { return this.moduleStageSet(stage).dofs; }
+  /** Elements and nodes in play for the preconditioner in the current stacked-module stage (null for the whole package). */
+  activeSet() { const k = this.activeKey; return k && k !== 'all' ? this.moduleStageSet(+k.slice(5)) : null; }
 
   /** Zero rows / columns of the constrained DOFs (diagonal kept), zero rhs. */
   applyConstraints(rhs, dofs) {
@@ -429,7 +452,7 @@ class FEModel {
       const i = Math.floor(d / 3), p = d % 3;
       for (let k = P.rowPtr[i]; k < P.rowPtr[i + 1]; k++) {
         const j = P.col[k], v = 9 * k;
-        for (let q = 0; q < 3; q++) { if (3 * j + q !== d) val[v + 3 * p + q] = 0; }
+        for (let q = 0; q < 3; q++) { if (3 * j + q !== d) val[v + 3 * p + q] = 0; else if (val[v + 3 * p + q] === 0) val[v + 3 * p + q] = 1; }  // a held node outside every assembled element gets a unit diagonal
         // symmetric counterpart: block (j, i), column p
         let lo = P.rowPtr[j], hi = P.rowPtr[j + 1] - 1, kk = -1;
         while (lo <= hi) { const mid = (lo + hi) >> 1; const c = P.col[mid]; if (c === i) { kk = mid; break; } if (c < i) lo = mid + 1; else hi = mid - 1; }

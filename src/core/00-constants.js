@@ -46,6 +46,7 @@ const CONST = Object.freeze({
   FILLET_FILL_MIN: 0.05,     // fillet cells filled less than this are left void
   ASPECT_WARN: 50,
   CHIPLET_GAP_WARN: 0.05,    // mm, chiplet-to-chiplet gaps below this warn of wafer underfill or mold flow risk
+  MODULE_HMIN_PER_HEIGHT: 4, // the DOF cap loop grows h_min to at most this times the height of the lowest stacked module
   SIZE_SAMPLES: 256,         // samples per interval for the size-function mapping
   CAP_GROWTH_PAD: 1.03,
   CAP_MAX_ITER: 12,

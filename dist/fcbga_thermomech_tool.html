@@ -305,6 +305,7 @@ const CONST = Object.freeze({
   FILLET_FILL_MIN: 0.05,     // fillet cells filled less than this are left void
   ASPECT_WARN: 50,
   CHIPLET_GAP_WARN: 0.05,    // mm, chiplet-to-chiplet gaps below this warn of wafer underfill or mold flow risk
+  MODULE_HMIN_PER_HEIGHT: 4, // the DOF cap loop grows h_min to at most this times the height of the lowest stacked module
   SIZE_SAMPLES: 256,         // samples per interval for the size-function mapping
   CAP_GROWTH_PAD: 1.03,
   CAP_MAX_ITER: 12,
@@ -2131,6 +2132,31 @@ function nearestNodeOnPlane(mesh, x, y, k) {
   return best;
 }
 
+/**
+ * Three support nodes of a stacked module on its base bottom (plane k), all inside its footprint: n0 nearest the
+ * centre, n1 the farthest from n0 along the same grid row (with uy and uz held, it stops the rotations about z and y),
+ * n2 the farthest from that row (uz held: the rotation about x). Points picked by distance alone can coincide on a
+ * coarse grid and leave a rotation free. Returns null when the footprint has too few nodes.
+ */
+function moduleSupport(mesh, r, cx, cy, k) {
+  const tol = 1e-9, cand = [];
+  for (let i = 0; i < mesh.nx; i++) {
+    const x = mesh.xs[i];
+    if (x < r.x0 - tol || x > r.x1 + tol) continue;
+    for (let j = 0; j < mesh.ny; j++) {
+      const y = mesh.ys[j], id = mesh.nodeId[(i * mesh.ny + j) * mesh.nz + k];
+      if (id >= 0 && y >= r.y0 - tol && y <= r.y1 + tol) cand.push({ id, x, y });
+    }
+  }
+  if (cand.length < 3) return null;
+  const pick = (score, ok) => { let best = null, bs = -Infinity; for (const c of cand) if (ok(c)) { const s = score(c); if (s > bs + tol) { bs = s; best = c; } } return best; };
+  const a = pick(c => -Math.hypot(c.x - cx, c.y - cy), () => true);
+  const b = pick(c => Math.abs(c.x - a.x), c => Math.abs(c.y - a.y) < tol && c.id !== a.id);
+  if (!b) return null;
+  const c = pick(c => Math.abs(c.y - a.y) - 1e-6 * Math.abs(c.x - a.x), c => Math.abs(c.y - a.y) > tol);
+  return c ? [a.id, b.id, c.id] : null;
+}
+
 /** 3-2-1 rigid-body constraints on bottom nodes (Section 5.6). */
 function constraints321(mesh, a) {
   const k = 0;
@@ -2495,6 +2521,12 @@ function buildPackageMesh(cfg, override) {
   const zp = zPlanes(g);
   const { groups, G } = packageGroups(cfg, g);
   let hmin = pre.hmin, hmax = pre.hmax, mesh = null, scaled = false, capDof = 0, floor = false;
+  // the cap loop grows h_min at most to the preset h_max, and with stacked modules at most to MODULE_HMIN_PER_HEIGHT
+  // times the height of the lowest module (base, DDI gap and chiplet): wider elements leave the thin module layers so
+  // flat that the solver stalls in the module stages, and too coarse to carry the load transfer at the chiplet edges
+  const modH = g.dies.filter(d => d.kind === 'module').map(d => d.t);
+  const hminLimit = Math.max(pre.hmin, Math.min(pre.hmax, modH.length ? CONST.MODULE_HMIN_PER_HEIGHT * Math.min(...modH) : Infinity));
+  const moduleLimited = hminLimit < pre.hmax;
   const build = ring => {
     const xs = gridLines(mx.lines, ring ? fx.edges.concat(fx.ringEdges) : fx.edges, hmin, hmax, fx.spans);
     const ys = gridLines(my.lines, ring ? fy.edges.concat(fy.ringEdges) : fy.edges, hmin, hmax, fy.spans);
@@ -2505,9 +2537,9 @@ function buildPackageMesh(cfg, override) {
     capDof = 3 * mesh.nn;
     if (capDof <= pre.cap || override && override.noCap || floor) break;
     let f = Math.sqrt(capDof / pre.cap) * CONST.CAP_GROWTH_PAD;
-    // h_min never grows past the preset's h_max: beyond it the feature lines and minimum element counts (stacked modules
-    // with many thin layers) keep the DOF up while the elements next to thin layers get extremely flat and the solver slows
-    if (hmin * f >= pre.hmax) { f = pre.hmax / hmin; floor = true; }
+    // h_min never grows past its limit: beyond it the feature lines and minimum element counts (stacked modules with
+    // many thin layers) keep the DOF up while the elements next to thin layers get extremely flat and the solver slows
+    if (hmin * f >= hminLimit) { f = hminLimit / hmin; floor = true; }
     hmin *= f; hmax *= f; scaled = true;
   }
   const ringRefined = fx.ringEdges.length > 0;
@@ -2546,15 +2578,15 @@ function buildPackageMesh(cfg, override) {
   mesh.G = G;
   mesh.geom = g;
   mesh.constraints = constraints321(mesh, CONST.CONSTRAINT_SPAN * Math.min(g.substrate.x1, g.substrate.y1));
-  // stacked modules are free bodies in their own process stages (joined to the substrate only by unborn elements):
-  // each gets a statically determinate 3-2-1 support on its base bottom for those stages, which carries no reaction
-  // under the module's self-equilibrated thermal load but keeps the system from being nearly singular
+  // stacked modules are free bodies in their own process stages (the rest of the package is not yet born): each gets
+  // a statically determinate 3-2-1 support on its base bottom for those stages, which carries no reaction under the
+  // module's self-equilibrated thermal load
   if (g.modules.length) {
     const kb = zp.zs.findIndex(z => Math.abs(z - g.zaf) < 1e-9), dofs = [];
     for (const m of g.modules) {
-      const a = CONST.CONSTRAINT_SPAN * 0.5 * Math.min(m.w, m.h);
-      const n0 = nearestNodeOnPlane(mesh, m.cx, m.cy, kb), n1 = nearestNodeOnPlane(mesh, m.cx + a, m.cy, kb), n2 = nearestNodeOnPlane(mesh, m.cx, m.cy + a, kb);
-      dofs.push(3 * n0, 3 * n0 + 1, 3 * n0 + 2, 3 * n1 + 1, 3 * n1 + 2, 3 * n2 + 2);
+      const s = moduleSupport(mesh, m.rect, m.cx, m.cy, kb);
+      if (!s) throw new Error(m.name + ': too few mesh nodes under the module base for its support in the module stages.');
+      dofs.push(3 * s[0], 3 * s[0] + 1, 3 * s[0] + 2, 3 * s[1] + 1, 3 * s[1] + 2, 3 * s[2] + 2);
     }
     mesh.moduleConstraints = Int32Array.from(dofs);
   }
@@ -2568,7 +2600,7 @@ function buildPackageMesh(cfg, override) {
     if (a > CONST.ASPECT_WARN) nwarn++;
   }
   mesh.info = {
-    preset: pre.label, hmin, hmax, hminPreset: pre.hmin, hmaxPreset: pre.hmax, cap: pre.cap, scaled, capDof, capFloor: floor, ringRefined, ringLabel: g.lid ? 'lid foot' : (g.stiff ? 'stiffener ring' : null),
+    preset: pre.label, hmin, hmax, hminPreset: pre.hmin, hmaxPreset: pre.hmax, cap: pre.cap, scaled, capDof, capFloor: floor, hminLimit, moduleLimited, ringRefined, ringLabel: g.lid ? 'lid foot' : (g.stiff ? 'stiffener ring' : null),
     snappedX: mx.snapped, snappedY: my.snapped, snappedZ: zp.snapped,
     nx: mesh.nx, ny: mesh.ny, nz: mesh.nz, nNodes: mesh.nn, nElem: mesh.ne, nDof: 3 * mesh.nn,
     aspectMax: amax, nAspectWarn: nwarn, planeLabels: zp.baseLabels, basePlanes: zp.basePlanes,
@@ -2582,7 +2614,7 @@ function meshWarnings(mesh) {
   const w = [];
   const inf = mesh.info;
   if (inf.nAspectWarn > 0) w.push({ level: 'warning', text: inf.nAspectWarn + ' elements have aspect ratio above ' + CONST.ASPECT_WARN + ' (max ' + inf.aspectMax.toFixed(0) + '); thin layers are handled by the incompatible-mode element but check mesh sensitivity.' });
-  if (inf.capDof > inf.cap) w.push({ level: 'warning', text: 'DOF ' + inf.capDof + ' above the ' + inf.preset + ' cap ' + inf.cap + (inf.capFloor ? ': h_min has reached the preset h_max (' + inf.hmaxPreset + ' mm), and the many thin layers (stacked modules) keep the DOF above the cap; expect a longer run.' : '.') });
+  if (inf.capDof > inf.cap) w.push({ level: 'warning', text: 'DOF ' + inf.capDof + ' above the ' + inf.preset + ' cap ' + inf.cap + (inf.capFloor ? (inf.moduleLimited ? ': h_min has reached its limit of ' + inf.hminLimit.toFixed(3) + ' mm (' + CONST.MODULE_HMIN_PER_HEIGHT + ' times the height of the lowest stacked module, so that its thin layers stay solvable and resolved); expect a longer run.' : ': h_min has reached the preset h_max (' + inf.hmaxPreset + ' mm), and the many thin layers (stacked modules) keep the DOF above the cap; expect a longer run.') : '.') });
   else if (inf.ringRefined && inf.nDof > inf.cap) w.push({ level: 'info', text: 'The refinement at the ' + inf.ringLabel + ' edges (elements from h_min, ' + (1000 * inf.hmin).toFixed(0) + ' µm) adds ' + (inf.nDof - inf.capDof) + ' DOF to the grid sized for the ' + inf.preset + ' cap of ' + inf.cap + ' (total ' + inf.nDof + ').' });
   if (inf.scaled) w.push({ level: 'info', text: 'Mesh sizes enlarged to h_min ' + inf.hmin.toFixed(3) + ' mm and h_max ' + inf.hmax.toFixed(3) + ' mm to stay under the ' + inf.preset + ' DOF cap.' });
   const sn = inf.snappedX.concat(inf.snappedY);
@@ -3255,17 +3287,22 @@ class FEModel {
 
   /**
    * Assemble K with the step's mean stiffness (full block CSR values) and the thermal load of the step
-   * from Ta to Tb in a stage. Unborn elements keep UNBORN_SCALE x stiffness
-   * and no load.
+   * from Ta to Tb in a stage. Unborn elements keep UNBORN_SCALE x stiffness and no load, except in the
+   * stacked-module stages (negative): there only the born module parts are assembled and every node
+   * outside them is held, so each module stands alone on its own 3-2-1 support and the substrate, not yet
+   * part of the process, neither moves nor holds the modules back.
    */
   assembleStep(Ta, Tb, stage, rhs, noConstraints) {
     this.prepareStep(Ta, Tb, stage);
     const m = this.mesh, val = this.val, bmap = this.bmap;
     val.fill(0); rhs.fill(0);
     const K33 = this._K33, f33 = this._f33, cond = this._cond;
+    const moduleStage = stage < 0 && !!this.moduleConstraints;
+    this.activeKey = moduleStage ? 'stage' + stage : 'all';  // the preconditioner's aggregates follow it (LinearSolver._buildPC)
     for (let e = 0; e < m.ne; e++) {
       const g = this.groups[m.eGroup[e]];
       const born = this.isBorn(g, stage);
+      if (moduleStage && !born) continue;
       const scale = m.eScale[e] * (born ? 1 : CONST.UNBORN_SCALE);
       f33.fill(0);
       const hasF = this.elementSystem(e, K33, f33);
@@ -3286,8 +3323,26 @@ class FEModel {
         }
       }
     }
-    if (!noConstraints) this.applyConstraints(rhs, stage < 0 && this.moduleConstraints ? this.moduleConstraints : this.constraints);
+    if (!noConstraints) this.applyConstraints(rhs, moduleStage ? this.moduleStageConstraints(stage) : this.constraints);
   }
+
+  /** Elements born in a stacked-module stage and the nodes they touch (cached per stage). */
+  moduleStageSet(stage) {
+    this._modSets = this._modSets || new Map();
+    let set = this._modSets.get(stage);
+    if (set) return set;
+    const m = this.mesh, elems = new Uint8Array(m.ne), nodes = new Uint8Array(m.nn);
+    for (let e = 0; e < m.ne; e++) if (this.isBorn(this.groups[m.eGroup[e]], stage)) { elems[e] = 1; for (let a = 0; a < 8; a++) nodes[m.conn[8 * e + a]] = 1; }
+    const fixed = new Set(this.moduleConstraints);
+    for (let n = 0; n < m.nn; n++) if (!nodes[n]) { fixed.add(3 * n); fixed.add(3 * n + 1); fixed.add(3 * n + 2); }
+    set = { elems, nodes, dofs: Int32Array.from(fixed).sort() };
+    this._modSets.set(stage, set);
+    return set;
+  }
+  /** Constrained DOFs of a stacked-module stage: each module's 3-2-1 support and every node no born element touches. */
+  moduleStageConstraints(stage) { return this.moduleStageSet(stage).dofs; }
+  /** Elements and nodes in play for the preconditioner in the current stacked-module stage (null for the whole package). */
+  activeSet() { const k = this.activeKey; return k && k !== 'all' ? this.moduleStageSet(+k.slice(5)) : null; }
 
   /** Zero rows / columns of the constrained DOFs (diagonal kept), zero rhs. */
   applyConstraints(rhs, dofs) {
@@ -3300,7 +3355,7 @@ class FEModel {
       const i = Math.floor(d / 3), p = d % 3;
       for (let k = P.rowPtr[i]; k < P.rowPtr[i + 1]; k++) {
         const j = P.col[k], v = 9 * k;
-        for (let q = 0; q < 3; q++) { if (3 * j + q !== d) val[v + 3 * p + q] = 0; }
+        for (let q = 0; q < 3; q++) { if (3 * j + q !== d) val[v + 3 * p + q] = 0; else if (val[v + 3 * p + q] === 0) val[v + 3 * p + q] = 1; }  // a held node outside every assembled element gets a unit diagonal
         // symmetric counterpart: block (j, i), column p
         let lo = P.rowPtr[j], hi = P.rowPtr[j + 1] - 1, kk = -1;
         while (lo <= hi) { const mid = (lo + hi) >> 1; const c = P.col[mid]; if (c === i) { kk = mid; break; } if (c < i) lo = mid + 1; else hi = mid - 1; }
@@ -3673,8 +3728,11 @@ const COMPLIANT_PARTS = new Set([PART.SOLDER, PART.UF_BUMP, PART.UF_FILLET, PART
  * The Jacobi scaling s of the fine system is folded into the weights
  * (x_scaled = S^-1 u).
  */
-function buildShellLevel(level, s, mesh) {
+function buildShellLevel(level, s, mesh, act) {
   const nx = level.nx, ny = level.ny, nz = level.nz, ncy = ny - 1, ncz = nz - 1;
+  // act (stacked-module stages): the elements born in the stage and the nodes they touch; the others are held,
+  // so they count as void and stay out of every aggregate
+  const elemOn = e => e >= 0 && (!act || act.elems[e] === 1);
   const ncol = nx * ny;
   const colStartC = new Int32Array(ncol + 1);
   const nodeAgg = new Int32Array(level.nn).fill(-1);
@@ -3686,7 +3744,7 @@ function buildShellLevel(level, s, mesh) {
     let any = false, stiff = false;
     for (let q = 0; q < 2; q++) {
       const e = mesh.cellElems[2 * c + q];
-      if (e < 0) continue;
+      if (!elemOn(e)) continue;
       any = true;
       if (!COMPLIANT_PARTS.has(mesh.ePart[e])) stiff = true;
     }
@@ -3694,7 +3752,8 @@ function buildShellLevel(level, s, mesh) {
   };
   const hasElem = (i, j, k) => {
     if (!mesh) return true;
-    return mesh.cellElems[2 * ((i * ncy + j) * ncz + k)] >= 0;
+    const c = 2 * ((i * ncy + j) * ncz + k);
+    return elemOn(mesh.cellElems[c]) || elemOn(mesh.cellElems[c + 1]);
   };
   const elemClass = (i, j, k) => (k < 0 || k >= ncz || !hasElem(i, j, k)) ? 0 : (isCompliant(i, j, k) ? 1 : 2); // 0 none, 1 compliant, 2 stiff
   for (let c = 0; c < ncol; c++) {
@@ -3705,7 +3764,7 @@ function buildShellLevel(level, s, mesh) {
     let cur = null, prevK = -2, prevType = 0;
     for (let k = 0; k < nz; k++) {
       const n = level.nodeId[c * nz + k];
-      if (n < 0) { cur = null; prevK = -2; continue; }
+      if (n < 0 || (act && !act.nodes[n])) { cur = null; prevK = -2; continue; }
       const below = elemClass(i, j, k - 1), above = elemClass(i, j, k);
       const type = (below === 2 || above === 2) ? 2 : 1;
       let joined = false;
@@ -3745,14 +3804,18 @@ function buildShellLevel(level, s, mesh) {
   return coarse;
 }
 
-/** Prolongation weights (3 x 6 per node) of the solid -> shell transfer. */
+/** Prolongation weights (3 x 6 per node) of the solid -> shell transfer; a node in no aggregate (held) has none. */
 function shellWeights(level, s) {
   const nn = level.nn, nodeAgg = level.nodeAgg, zref = level.coarse.zref;
-  const ptr = new Int32Array(nn + 1), idx = new Int32Array(nn), W = new Float64Array(nn * 18);
-  for (let n = 0; n < nn; n++) {
-    ptr[n + 1] = n + 1; idx[n] = nodeAgg[n];
+  let ne = 0;
+  for (let n = 0; n < nn; n++) if (nodeAgg[n] >= 0) ne++;
+  const ptr = new Int32Array(nn + 1), idx = new Int32Array(ne), W = new Float64Array(ne * 18);
+  for (let n = 0, q = 0; n < nn; n++) {
+    ptr[n + 1] = ptr[n];
+    if (nodeAgg[n] < 0) continue;
+    ptr[n + 1]++; idx[q] = nodeAgg[n];
     const zp = level.coords[3 * n + 2] - zref[nodeAgg[n]];
-    const o = 18 * n;
+    const o = 18 * q++;
     W[o] = 1 / s[3 * n]; W[o + 4] = zp / s[3 * n];
     W[o + 7] = 1 / s[3 * n + 1]; W[o + 9] = -zp / s[3 * n + 1];
     W[o + 14] = 1 / s[3 * n + 2]; W[o + 17] = zp / s[3 * n + 2];
@@ -4035,7 +4098,7 @@ class MultigridPC {
     if (this.opts.keepFeatures !== false && mesh.featureX) { fine.keepX = Array.from(mesh.featureX); fine.keepY = Array.from(mesh.featureY); }
     this.levels = [fine];
     factorColumns(fine);
-    let lv = buildShellLevel(fine, s, mesh.cellElems ? mesh : null);
+    let lv = buildShellLevel(fine, s, mesh.cellElems ? mesh : null, this.opts.active || null);
     this.levels.push(lv);
     for (let guard = 0; guard < 20; guard++) {
       factorShellColumns(lv);
@@ -4276,10 +4339,14 @@ class LinearSolver {
   _buildPC(kind) {
     const m = this.model;
     const t0 = nowMs();
-    if (this.pc && this.pcKind === kind) {
+    // the multigrid aggregates follow the elements in play: the whole package, or in a stacked-module stage only the
+    // born module parts (model.activeSet()), so a change between them builds a new hierarchy instead of updating
+    const key = m.activeKey || 'all';
+    if (this.pc && this.pcKind === kind && (kind !== 'mg' || this.mgKey === key)) {
       if (kind === 'mg') this.pc.update(m.val, this.s); else this.pc.update(m.val);
-    } else if (kind === 'mg') this.pc = new MultigridPC(m.mesh, m.pattern, m.val, this.s, this.opts.mg);
+    } else if (kind === 'mg') this.pc = new MultigridPC(m.mesh, m.pattern, m.val, this.s, key === 'all' ? this.opts.mg : Object.assign({}, this.opts.mg, { active: m.activeSet() }));
     else this.pc = new ICPC(m.pattern, m.val);
+    this.mgKey = key;
     this.pcKind = kind;
     this.needRebuild = false;
     return nowMs() - t0;
@@ -7357,7 +7424,7 @@ const VERIFICATION_TESTS = [
   {
     id: 'V18', name: 'Stacked modules: free module stages, silicon stress, microbumps', slow: true,
     criterion: 'uniform-CTE module stress-free after its process stages (below 1e-3 of E α ΔT); module support reactions below 1e-6 of the internal force scale; bare module package convex at 25 °C with finite chiplet and base stresses, DDI microbump loads and wafer underfill tractions; series microbump column within 1e-4 of the closed form with in-plane stress below 1e-3',
-    about: 'A small package with one Si-base module and two chiplets. With every module material given the CTE of silicon, the module process stages (chiplet join, wafer underfill and mold cure) must leave the free module stress-free, apart from the pull of the not-yet-born bumps and underfill under it (stiffness 1e-6 of their own, about 2e-4 of E α ΔT here); with the real materials the temporary three-point support of the free module must carry essentially no force. The bare module package must come out convex (silicon on the higher-CTE substrate, as V9 for a bare die) with finite stresses on every chiplet and on the base and finite microbump loads and wafer underfill tractions. A free-standing microbump column (solder cap on a Cu pillar) loaded elastically must carry the series stiffness 1 / (f_s / E_s + f_p / E_p) in tension and the same rule in shear, with no in-plane stress.',
+    about: 'A small package with one Si-base module and two chiplets. With every module material given the CTE of silicon, the module process stages (chiplet join, wafer underfill and mold cure) must leave the free module stress-free (the not-yet-born rest of the package is held and takes no part in those stages); a small residue of about 2e-4 of E α ΔT remains in the Si base where the TSV Cu is superposed on it. With the real materials the temporary three-point support of the free module must carry essentially no force. The bare module package must come out convex (silicon on the higher-CTE substrate, as V9 for a bare die) with finite stresses on every chiplet and on the base and finite microbump loads and wafer underfill tractions. A free-standing microbump column (solder cap on a Cu pillar) loaded elastically must carry the series stiffness 1 / (f_s / E_s + f_p / E_p) in tension and the same rule in shear, with no in-plane stress.',
     run(ctx) {
       const small = () => {
         const cfg = presetConfig(ctx.db, 'bare');
@@ -11429,7 +11496,7 @@ function limitationsList(res) {
     'Uniform temperature only: no power maps or gradients. No BGA balls or PCB (second-level), no package-level mold compound (the wafer mold of stacked modules is modeled), no passives, no moisture swelling, no Cu plasticity, no fracture mechanics, no initial substrate warpage from fabrication, no gravity.',
     'Singular quantities (die corners, interface corners, fatigue indices) are mesh dependent and reported as comparative metrics over fixed physical patches.',
     'Fatigue constants come from other joint geometries and constitutive models; lives are order-of-magnitude and best used as ratios against a pinned baseline. The submodel assumes the solder is stress-free at 25 °C in the as-assembled state; its elastic parts follow the same incremental rule from that state. Its cross-section shows the change from 25 °C or, as an option, the total stress, which adds the global as-assembled stress at 25 °C of each submodel element (silicon, underfill and substrate from the global model; solder 0 by the assumption above).',
-    'Stacked modules (a Si base die or interposer, or an organic RDL interposer, with one layer of chiplets): each module is built first as a free body, before the substrate stage: chiplets, base and DDI microbumps are born at the chiplet join temperature, then the wafer underfill at its cure temperature (wCUF fill), then the wafer mold at its cure temperature; the module then goes to the substrate stress-free temperature and is joined by its flip chip bumps in S1 like a die. The constraint of the wafer before singulation and of a carrier (RDL-first interposers) is ignored. During those stages each module rests on a statically determinate three-point support, which carries no force under its self-equilibrated thermal load; the not-yet-born bumps and underfill below it pull with 1e-6 of their stiffness (about 2e-4 of E α ΔT in its stress, verification V18).',
+    'Stacked modules (a Si base die or interposer, or an organic RDL interposer, with one layer of chiplets): each module is built first as a free body, before the substrate stage: chiplets, base and DDI microbumps are born at the chiplet join temperature, then the wafer underfill at its cure temperature (wCUF fill), then the wafer mold at its cure temperature; the module then goes to the substrate stress-free temperature and is joined by its flip chip bumps in S1 like a die. The constraint of the wafer before singulation and of a carrier (RDL-first interposers) is ignored. During those stages each module rests on a statically determinate three-point support on its base, which carries no force under its self-equilibrated thermal load, and the rest of the package, not yet born, is held still and takes no part (verification V18). With stacked modules the mesh sizes grow under the DOF cap at most to 4 times the height of the lowest module, so its thin layers stay solvable and resolved; thin modules can then keep even Draft meshes above the cap.',
     'Stacked-module geometry: the wafer mold fills every module area not covered by chiplet silicon, out to the base edge and flush with the chiplet backsides (no overmold); the wafer underfill fillet is a linear wedge around each chiplet on the base top (cells it cuts carry wCUF and mold by their volume fractions), clipped at the base edge; the flip chip underfill fillet height is a fraction of the module height; the lid TIM covers the whole module top. All chiplets share one thickness and one DDI microbump technology.',
     'DDI microbumps are homogenized like the flip chip bumps: a microbump column phase superposed on the DDI fill (wafer underfill or mold), the column a Cu pillar and a solder cap in series (axial and shear stiffness only). TSV copper in a Si base is superposed on the Si by the parallel (Voigt) rule; the BEOL of the base and chiplets is not modeled. An RDL interposer is homogenized per layer like the substrate and integrated layer by layer.',
     'Stacked modules add element layers (at least four through the base, the DDI gap and the chiplets), so Draft cannot always reach its DOF cap: h_min then stops at the preset h_max and the mesh stays above the cap. The solver needs about two to three times the iterations per step of a monolithic package of the same size (more in the first module steps on coarse meshes), so module packages take markedly longer to run.',

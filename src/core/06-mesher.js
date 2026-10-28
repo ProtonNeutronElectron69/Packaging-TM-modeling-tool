@@ -83,6 +83,31 @@ function nearestNodeOnPlane(mesh, x, y, k) {
   return best;
 }
 
+/**
+ * Three support nodes of a stacked module on its base bottom (plane k), all inside its footprint: n0 nearest the
+ * centre, n1 the farthest from n0 along the same grid row (with uy and uz held, it stops the rotations about z and y),
+ * n2 the farthest from that row (uz held: the rotation about x). Points picked by distance alone can coincide on a
+ * coarse grid and leave a rotation free. Returns null when the footprint has too few nodes.
+ */
+function moduleSupport(mesh, r, cx, cy, k) {
+  const tol = 1e-9, cand = [];
+  for (let i = 0; i < mesh.nx; i++) {
+    const x = mesh.xs[i];
+    if (x < r.x0 - tol || x > r.x1 + tol) continue;
+    for (let j = 0; j < mesh.ny; j++) {
+      const y = mesh.ys[j], id = mesh.nodeId[(i * mesh.ny + j) * mesh.nz + k];
+      if (id >= 0 && y >= r.y0 - tol && y <= r.y1 + tol) cand.push({ id, x, y });
+    }
+  }
+  if (cand.length < 3) return null;
+  const pick = (score, ok) => { let best = null, bs = -Infinity; for (const c of cand) if (ok(c)) { const s = score(c); if (s > bs + tol) { bs = s; best = c; } } return best; };
+  const a = pick(c => -Math.hypot(c.x - cx, c.y - cy), () => true);
+  const b = pick(c => Math.abs(c.x - a.x), c => Math.abs(c.y - a.y) < tol && c.id !== a.id);
+  if (!b) return null;
+  const c = pick(c => Math.abs(c.y - a.y) - 1e-6 * Math.abs(c.x - a.x), c => Math.abs(c.y - a.y) > tol);
+  return c ? [a.id, b.id, c.id] : null;
+}
+
 /** 3-2-1 rigid-body constraints on bottom nodes (Section 5.6). */
 function constraints321(mesh, a) {
   const k = 0;
@@ -447,6 +472,12 @@ function buildPackageMesh(cfg, override) {
   const zp = zPlanes(g);
   const { groups, G } = packageGroups(cfg, g);
   let hmin = pre.hmin, hmax = pre.hmax, mesh = null, scaled = false, capDof = 0, floor = false;
+  // the cap loop grows h_min at most to the preset h_max, and with stacked modules at most to MODULE_HMIN_PER_HEIGHT
+  // times the height of the lowest module (base, DDI gap and chiplet): wider elements leave the thin module layers so
+  // flat that the solver stalls in the module stages, and too coarse to carry the load transfer at the chiplet edges
+  const modH = g.dies.filter(d => d.kind === 'module').map(d => d.t);
+  const hminLimit = Math.max(pre.hmin, Math.min(pre.hmax, modH.length ? CONST.MODULE_HMIN_PER_HEIGHT * Math.min(...modH) : Infinity));
+  const moduleLimited = hminLimit < pre.hmax;
   const build = ring => {
     const xs = gridLines(mx.lines, ring ? fx.edges.concat(fx.ringEdges) : fx.edges, hmin, hmax, fx.spans);
     const ys = gridLines(my.lines, ring ? fy.edges.concat(fy.ringEdges) : fy.edges, hmin, hmax, fy.spans);
@@ -457,9 +488,9 @@ function buildPackageMesh(cfg, override) {
     capDof = 3 * mesh.nn;
     if (capDof <= pre.cap || override && override.noCap || floor) break;
     let f = Math.sqrt(capDof / pre.cap) * CONST.CAP_GROWTH_PAD;
-    // h_min never grows past the preset's h_max: beyond it the feature lines and minimum element counts (stacked modules
-    // with many thin layers) keep the DOF up while the elements next to thin layers get extremely flat and the solver slows
-    if (hmin * f >= pre.hmax) { f = pre.hmax / hmin; floor = true; }
+    // h_min never grows past its limit: beyond it the feature lines and minimum element counts (stacked modules with
+    // many thin layers) keep the DOF up while the elements next to thin layers get extremely flat and the solver slows
+    if (hmin * f >= hminLimit) { f = hminLimit / hmin; floor = true; }
     hmin *= f; hmax *= f; scaled = true;
   }
   const ringRefined = fx.ringEdges.length > 0;
@@ -498,15 +529,15 @@ function buildPackageMesh(cfg, override) {
   mesh.G = G;
   mesh.geom = g;
   mesh.constraints = constraints321(mesh, CONST.CONSTRAINT_SPAN * Math.min(g.substrate.x1, g.substrate.y1));
-  // stacked modules are free bodies in their own process stages (joined to the substrate only by unborn elements):
-  // each gets a statically determinate 3-2-1 support on its base bottom for those stages, which carries no reaction
-  // under the module's self-equilibrated thermal load but keeps the system from being nearly singular
+  // stacked modules are free bodies in their own process stages (the rest of the package is not yet born): each gets
+  // a statically determinate 3-2-1 support on its base bottom for those stages, which carries no reaction under the
+  // module's self-equilibrated thermal load
   if (g.modules.length) {
     const kb = zp.zs.findIndex(z => Math.abs(z - g.zaf) < 1e-9), dofs = [];
     for (const m of g.modules) {
-      const a = CONST.CONSTRAINT_SPAN * 0.5 * Math.min(m.w, m.h);
-      const n0 = nearestNodeOnPlane(mesh, m.cx, m.cy, kb), n1 = nearestNodeOnPlane(mesh, m.cx + a, m.cy, kb), n2 = nearestNodeOnPlane(mesh, m.cx, m.cy + a, kb);
-      dofs.push(3 * n0, 3 * n0 + 1, 3 * n0 + 2, 3 * n1 + 1, 3 * n1 + 2, 3 * n2 + 2);
+      const s = moduleSupport(mesh, m.rect, m.cx, m.cy, kb);
+      if (!s) throw new Error(m.name + ': too few mesh nodes under the module base for its support in the module stages.');
+      dofs.push(3 * s[0], 3 * s[0] + 1, 3 * s[0] + 2, 3 * s[1] + 1, 3 * s[1] + 2, 3 * s[2] + 2);
     }
     mesh.moduleConstraints = Int32Array.from(dofs);
   }
@@ -520,7 +551,7 @@ function buildPackageMesh(cfg, override) {
     if (a > CONST.ASPECT_WARN) nwarn++;
   }
   mesh.info = {
-    preset: pre.label, hmin, hmax, hminPreset: pre.hmin, hmaxPreset: pre.hmax, cap: pre.cap, scaled, capDof, capFloor: floor, ringRefined, ringLabel: g.lid ? 'lid foot' : (g.stiff ? 'stiffener ring' : null),
+    preset: pre.label, hmin, hmax, hminPreset: pre.hmin, hmaxPreset: pre.hmax, cap: pre.cap, scaled, capDof, capFloor: floor, hminLimit, moduleLimited, ringRefined, ringLabel: g.lid ? 'lid foot' : (g.stiff ? 'stiffener ring' : null),
     snappedX: mx.snapped, snappedY: my.snapped, snappedZ: zp.snapped,
     nx: mesh.nx, ny: mesh.ny, nz: mesh.nz, nNodes: mesh.nn, nElem: mesh.ne, nDof: 3 * mesh.nn,
     aspectMax: amax, nAspectWarn: nwarn, planeLabels: zp.baseLabels, basePlanes: zp.basePlanes,
@@ -534,7 +565,7 @@ function meshWarnings(mesh) {
   const w = [];
   const inf = mesh.info;
   if (inf.nAspectWarn > 0) w.push({ level: 'warning', text: inf.nAspectWarn + ' elements have aspect ratio above ' + CONST.ASPECT_WARN + ' (max ' + inf.aspectMax.toFixed(0) + '); thin layers are handled by the incompatible-mode element but check mesh sensitivity.' });
-  if (inf.capDof > inf.cap) w.push({ level: 'warning', text: 'DOF ' + inf.capDof + ' above the ' + inf.preset + ' cap ' + inf.cap + (inf.capFloor ? ': h_min has reached the preset h_max (' + inf.hmaxPreset + ' mm), and the many thin layers (stacked modules) keep the DOF above the cap; expect a longer run.' : '.') });
+  if (inf.capDof > inf.cap) w.push({ level: 'warning', text: 'DOF ' + inf.capDof + ' above the ' + inf.preset + ' cap ' + inf.cap + (inf.capFloor ? (inf.moduleLimited ? ': h_min has reached its limit of ' + inf.hminLimit.toFixed(3) + ' mm (' + CONST.MODULE_HMIN_PER_HEIGHT + ' times the height of the lowest stacked module, so that its thin layers stay solvable and resolved); expect a longer run.' : ': h_min has reached the preset h_max (' + inf.hmaxPreset + ' mm), and the many thin layers (stacked modules) keep the DOF above the cap; expect a longer run.') : '.') });
   else if (inf.ringRefined && inf.nDof > inf.cap) w.push({ level: 'info', text: 'The refinement at the ' + inf.ringLabel + ' edges (elements from h_min, ' + (1000 * inf.hmin).toFixed(0) + ' µm) adds ' + (inf.nDof - inf.capDof) + ' DOF to the grid sized for the ' + inf.preset + ' cap of ' + inf.cap + ' (total ' + inf.nDof + ').' });
   if (inf.scaled) w.push({ level: 'info', text: 'Mesh sizes enlarged to h_min ' + inf.hmin.toFixed(3) + ' mm and h_max ' + inf.hmax.toFixed(3) + ' mm to stay under the ' + inf.preset + ' DOF cap.' });
   const sn = inf.snappedX.concat(inf.snappedY);

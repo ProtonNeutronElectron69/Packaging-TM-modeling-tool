@@ -43,7 +43,7 @@ The same tool also comes as a Windows desktop app, for runs that need more memor
 
 ## Project status
 
-The specification in `CLAUDE.md` is implemented in full. Thirty-six pull requests are merged on `main`:
+The specification in `CLAUDE.md` is implemented in full. Thirty-seven pull requests are merged on `main`:
 
 | PR | Merged | Content |
 |---|---|---|
@@ -83,6 +83,7 @@ The specification in `CLAUDE.md` is implemented in full. Thirty-six pull request
 | [#34](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/34) | 2026-10-27 | Stacked modules, part 1: Si-base (base die or Si interposer, optional TSV Cu) and organic RDL-interposer modules with one layer of chiplets on DDI microbumps (Cu pillar and solder cap in series), wafer underfill plus mold or mold only; floorplan editing of modules and chiplets; module process stages before the substrate stage, each module free on its own support; die stress on every chiplet and Si base; wafer mold and RDL dielectric materials (106 materials); three illustrative presets; h_min stops at the preset h_max when the cap cannot be met; V14 extended, V18 (suite 18/18); results file format 2; desktop 1.1.0; module packages need about 2 to 3 times the PCG iterations per step |
 | [#35](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/35) | 2026-10-27 | Stacked modules, part 2: DDI microbump loads as assembled and at the end of chiplet join (a 'ddi' branch of the thermal path, the joined module cooled to 25 °C before its fill), microbump screening with each joint a solder cap on an elastic Cu pillar in series (at most 5000 sites per chiplet), wafer underfill (or mold) tractions at every chiplet; C4 / DDI layer toggles in the bump, underfill and fatigue views, floorplan overlays, report and CSV sections; the cross-section view draws the mold above the wCUF wedge; V18 extended; monolithic results unchanged |
 | [#36](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/36) | 2026-10-27 | Documentation: accuracy over speed recorded as a standing rule at the user's request (speed-ups only when they leave the results unchanged, with before and after reference values in the PR); fewer or longer thermal-path steps and a larger submodel step dropped from the open items |
+| [#37](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/37) | 2026-10-27 | One colour per material in the floorplan, section sketch and 3D view (all silicon blue, all underfill orange, lid and stiffener grey, RDL interposer light brown, wafer mold dark grey), colour key under the section, die and chiplet labels that fit their boxes, floorplan readout moved under the floorplan, section names over each die and module with seamless fills and a 240 px default height, grid and rulers kept inside the substrate |
 
 Open items are listed under "Known issues and next steps" below. The largest is performance against the Section 13 targets.
 

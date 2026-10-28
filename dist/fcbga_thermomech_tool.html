@@ -297,10 +297,9 @@ const CONST = Object.freeze({
   REFINE_ZONE_FACTOR: 2.0,   // refinement zone = 2 x local die thickness
   MIN_ELEMS_ACROSS_RING: 3,  // lid foot, stiffener ring
   RING_EDGE_ZONE: 0,         // refinement zone at lid foot and stiffener edges (x ring thickness): grading starts at the edge
-  SLIVER_FRACTION: 0.125,    // die bands thinner than this x die thickness start at one element layer, others at two
+  SLIVER_FRACTION: 0.125,    // die bands thinner than this x die thickness start at one element layer, others at half the preset minimum
   MIN_ELEMS_ACROSS_FILLET: 6, // underfill fillet width, at most (see FILLET_COL_MIN_FRACTION)
   FILLET_COL_MIN_FRACTION: 0.5, // fillet columns no narrower than this x h_min (at least MIN_ELEMS_ACROSS_RING)
-  MIN_LAYERS_PER_REGION: 4,  // element layers through every region's thickness (each substrate group too)
   FILLET_FILL_SAMPLES: 4,    // in-plane samples per side for the filled fraction of a fillet cell
   FILLET_FILL_MIN: 0.05,     // fillet cells filled less than this are left void
   ASPECT_WARN: 50,
@@ -311,9 +310,10 @@ const CONST = Object.freeze({
   CAP_MAX_ITER: 12,
   CONSTRAINT_SPAN: 0.4,      // 3-2-1 points at 40 % of the smaller half-dimension
   MESH_PRESETS: {
-    draft:    { label: 'Draft',    hmin: 0.6,  hmax: 3.0, cap: 75000 },
-    standard: { label: 'Standard', hmin: 0.25, hmax: 1.5, cap: 330000 },
-    fine:     { label: 'Fine',     hmin: 0.10, hmax: 0.6, cap: 850000 },
+    // layers: element layers at least through every region's thickness except the TIM (each substrate and RDL group too)
+    draft:    { label: 'Draft',    hmin: 0.6,  hmax: 3.0, cap: 75000,  layers: 1 },
+    standard: { label: 'Standard', hmin: 0.25, hmax: 1.5, cap: 330000, layers: 2 },
+    fine:     { label: 'Fine',     hmin: 0.10, hmax: 0.6, cap: 850000, layers: 4 },
   },
   // ---- solver -------------------------------------------------------------
   PCG_TOL: 1e-8,
@@ -1412,11 +1412,12 @@ function substrateRowEC(row, T, lib, cuId) {
  * Bottom-up list of substrate rows with z ranges, and their grouping into
  * element bands (Section 5.3): three groups (bottom solder resist + bottom
  * build-up; core with its adjacent core Cu layers; top build-up + top solder
- * resist), each split into MIN_LAYERS_PER_REGION bands of equal thickness.
+ * resist), each split into nb bands of equal thickness (the mesh preset's
+ * minimum element layers per region).
  * Each band is one layered element layer; sub-layers it cuts are clipped.
  * Config rows are listed top to bottom.
  */
-function substrateBands(layers) {
+function substrateBands(layers, nb) {
   const rowsTopDown = layers;
   const n = rowsTopDown.length;
   const rows = [];
@@ -1439,10 +1440,9 @@ function substrateBands(layers) {
   } else {
     groups = [[0, total]];
   }
-  // each group (bottom build-up, core with its Cu foils, top build-up) is split into MIN_LAYERS_PER_REGION
+  // each group (bottom build-up, core with its Cu foils, top build-up) is split into nb
   // bands of equal thickness, one element layer each
   const cuts = [0];
-  const nb = CONST.MIN_LAYERS_PER_REGION;
   for (const [z0, z1] of groups) for (let q = 1; q <= nb; q++) cuts.push(z0 + (z1 - z0) * q / nb);
   // drop zero-thickness bands
   const planes = [cuts[0]];
@@ -1726,13 +1726,13 @@ function stackThickness(rows) { return rows.reduce((t, r) => t + r.t, 0); }
 /**
  * Element bands of an organic RDL interposer whose bottom is at z0: the rows
  * (listed top to bottom) bottom-up with z ranges, split into
- * MIN_LAYERS_PER_REGION layered bands of equal thickness (as a substrate group).
+ * nb layered bands of equal thickness (as a substrate group).
  */
-function rdlBands(rowsTopDown, z0) {
+function rdlBands(rowsTopDown, z0, nb) {
   const rows = [];
   let z = z0;
   for (let i = rowsTopDown.length - 1; i >= 0; i--) { rows.push({ idx: i, row: rowsTopDown[i], z0: z, z1: z + rowsTopDown[i].t }); z += rowsTopDown[i].t; }
-  const nb = CONST.MIN_LAYERS_PER_REGION, bands = [];
+  const bands = [];
   for (let q = 0; q < nb; q++) {
     const a = z0 + (z - z0) * q / nb, b = z0 + (z - z0) * (q + 1) / nb;
     const subs = [];
@@ -1742,14 +1742,22 @@ function rdlBands(rowsTopDown, z0) {
   return { total: z - z0, rows, bands };
 }
 
+/** Minimum element layers per region of the configuration's mesh preset (Standard when unset). */
+function meshLayers(cfg) {
+  const p = CONST.MESH_PRESETS[(cfg.mesh && cfg.mesh.preset) || 'standard'] || CONST.MESH_PRESETS.standard;
+  return p.layers;
+}
+
 /**
  * Derived geometry from a configuration: z levels, the objects on the flip chip
  * bump layer (g.dies: monolithic dies, then module bases), module chiplets and
  * DDI fields, silicon parts for the die stress (g.siParts), fillets, lid /
  * stiffener footprints, BGA ball sites.
  */
-function deriveGeometry(cfg) {
-  const sub = substrateBands(cfg.substrate.layers);
+function deriveGeometry(cfg, layers) {
+  // element layers per region: the mesh preset's minimum (the mesher passes the preset it builds at)
+  const nb = layers || meshLayers(cfg);
+  const sub = substrateBands(cfg.substrate.layers, nb);
   const zt = sub.total;
   const so = cfg.bump.standoff;
   const zaf = zt + so;
@@ -1779,7 +1787,7 @@ function deriveGeometry(cfg) {
       index: cfg.dies.length + mi, kind: 'module', modIndex: mi, id: m.id, name: m.name, t: H, zaf, ztop: zaf + H,
       base: rdl ? 'rdl' : 'si', tBase, zBaseTop, zDdiTop, si: m.si || 'aniso', tsv: rdl ? 0 : Math.max(0, m.tsv || 0),
     });
-    if (rdl) o.rdl = rdlBands(m.rdl, zaf);
+    if (rdl) o.rdl = rdlBands(m.rdl, zaf, nb);
     // chiplets: centres rotated with the module, sizes and DDI pitch swapped by the module and the chiplet rotation
     const dpx = st.ddi.px, dpy = st.ddi.py, abump = Math.PI * st.ddi.d * st.ddi.d / 4;
     o.chiplets = m.chiplets.map((c, ci) => {
@@ -1801,7 +1809,7 @@ function deriveGeometry(cfg) {
   });
   const objs = dies.concat(modules);
   const tmax = objs.reduce((m, d) => Math.max(m, d.t), 0);
-  const g = { cfg, sub, zt, zaf, so, substrate, dies: objs, monoDies: dies, modules, siParts, tmax, type: cfg.packageType, stack: st };
+  const g = { cfg, layers: nb, sub, zt, zaf, so, substrate, dies: objs, monoDies: dies, modules, siParts, tmax, type: cfg.packageType, stack: st };
   g.uf = { Wf: cfg.underfill.Wf, Hf: cfg.underfill.Hf };
   if (st) g.wcuf = st.fill === 'wcuf' ? { Wf: st.wcuf.Wf, Hf: st.wcuf.Hf } : null;
   if (cfg.packageType === 'lid') {
@@ -2302,12 +2310,14 @@ function zPlanes(g) {
   if (g.stiff) { add(g.stiff.zAdhTop, 'stiffener adhesive top', 2); add(g.stiff.zTop, 'stiffener top', 2); }
   const merged = mergeFeatures(pl, CONST.PLANE_MERGE_TOL);
   const base = merged.lines;
-  // element layers per band: die bands (except slivers) and the lid plate start at two layers; then every
-  // physical region gets at least MIN_LAYERS_PER_REGION layers through its thickness (bump layer, fillet
-  // height, each die, lid plate and foot, adhesives, stiffener), each extra layer going to the band of
-  // the region with the largest element thickness. The TIM keeps one layer: the gel carries almost no load,
-  // and four layers changed no result by more than 0.3 % while adding PCG iterations on the lid stages.
+  // element layers per band: die bands (except slivers) and the lid plate start at half the preset minimum
+  // (rounded up: one at Draft and Standard, two at Fine); then every physical region gets at least the preset
+  // minimum g.layers through its thickness (Draft 1, Standard 2, Fine 4: bump layer, fillet height, each die,
+  // lid plate and foot, adhesives, stiffener, module layers), each extra layer going to the band of the region
+  // with the largest element thickness. The TIM keeps one layer: the gel carries almost no load, and four
+  // layers changed no result by more than 0.3 % while adding PCG iterations on the lid stages.
   // Substrate bands stay one layer each (substrateBands already splits the build-up and core groups).
+  const nmin = g.layers, nstart = Math.ceil(nmin / 2);
   const nsub = [];
   for (let b = 0; b + 1 < base.length; b++) {
     const za = base[b], zb = base[b + 1], zc = 0.5 * (za + zb);
@@ -2315,8 +2325,8 @@ function zPlanes(g) {
     if (zb > g.zt + 1e-9) {
       let tDie = Infinity;
       for (const d of g.dies) if (zc > g.zaf && zc < d.ztop) tDie = Math.min(tDie, d.t);
-      if (isFinite(tDie) && zb - za >= CONST.SLIVER_FRACTION * tDie) n = 2;
-      if (g.lid && zc > g.lid.zLidBot && zc < g.lid.zLidTop) n = 2;
+      if (isFinite(tDie) && zb - za >= CONST.SLIVER_FRACTION * tDie) n = nstart;
+      if (g.lid && zc > g.lid.zLidBot && zc < g.lid.zLidTop) n = nstart;
     }
     nsub.push(n);
   }
@@ -2338,7 +2348,7 @@ function zPlanes(g) {
     for (let b = 0; b + 1 < base.length; b++) { const zc = 0.5 * (base[b] + base[b + 1]); if (zc > za && zc < zb) ids.push(b); }
     if (!ids.length) continue;
     let total = ids.reduce((t, b) => t + nsub[b], 0);
-    while (total < CONST.MIN_LAYERS_PER_REGION) {
+    while (total < nmin) {
       let best = ids[0];
       for (const b of ids) if ((base[b + 1] - base[b]) / nsub[b] > (base[best + 1] - base[best]) / nsub[best]) best = b;
       nsub[best]++; total++;
@@ -2501,7 +2511,7 @@ function makePackageAssign(g, xs, ys, zs, G, layerBand) {
 
 function presetParams(cfg, override) {
   const p = Object.assign({}, CONST.MESH_PRESETS[(override && override.preset) || cfg.mesh.preset || 'standard']);
-  if (override) for (const k of ['hmin', 'hmax', 'cap']) if (override[k] != null) p[k] = override[k];
+  if (override) for (const k of ['hmin', 'hmax', 'cap', 'layers']) if (override[k] != null) p[k] = override[k];
   return p;
 }
 
@@ -2514,8 +2524,8 @@ function presetParams(cfg, override) {
  */
 function buildPackageMesh(cfg, override) {
   const t0 = nowMs();
-  const g = deriveGeometry(cfg);
   const pre = presetParams(cfg, override);
+  const g = deriveGeometry(cfg, pre.layers);
   const fx = axisFeatures(g, 'x'), fy = axisFeatures(g, 'y');
   const mx = mergeFeatures(fx.feats, CONST.FEATURE_SNAP_TOL), my = mergeFeatures(fy.feats, CONST.FEATURE_SNAP_TOL);
   const zp = zPlanes(g);
@@ -7064,7 +7074,8 @@ const VERIFICATION_TESTS = [
       const layers = cfg.substrate.layers;
       const coreIdx = layers.findIndex(r => r.type === 'core');
       const asym = layers.slice(0, coreIdx + 2).concat([layers[layers.length - 1]]);
-      const sb = substrateBands(asym);
+      // one layered band per group, as at Draft: the fewest sub-layer bands the tool meshes
+      const sb = substrateBands(asym, CONST.MESH_PRESETS.draft.layers);
       const lib = cfg.materials;
       const xs = linspace(-10, 10, 16), ys = linspace(-10, 10, 16);
       const run = (zs, groups, assign) => {
@@ -8115,7 +8126,7 @@ const HELP = {
   ramp: 'Temperature ramp rate of the cycle.',
   dwell: 'Dwell time at each extreme.',
   cycles: 'Simulated cycles for the submodel; the last cycle is reported as the stabilized one.',
-  preset: 'Mesh fidelity. Draft for previews and sensitivity, Standard for normal use, Fine for convergence checks.',
+  preset: 'Mesh fidelity. Draft for previews and sensitivity, Standard for normal use, Fine for convergence checks. Every region except the TIM gets at least 1 (Draft), 2 (Standard) or 4 (Fine) element layers through its thickness.',
   snap: 'Grid snap for die dragging.',
   residual: 'Residual Cu ratio of the pattern layer after etching; used in the Voigt / Reuss mixture rules.',
   via: 'Area fraction of Cu vias in the dielectric layer.',
@@ -8527,7 +8538,7 @@ const TIPS = {
   exag3d: 'Multiplies the displacements before drawing.',
   color3d: 'Colour the surface by out-of-plane displacement, by the nodal max principal stress of each part, or by part.',
   partToggle: 'Show or hide this part.',
-  mesh3d: 'Overlay the element edges on the outer faces of every shown part: the in-plane grid, refined near die edges, and the element layers through each region (at least four per region except the TIM). Hide parts to see the mesh of the parts under them. Superposed solder and underfill elements of the bump layer share one cell and are drawn once.',
+  mesh3d: 'Overlay the element edges on the outer faces of every shown part: the in-plane grid, refined near die edges, and the element layers through each region (at least 1 at Draft, 2 at Standard and 4 at Fine per region; the TIM has one). Hide parts to see the mesh of the parts under them. Superposed solder and underfill elements of the bump layer share one cell and are drawn once.',
   // sensitivity
   sensInput: 'Input moved to the low and high end of its range in the tornado run. "est." marks Estimated database values.',
   sensRun: 'Runs 2 × (inputs) + 1 Draft analyses on the number of workers chosen under Parallel workers (step 6); results are cached by configuration hash.',
@@ -10712,7 +10723,7 @@ const CONFIDENCE = {
 function renderRunPanel(root) {
   const cfg = app.cfg;
   root.append(h('h2', null, '6. Run and results'));
-  root.append(selectField('Mesh fidelity', () => cfg.mesh.preset, v => { cfg.mesh.preset = v; renderContext(); }, Object.entries(C.CONST.MESH_PRESETS).map(([k, p]) => ({ value: k, label: p.label + ' (h ' + p.hmin + ' to ' + p.hmax + ' mm, cap ' + p.cap.toLocaleString() + ' DOF)' })), { help: 'preset', section: 'mesh' }));
+  root.append(selectField('Mesh fidelity', () => cfg.mesh.preset, v => { cfg.mesh.preset = v; renderContext(); }, Object.entries(C.CONST.MESH_PRESETS).map(([k, p]) => ({ value: k, label: p.label + ' (h ' + p.hmin + ' to ' + p.hmax + ' mm, cap ' + p.cap.toLocaleString() + ' DOF, ' + p.layers + ' layer' + (p.layers > 1 ? 's' : '') + ' per region)' })), { help: 'preset', section: 'mesh' }));
   const hc = navigator.hardwareConcurrency || 2;
   root.append(h('div', { class: 'field' }, h('label', null, 'Parallel workers', helpTip('workers')), h('select', { 'data-tip': TIPS.workers, onchange: e => { app.workers = +e.target.value; renderContext(); } }, ...Array.from({ length: maxWorkers() }, (_, i) => i + 1).map(n => h('option', { value: n, selected: app.workers === n ? '' : null }, n + (n === 1 ? ' (single worker)' : ' workers')))), h('span', { class: 'unit' }, hc + ' cores' + (app.desktop ? ', ' + fmt(app.desktop.totalMemGB, 0) + ' GB memory' : '') + (app.nestedWorkers === false ? '; nested workers unavailable in this browser' : ''))));
   const est = estimateRun(cfg, cfg.mesh.preset);
@@ -11488,7 +11499,7 @@ function limitationsList(res) {
   const L = [
     'Incremental (rate-form) thermoelasticity with element birth for all non-solder materials in the global model: stress builds up as dσ = D(T) (dε − α dT) along the temperature path, from each material\'s birth temperature down the process chain to 25 °C and from 25 °C to each evaluation temperature, in steps of at most 30 °C (10 °C within 15 °C of a Tg), each with the mean stiffness over the step and the exact integral of D α dT as the thermal load, which differs from 2 °C steps by at most 0.25 %. A polymer cooled through its glass transition therefore carries its rubbery modulus for the contraction made while rubbery; a total (secant) form, which applies the current modulus to the whole contraction since birth, would overstate its stress several times (verification V16). Elastic only, so no viscoelastic relaxation; each polymer\'s effective stress-free temperature is exposed as a knob (default: cure temperature).',
     'Polymer properties above Tg are partly estimated (rubbery moduli of ABF and solder resist, all Poisson ratios of polymers, TIM gel; for most underfills and adhesives added from data sheets, the rubbery modulus is a fixed fraction of the glassy modulus). Values flagged Estimated should be replaced by measured or DMA data.',
-    'Substrate layers are homogenized with mixture rules (Voigt / Reuss / Turner) per physical layer and integrated layer by layer within twelve element bands (the bottom build-up, the core and the top build-up are each split into four); every other region except the TIM has at least four element layers through its thickness (the compliant TIM has one, which changes no result by more than 0.3 %); a Cu pattern is treated as a uniform fraction, not as routed geometry.',
+    'Substrate layers are homogenized with mixture rules (Voigt / Reuss / Turner) per physical layer and integrated layer by layer within element bands (the bottom build-up, the core and the top build-up are each split into as many bands as the preset\'s element layers per region: 1 at Draft, 2 at Standard, 4 at Fine); every other region except the TIM has at least that many element layers through its thickness (the compliant TIM has one, which changes no result by more than 0.3 %); the incompatible-mode elements carry plate bending with one layer, so Draft and Standard resolve warpage and die interior stress well but through-thickness detail (bump layer, fillet, underfill tractions, cross-sections) best at Fine; a Cu pattern is treated as a uniform fraction, not as routed geometry.',
     'In-plane grid: graded from h_min at every die edge and, in lidded and stiffened packages, at the lid foot or stiffener ring edges too, where the adhesive and the top solder resist carry a stress concentration. The ring refinement is added after the DOF cap has set h_min, so it never coarsens the dies; the DOF ends about 1.5 times above the preset cap (more memory than a browser tab allows at Fine; the desktop app is bounded by the computer only).',
     'Bumps are homogenized in the global model as a superposed solder phase and underfill phase sharing nodes (Voigt). The solder phase is an array of separate columns between the two pads: axial stiffness E and transverse shear stiffness G only, no in-plane membrane stiffness or Poisson coupling (a numerical floor of 0.1 %), since separate joints carry no in-plane force and do not take the die\'s in-plane strain. The bump screening drives each joint the same way, as a free-standing column: its axial and transverse shear strains follow the bump layer, its in-plane stresses are zero.',
     'The underfill fillet is a linear wedge: box elements under its sloped surface carry their stiffness and thermal load scaled by the fraction of the box below the surface, so the fillet acts as a continuous wedge without sloped elements; peel and shear at the fillet surface are approximate.',
@@ -11499,7 +11510,7 @@ function limitationsList(res) {
     'Stacked modules (a Si base die or interposer, or an organic RDL interposer, with one layer of chiplets): each module is built first as a free body, before the substrate stage: chiplets, base and DDI microbumps are born at the chiplet join temperature, then the wafer underfill at its cure temperature (wCUF fill), then the wafer mold at its cure temperature; the module then goes to the substrate stress-free temperature and is joined by its flip chip bumps in S1 like a die. The constraint of the wafer before singulation and of a carrier (RDL-first interposers) is ignored. During those stages each module rests on a statically determinate three-point support on its base, which carries no force under its self-equilibrated thermal load, and the rest of the package, not yet born, is held still and takes no part (verification V18). With stacked modules the mesh sizes grow under the DOF cap at most to 4 times the height of the lowest module, so its thin layers stay solvable and resolved; thin modules can then keep even Draft meshes above the cap.',
     'Stacked-module geometry: the wafer mold fills every module area not covered by chiplet silicon, out to the base edge and flush with the chiplet backsides (no overmold); the wafer underfill fillet is a linear wedge around each chiplet on the base top (cells it cuts carry wCUF and mold by their volume fractions), clipped at the base edge; the flip chip underfill fillet height is a fraction of the module height; the lid TIM covers the whole module top. All chiplets share one thickness and one DDI microbump technology.',
     'DDI microbumps are homogenized like the flip chip bumps: a microbump column phase superposed on the DDI fill (wafer underfill or mold), the column a Cu pillar and a solder cap in series (axial and shear stiffness only). TSV copper in a Si base is superposed on the Si by the parallel (Voigt) rule; the BEOL of the base and chiplets is not modeled. An RDL interposer is homogenized per layer like the substrate and integrated layer by layer.',
-    'Stacked modules add element layers (at least four through the base, the DDI gap and the chiplets), so Draft cannot always reach its DOF cap: h_min then stops at the preset h_max and the mesh stays above the cap. The solver needs about two to three times the iterations per step of a monolithic package of the same size (more in the first module steps on coarse meshes), so module packages take markedly longer to run.',
+    'Stacked modules add element layers (at least the preset\'s layers per region through the base, the DDI gap and the chiplets), so Draft cannot always reach its DOF cap: h_min then stops at the preset h_max and the mesh stays above the cap. The solver needs about two to three times the iterations per step of a monolithic package of the same size (more in the first module steps on coarse meshes), so module packages take markedly longer to run.',
     'Results of stacked modules: warpage; die stress on every chiplet and Si base; flip chip bump loads, screening and underfill tractions under each module base; DDI microbump loads (as-assembled, and at the end of chiplet join before the DDI fill, an elastic upper bound like the chip-join state) and screening, each microbump a free-standing column of its solder cap on an elastic Cu pillar in series (at most 5000 microbumps per chiplet, outer rows and corner blocks kept); wafer underfill (or mold) tractions at every chiplet. Bump submodels need a Si base at least 50 µm thick (not under an RDL interposer) and are not available for microbumps.',
     'Silicon elastic constants are temperature independent; Cu and metals are elastic.',
     'Poisson ratios are clamped to 0.45 in the global hexahedral elements (B-bar elements in the submodel accept up to 0.49).',

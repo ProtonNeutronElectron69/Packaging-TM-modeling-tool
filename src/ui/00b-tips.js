@@ -235,7 +235,7 @@ const TIPS = {
   exag3d: 'Multiplies the displacements before drawing.',
   color3d: 'Colour the surface by out-of-plane displacement, by the nodal max principal stress of each part, or by part.',
   partToggle: 'Show or hide this part.',
-  mesh3d: 'Overlay the element edges on the outer faces of every shown part: the in-plane grid, refined near die edges, and the element layers through each region (at least four per region except the TIM). Hide parts to see the mesh of the parts under them. Superposed solder and underfill elements of the bump layer share one cell and are drawn once.',
+  mesh3d: 'Overlay the element edges on the outer faces of every shown part: the in-plane grid, refined near die edges, and the element layers through each region (at least 1 at Draft, 2 at Standard and 4 at Fine per region; the TIM has one). Hide parts to see the mesh of the parts under them. Superposed solder and underfill elements of the bump layer share one cell and are drawn once.',
   // sensitivity
   sensInput: 'Input moved to the low and high end of its range in the tornado run. "est." marks Estimated database values.',
   sensRun: 'Runs 2 × (inputs) + 1 Draft analyses on the number of workers chosen under Parallel workers (step 6); results are cached by configuration hash.',

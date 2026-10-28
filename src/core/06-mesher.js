@@ -253,12 +253,14 @@ function zPlanes(g) {
   if (g.stiff) { add(g.stiff.zAdhTop, 'stiffener adhesive top', 2); add(g.stiff.zTop, 'stiffener top', 2); }
   const merged = mergeFeatures(pl, CONST.PLANE_MERGE_TOL);
   const base = merged.lines;
-  // element layers per band: die bands (except slivers) and the lid plate start at two layers; then every
-  // physical region gets at least MIN_LAYERS_PER_REGION layers through its thickness (bump layer, fillet
-  // height, each die, lid plate and foot, adhesives, stiffener), each extra layer going to the band of
-  // the region with the largest element thickness. The TIM keeps one layer: the gel carries almost no load,
-  // and four layers changed no result by more than 0.3 % while adding PCG iterations on the lid stages.
+  // element layers per band: die bands (except slivers) and the lid plate start at half the preset minimum
+  // (rounded up: one at Draft and Standard, two at Fine); then every physical region gets at least the preset
+  // minimum g.layers through its thickness (Draft 1, Standard 2, Fine 4: bump layer, fillet height, each die,
+  // lid plate and foot, adhesives, stiffener, module layers), each extra layer going to the band of the region
+  // with the largest element thickness. The TIM keeps one layer: the gel carries almost no load, and four
+  // layers changed no result by more than 0.3 % while adding PCG iterations on the lid stages.
   // Substrate bands stay one layer each (substrateBands already splits the build-up and core groups).
+  const nmin = g.layers, nstart = Math.ceil(nmin / 2);
   const nsub = [];
   for (let b = 0; b + 1 < base.length; b++) {
     const za = base[b], zb = base[b + 1], zc = 0.5 * (za + zb);
@@ -266,8 +268,8 @@ function zPlanes(g) {
     if (zb > g.zt + 1e-9) {
       let tDie = Infinity;
       for (const d of g.dies) if (zc > g.zaf && zc < d.ztop) tDie = Math.min(tDie, d.t);
-      if (isFinite(tDie) && zb - za >= CONST.SLIVER_FRACTION * tDie) n = 2;
-      if (g.lid && zc > g.lid.zLidBot && zc < g.lid.zLidTop) n = 2;
+      if (isFinite(tDie) && zb - za >= CONST.SLIVER_FRACTION * tDie) n = nstart;
+      if (g.lid && zc > g.lid.zLidBot && zc < g.lid.zLidTop) n = nstart;
     }
     nsub.push(n);
   }
@@ -289,7 +291,7 @@ function zPlanes(g) {
     for (let b = 0; b + 1 < base.length; b++) { const zc = 0.5 * (base[b] + base[b + 1]); if (zc > za && zc < zb) ids.push(b); }
     if (!ids.length) continue;
     let total = ids.reduce((t, b) => t + nsub[b], 0);
-    while (total < CONST.MIN_LAYERS_PER_REGION) {
+    while (total < nmin) {
       let best = ids[0];
       for (const b of ids) if ((base[b + 1] - base[b]) / nsub[b] > (base[best + 1] - base[best]) / nsub[best]) best = b;
       nsub[best]++; total++;
@@ -452,7 +454,7 @@ function makePackageAssign(g, xs, ys, zs, G, layerBand) {
 
 function presetParams(cfg, override) {
   const p = Object.assign({}, CONST.MESH_PRESETS[(override && override.preset) || cfg.mesh.preset || 'standard']);
-  if (override) for (const k of ['hmin', 'hmax', 'cap']) if (override[k] != null) p[k] = override[k];
+  if (override) for (const k of ['hmin', 'hmax', 'cap', 'layers']) if (override[k] != null) p[k] = override[k];
   return p;
 }
 
@@ -465,8 +467,8 @@ function presetParams(cfg, override) {
  */
 function buildPackageMesh(cfg, override) {
   const t0 = nowMs();
-  const g = deriveGeometry(cfg);
   const pre = presetParams(cfg, override);
+  const g = deriveGeometry(cfg, pre.layers);
   const fx = axisFeatures(g, 'x'), fy = axisFeatures(g, 'y');
   const mx = mergeFeatures(fx.feats, CONST.FEATURE_SNAP_TOL), my = mergeFeatures(fy.feats, CONST.FEATURE_SNAP_TOL);
   const zp = zPlanes(g);

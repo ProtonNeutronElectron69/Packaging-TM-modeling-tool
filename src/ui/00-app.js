@@ -109,7 +109,7 @@ const HELP = {
   ramp: 'Temperature ramp rate of the cycle.',
   dwell: 'Dwell time at each extreme.',
   cycles: 'Simulated cycles for the submodel; the last cycle is reported as the stabilized one.',
-  preset: 'Mesh fidelity. Draft for previews and sensitivity, Standard for normal use, Fine for convergence checks.',
+  preset: 'Mesh fidelity. Draft for previews and sensitivity, Standard for normal use, Fine for convergence checks. Every region except the TIM gets at least 1 (Draft), 2 (Standard) or 4 (Fine) element layers through its thickness.',
   snap: 'Grid snap for die dragging.',
   residual: 'Residual Cu ratio of the pattern layer after etching; used in the Voigt / Reuss mixture rules.',
   via: 'Area fraction of Cu vias in the dielectric layer.',

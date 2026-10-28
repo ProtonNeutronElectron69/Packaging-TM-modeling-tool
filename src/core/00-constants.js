@@ -38,10 +38,9 @@ const CONST = Object.freeze({
   REFINE_ZONE_FACTOR: 2.0,   // refinement zone = 2 x local die thickness
   MIN_ELEMS_ACROSS_RING: 3,  // lid foot, stiffener ring
   RING_EDGE_ZONE: 0,         // refinement zone at lid foot and stiffener edges (x ring thickness): grading starts at the edge
-  SLIVER_FRACTION: 0.125,    // die bands thinner than this x die thickness start at one element layer, others at two
+  SLIVER_FRACTION: 0.125,    // die bands thinner than this x die thickness start at one element layer, others at half the preset minimum
   MIN_ELEMS_ACROSS_FILLET: 6, // underfill fillet width, at most (see FILLET_COL_MIN_FRACTION)
   FILLET_COL_MIN_FRACTION: 0.5, // fillet columns no narrower than this x h_min (at least MIN_ELEMS_ACROSS_RING)
-  MIN_LAYERS_PER_REGION: 4,  // element layers through every region's thickness (each substrate group too)
   FILLET_FILL_SAMPLES: 4,    // in-plane samples per side for the filled fraction of a fillet cell
   FILLET_FILL_MIN: 0.05,     // fillet cells filled less than this are left void
   ASPECT_WARN: 50,
@@ -52,9 +51,10 @@ const CONST = Object.freeze({
   CAP_MAX_ITER: 12,
   CONSTRAINT_SPAN: 0.4,      // 3-2-1 points at 40 % of the smaller half-dimension
   MESH_PRESETS: {
-    draft:    { label: 'Draft',    hmin: 0.6,  hmax: 3.0, cap: 75000 },
-    standard: { label: 'Standard', hmin: 0.25, hmax: 1.5, cap: 330000 },
-    fine:     { label: 'Fine',     hmin: 0.10, hmax: 0.6, cap: 850000 },
+    // layers: element layers at least through every region's thickness except the TIM (each substrate and RDL group too)
+    draft:    { label: 'Draft',    hmin: 0.6,  hmax: 3.0, cap: 75000,  layers: 1 },
+    standard: { label: 'Standard', hmin: 0.25, hmax: 1.5, cap: 330000, layers: 2 },
+    fine:     { label: 'Fine',     hmin: 0.10, hmax: 0.6, cap: 850000, layers: 4 },
   },
   // ---- solver -------------------------------------------------------------
   PCG_TOL: 1e-8,

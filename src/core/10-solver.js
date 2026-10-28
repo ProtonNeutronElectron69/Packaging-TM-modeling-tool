@@ -251,8 +251,11 @@ const COMPLIANT_PARTS = new Set([PART.SOLDER, PART.UF_BUMP, PART.UF_FILLET, PART
  * The Jacobi scaling s of the fine system is folded into the weights
  * (x_scaled = S^-1 u).
  */
-function buildShellLevel(level, s, mesh) {
+function buildShellLevel(level, s, mesh, act) {
   const nx = level.nx, ny = level.ny, nz = level.nz, ncy = ny - 1, ncz = nz - 1;
+  // act (stacked-module stages): the elements born in the stage and the nodes they touch; the others are held,
+  // so they count as void and stay out of every aggregate
+  const elemOn = e => e >= 0 && (!act || act.elems[e] === 1);
   const ncol = nx * ny;
   const colStartC = new Int32Array(ncol + 1);
   const nodeAgg = new Int32Array(level.nn).fill(-1);
@@ -264,7 +267,7 @@ function buildShellLevel(level, s, mesh) {
     let any = false, stiff = false;
     for (let q = 0; q < 2; q++) {
       const e = mesh.cellElems[2 * c + q];
-      if (e < 0) continue;
+      if (!elemOn(e)) continue;
       any = true;
       if (!COMPLIANT_PARTS.has(mesh.ePart[e])) stiff = true;
     }
@@ -272,7 +275,8 @@ function buildShellLevel(level, s, mesh) {
   };
   const hasElem = (i, j, k) => {
     if (!mesh) return true;
-    return mesh.cellElems[2 * ((i * ncy + j) * ncz + k)] >= 0;
+    const c = 2 * ((i * ncy + j) * ncz + k);
+    return elemOn(mesh.cellElems[c]) || elemOn(mesh.cellElems[c + 1]);
   };
   const elemClass = (i, j, k) => (k < 0 || k >= ncz || !hasElem(i, j, k)) ? 0 : (isCompliant(i, j, k) ? 1 : 2); // 0 none, 1 compliant, 2 stiff
   for (let c = 0; c < ncol; c++) {
@@ -283,7 +287,7 @@ function buildShellLevel(level, s, mesh) {
     let cur = null, prevK = -2, prevType = 0;
     for (let k = 0; k < nz; k++) {
       const n = level.nodeId[c * nz + k];
-      if (n < 0) { cur = null; prevK = -2; continue; }
+      if (n < 0 || (act && !act.nodes[n])) { cur = null; prevK = -2; continue; }
       const below = elemClass(i, j, k - 1), above = elemClass(i, j, k);
       const type = (below === 2 || above === 2) ? 2 : 1;
       let joined = false;
@@ -323,14 +327,18 @@ function buildShellLevel(level, s, mesh) {
   return coarse;
 }
 
-/** Prolongation weights (3 x 6 per node) of the solid -> shell transfer. */
+/** Prolongation weights (3 x 6 per node) of the solid -> shell transfer; a node in no aggregate (held) has none. */
 function shellWeights(level, s) {
   const nn = level.nn, nodeAgg = level.nodeAgg, zref = level.coarse.zref;
-  const ptr = new Int32Array(nn + 1), idx = new Int32Array(nn), W = new Float64Array(nn * 18);
-  for (let n = 0; n < nn; n++) {
-    ptr[n + 1] = n + 1; idx[n] = nodeAgg[n];
+  let ne = 0;
+  for (let n = 0; n < nn; n++) if (nodeAgg[n] >= 0) ne++;
+  const ptr = new Int32Array(nn + 1), idx = new Int32Array(ne), W = new Float64Array(ne * 18);
+  for (let n = 0, q = 0; n < nn; n++) {
+    ptr[n + 1] = ptr[n];
+    if (nodeAgg[n] < 0) continue;
+    ptr[n + 1]++; idx[q] = nodeAgg[n];
     const zp = level.coords[3 * n + 2] - zref[nodeAgg[n]];
-    const o = 18 * n;
+    const o = 18 * q++;
     W[o] = 1 / s[3 * n]; W[o + 4] = zp / s[3 * n];
     W[o + 7] = 1 / s[3 * n + 1]; W[o + 9] = -zp / s[3 * n + 1];
     W[o + 14] = 1 / s[3 * n + 2]; W[o + 17] = zp / s[3 * n + 2];
@@ -613,7 +621,7 @@ class MultigridPC {
     if (this.opts.keepFeatures !== false && mesh.featureX) { fine.keepX = Array.from(mesh.featureX); fine.keepY = Array.from(mesh.featureY); }
     this.levels = [fine];
     factorColumns(fine);
-    let lv = buildShellLevel(fine, s, mesh.cellElems ? mesh : null);
+    let lv = buildShellLevel(fine, s, mesh.cellElems ? mesh : null, this.opts.active || null);
     this.levels.push(lv);
     for (let guard = 0; guard < 20; guard++) {
       factorShellColumns(lv);
@@ -854,10 +862,14 @@ class LinearSolver {
   _buildPC(kind) {
     const m = this.model;
     const t0 = nowMs();
-    if (this.pc && this.pcKind === kind) {
+    // the multigrid aggregates follow the elements in play: the whole package, or in a stacked-module stage only the
+    // born module parts (model.activeSet()), so a change between them builds a new hierarchy instead of updating
+    const key = m.activeKey || 'all';
+    if (this.pc && this.pcKind === kind && (kind !== 'mg' || this.mgKey === key)) {
       if (kind === 'mg') this.pc.update(m.val, this.s); else this.pc.update(m.val);
-    } else if (kind === 'mg') this.pc = new MultigridPC(m.mesh, m.pattern, m.val, this.s, this.opts.mg);
+    } else if (kind === 'mg') this.pc = new MultigridPC(m.mesh, m.pattern, m.val, this.s, key === 'all' ? this.opts.mg : Object.assign({}, this.opts.mg, { active: m.activeSet() }));
     else this.pc = new ICPC(m.pattern, m.val);
+    this.mgKey = key;
     this.pcKind = kind;
     this.needRebuild = false;
     return nowMs() - t0;

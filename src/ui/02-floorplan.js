@@ -1,11 +1,39 @@
 // ===== UI: floorplan editor and cross-section (Section 4.3) =================
 
+// One colour per kind of material, shared by the floorplan, the section sketch and the 3D view: every silicon part
+// (die, chiplet, Si base) blue, every underfill (bump layer, fillets, wafer underfill) orange, lid and stiffener grey,
+// RDL interposer light brown, wafer mold dark grey
 const PART_COLORS = {
-  substrate: ['#d9c7a5', '#6b5a3c'], die: ['#7aa7d6', '#2d4f7c'], bump: ['#b8b8b8', '#6e6e6e'], uf: ['#e9b86b', '#8a5f12'],
-  lid: ['#c08a5a', '#6e4a2a'], adh: ['#9ec9a5', '#3a6b45'], tim: ['#d7a0d7', '#7b3f7b'], stiff: ['#c08a5a', '#6e4a2a'], core: ['#bfa98a', '#5b4a30'], cu: ['#d99a5b', '#7a4d1e'], sr: ['#7bb67b', '#2f5f2f'],
-  base: ['#9db0c4', '#3f5468'], rdl: ['#c7b27c', '#6a5a2c'], mold: ['#8e8e8e', '#454545'], chiplet: ['#7aa7d6', '#2d4f7c'],
+  substrate: ['#e2d5bb', '#6b5a3c'], si: ['#6d9fd8', '#3a6aa3'], uf: ['#f2a541', '#b06d17'], solder: ['#cfd3d8', '#8c9298'],
+  metal: ['#a7acb2', '#959ba3'], adh: ['#9ec9a5', '#3a6b45'], tim: ['#d7a0d7', '#7b3f7b'], core: ['#c9b796', '#5b4a30'], cu: ['#b9773f', '#8a5426'], sr: ['#7bb67b', '#2f5f2f'],
+  rdl: ['#cfa173', '#94693d'], mold: ['#4e535a', '#5b616b'],
 };
+// names used by the drawing code for the same colours
+Object.assign(PART_COLORS, { die: PART_COLORS.si, chiplet: PART_COLORS.si, base: PART_COLORS.si, lid: PART_COLORS.metal, stiff: PART_COLORS.metal });
 function partColor(key, dark) { return PART_COLORS[key][dark ? 1 : 0]; }
+/** Colour key entries for the floorplan and the section sketch: the materials present in the current geometry. */
+function partKeyItems(g) {
+  const items = [['si', 'Silicon (dies, chiplets, Si bases)'], ['uf', 'Underfill (bump layer, fillets' + (g.wcuf ? ', wafer underfill' : '') + ')']];
+  if (g.modules && g.modules.length) {
+    items.push(['mold', 'Wafer mold' + (g.stack && g.stack.fill === 'mold' ? ' (also the DDI fill)' : '')]);
+    if (g.modules.some(m => m.base === 'rdl')) items.push(['rdl', 'RDL interposer']);
+  }
+  if (g.lid) items.push(['tim', 'TIM1'], ['metal', 'Lid'], ['adh', 'Adhesive']);
+  else if (g.stiff) items.push(['metal', 'Stiffener'], ['adh', 'Adhesive']);
+  items.push(['substrate', 'Substrate dielectric'], ['cu', 'Substrate Cu'], ['core', 'Core'], ['sr', 'Solder resist']);
+  return items;
+}
+/** Draw a centred label inside a box of w × h px: the full text on one line, else name and size on two lines, else the short name, else nothing. */
+function fitLabel(ctx, cx, cy, w, h, name, size, short, px) {
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const font = s => { ctx.font = s + 'px ' + cssVar('--font'); };
+  const fits = (t, s) => { font(s); return ctx.measureText(t).width <= w - 6; };
+  const one = name + ' (' + size + ')';
+  if (h >= px + 4 && fits(one, px)) { ctx.fillText(one, cx, cy); return; }
+  if (h >= 2 * px + 6 && fits(name, px) && fits(size, px)) { font(px); ctx.fillText(name, cx, cy - 0.6 * px); ctx.fillText(size, cx, cy + 0.6 * px); return; }
+  if (short && h >= px + 2 && fits(short, px)) { font(px); ctx.fillText(short, cx, cy); return; }
+  if (short && h >= 12 && fits(short, 10)) { font(10); ctx.fillText(short, cx, cy); }
+}
 function isDark() { return getComputedStyle(document.documentElement).getPropertyValue('color-scheme').trim() === 'dark'; }
 
 const floorplan = {
@@ -143,8 +171,8 @@ const floorplan = {
     const gstep = this.scale > 30 ? 1 : (this.scale > 8 ? 5 : 10);
     ctx.strokeStyle = grid; ctx.lineWidth = 1;
     const sx = cfg.substrate.sx / 2, sy = cfg.substrate.sy / 2;
-    for (let x = -Math.ceil(sx / gstep) * gstep; x <= sx; x += gstep) { ctx.beginPath(); ctx.moveTo(X(x), Y(-sy)); ctx.lineTo(X(x), Y(sy)); ctx.stroke(); }
-    for (let y = -Math.ceil(sy / gstep) * gstep; y <= sy; y += gstep) { ctx.beginPath(); ctx.moveTo(X(-sx), Y(y)); ctx.lineTo(X(sx), Y(y)); ctx.stroke(); }
+    for (let x = -Math.floor(sx / gstep) * gstep; x <= sx; x += gstep) { ctx.beginPath(); ctx.moveTo(X(x), Y(-sy)); ctx.lineTo(X(x), Y(sy)); ctx.stroke(); }
+    for (let y = -Math.floor(sy / gstep) * gstep; y <= sy; y += gstep) { ctx.beginPath(); ctx.moveTo(X(-sx), Y(y)); ctx.lineTo(X(sx), Y(y)); ctx.stroke(); }
     // substrate
     ctx.fillStyle = partColor('substrate', dark); ctx.globalAlpha = 0.35;
     ctx.fillRect(X(-sx), Y(sy), cfg.substrate.sx * this.scale, cfg.substrate.sy * this.scale);
@@ -182,14 +210,14 @@ const floorplan = {
       const errChips = new Set(app.validation.errors.filter(e => e.chip !== undefined).map(e => e.die + ':' + e.chip));
       g.dies.forEach((d, i) => {
         if (d.kind === 'module') { this.drawModule(ctx, X, Y, d, i, errDies.has(i), errChips, dark); return; }
-        ctx.fillStyle = partColor('die', dark); ctx.globalAlpha = 0.75;
+        ctx.fillStyle = partColor('die', dark); ctx.globalAlpha = 0.85;
         ctx.fillRect(X(d.rect.x0), Y(d.rect.y1), d.w * this.scale, d.h * this.scale);
         ctx.globalAlpha = 1;
         ctx.strokeStyle = errDies.has(i) ? cssVar('--err') : (i === app.selectedDie ? cssVar('--accent') : text); ctx.lineWidth = errDies.has(i) ? 3 : (i === app.selectedDie ? 2.5 : 1.2);
         ctx.strokeRect(X(d.rect.x0), Y(d.rect.y1), d.w * this.scale, d.h * this.scale);
         if (d.field) { ctx.setLineDash([3, 3]); ctx.strokeStyle = muted; ctx.lineWidth = 1; ctx.strokeRect(X(d.field.x0), Y(d.field.y1), (d.field.x1 - d.field.x0) * this.scale, (d.field.y1 - d.field.y0) * this.scale); if (d.inner) ctx.strokeRect(X(d.inner.x0), Y(d.inner.y1), (d.inner.x1 - d.inner.x0) * this.scale, (d.inner.y1 - d.inner.y0) * this.scale); ctx.setLineDash([]); }
-        ctx.fillStyle = text; ctx.font = '12px ' + cssVar('--font'); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(d.name + ' (' + d.w + ' × ' + d.h + ')', X(d.cx), Y(d.cy));
+        ctx.fillStyle = text;
+        fitLabel(ctx, X(d.cx), Y(d.cy), d.w * this.scale, d.h * this.scale, d.name, d.w + ' × ' + d.h, d.id, 12);
       });
     }
     // cut line
@@ -203,9 +231,9 @@ const floorplan = {
     else { ctx.textAlign = 'center'; ctx.fillText('A', X(cl.pos) + 8, Y(sy + 2) + 10); ctx.fillText("A'", X(cl.pos) + 8, Y(-sy - 2) - 4); }
     // rulers
     ctx.fillStyle = muted; ctx.font = '10px ' + cssVar('--font'); ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-    for (let x = -Math.ceil(sx / gstep) * gstep; x <= sx; x += gstep) ctx.fillText(String(x), X(x), Y(-sy) + 3);
+    for (let x = -Math.floor(sx / gstep) * gstep; x <= sx; x += gstep) ctx.fillText(String(x), X(x), Y(-sy) + 3);
     ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-    for (let y = -Math.ceil(sy / gstep) * gstep; y <= sy; y += gstep) ctx.fillText(String(y), X(-sx) - 3, Y(y));
+    for (let y = -Math.floor(sy / gstep) * gstep; y <= sy; y += gstep) ctx.fillText(String(y), X(-sx) - 3, Y(y));
     ctx.textAlign = 'left'; ctx.textBaseline = 'bottom'; ctx.fillText('mm, origin at substrate center; x right, y up', X(-sx), Y(sy) - 4);
     this.drawReadout();
   },
@@ -217,7 +245,7 @@ const floorplan = {
     const fade = app.results && app.showOverlay !== 'none' ? 0.4 : 1;
     const box = (q, key, alpha) => { ctx.fillStyle = partColor(key, dark); ctx.globalAlpha = alpha * fade; ctx.fillRect(X(q.x0), Y(q.y1), (q.x1 - q.x0) * sc, (q.y1 - q.y0) * sc); ctx.globalAlpha = 1; };
     box(r, d.base === 'rdl' ? 'rdl' : 'base', 0.8);
-    box(r, 'mold', 0.35);
+    box(r, 'mold', 0.45);
     const g = app.geom;
     if (g.wcuf) {
       ctx.save(); ctx.beginPath(); ctx.rect(X(r.x0), Y(r.y1), d.w * sc, d.h * sc); ctx.clip();
@@ -233,8 +261,8 @@ const floorplan = {
       ctx.strokeStyle = bad ? cssVar('--err') : (sel ? cssVar('--accent') : text); ctx.lineWidth = bad ? 3 : (sel ? 2.5 : 1);
       ctx.strokeRect(X(c.rect.x0), Y(c.rect.y1), c.w * sc, c.h * sc);
       if (c.field) { ctx.setLineDash([2, 3]); ctx.strokeStyle = muted; ctx.lineWidth = 1; ctx.strokeRect(X(c.field.x0), Y(c.field.y1), (c.field.x1 - c.field.x0) * sc, (c.field.y1 - c.field.y0) * sc); if (c.inner) ctx.strokeRect(X(c.inner.x0), Y(c.inner.y1), (c.inner.x1 - c.inner.x0) * sc, (c.inner.y1 - c.inner.y0) * sc); ctx.setLineDash([]); }
-      ctx.fillStyle = text; ctx.font = '11px ' + cssVar('--font'); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(c.short + ' (' + c.w + ' × ' + c.h + ')', X(c.cx), Y(c.cy));
+      ctx.fillStyle = text;
+      fitLabel(ctx, X(c.cx), Y(c.cy), c.w * sc, c.h * sc, c.short, c.w + ' × ' + c.h, c.id, 11);
     });
     ctx.strokeStyle = err ? cssVar('--err') : (selMod && app.selectedChiplet < 0 ? cssVar('--accent') : text); ctx.lineWidth = err ? 3 : (selMod && app.selectedChiplet < 0 ? 2.5 : 1.5);
     ctx.strokeRect(X(r.x0), Y(r.y1), d.w * sc, d.h * sc);
@@ -335,7 +363,7 @@ const floorplan = {
       lines.push('DNP (center to farthest die corner): ' + fmt(cl.dnp, 2) + ' mm');
     }
     if (this.hover) lines.push('cursor: ' + fmt(this.hover.x, 2) + ', ' + fmt(this.hover.y, 2) + ' mm');
-    el.textContent = lines.join('\n');
+    el.textContent = lines.join('   ·   ');
   },
 };
 
@@ -383,24 +411,30 @@ const xsection = {
     const zmax = Math.max(g.zt, ...g.dies.map(d => d.ztop), g.lid ? g.lid.zLidTop : 0, g.stiff ? g.stiff.zTop : 0);
     const ex = app.exaggeration;
     const sX = (w - 60) / L;
-    const sZ = Math.min(sX * ex, (H - 40) / zmax);
+    const top = 36;  // title row and the object names above the package
+    const sZ = Math.min(sX * ex, (H - 24 - top) / zmax);
     const X = s => 30 + (s + L / 2) * sX, Z = z => H - 24 - z * sZ;
-    const rect = (s0, s1, z0, z1, key, alpha) => { ctx.fillStyle = partColor(key, dark); ctx.globalAlpha = alpha === undefined ? 0.9 : alpha; ctx.fillRect(X(s0), Z(z1), (s1 - s0) * sX, (z1 - z0) * sZ); ctx.globalAlpha = 1; };
+    // opaque fills snapped to whole pixels in x and overlapping the next slice by a pixel, so the slices of the sampled
+    // section join without seams at any display scale
+    const rect = (s0, s1, z0, z1, key) => { if (z1 <= z0) return; ctx.fillStyle = partColor(key, dark); const x0 = Math.floor(X(s0)), x1 = Math.ceil(X(s1)) + (s1 < L / 2 ? 1 : 0); ctx.fillRect(x0, Z(z1), x1 - x0, (z1 - z0) * sZ); };
     // substrate rows
     for (const r of g.sub.rows) rect(-L / 2, L / 2, r.z0, r.z1, r.row.type === 'core' ? 'core' : (r.row.type === 'cu' ? 'cu' : (r.row.type === 'sr' ? 'sr' : 'substrate')));
     // sample along the cut
     const n = 400;
     const inter = (s) => { const x = along === 'x' ? s : cl.pos, y = along === 'x' ? cl.pos : s; return { x, y }; };
+    const ddiFill = g.stack && g.stack.fill === 'mold' ? 'mold' : 'uf';
+    const hit = new Array(n).fill(null);  // object under each sample, for the names above the package
     // fillet and die and lid per sample column
     for (let k = 0; k < n; k++) {
       const s0 = -L / 2 + L * k / n, s1 = -L / 2 + L * (k + 1) / n, sm = 0.5 * (s0 + s1);
       const { x, y } = inter(sm);
       const d = C.dieAt(g, x, y);
+      hit[k] = d;
       if (d && d.kind === 'module') {
-        // stacked module: C4 bumps, base, DDI gap, then chiplet or wafer underfill fillet and mold
-        rect(s0, s1, g.zt, g.zaf, 'bump'); rect(s0, s1, g.zaf, d.zBaseTop, d.base === 'rdl' ? 'rdl' : 'base');
+        // stacked module: underfilled flip chip bump layer, base, DDI gap, then chiplet or wafer underfill fillet and mold
+        rect(s0, s1, g.zt, g.zaf, 'uf'); rect(s0, s1, g.zaf, d.zBaseTop, d.base === 'rdl' ? 'rdl' : 'si');
         const c = C.chipletAt(d, x, y);
-        if (c) { rect(s0, s1, d.zBaseTop, d.zDdiTop, 'bump'); rect(s0, s1, d.zDdiTop, d.ztop, 'chiplet'); }
+        if (c) { rect(s0, s1, d.zBaseTop, d.zDdiTop, ddiFill); rect(s0, s1, d.zDdiTop, d.ztop, 'si'); }
         else {
           const w = C.wcufHeight(g, d, x, y);
           rect(s0, s1, d.zBaseTop, d.ztop, 'mold');
@@ -408,7 +442,7 @@ const xsection = {
         }
         if (g.lid) rect(s0, s1, d.ztop, g.lid.zLidBot, 'tim');
       } else if (d) {
-        rect(s0, s1, g.zt, g.zaf, 'bump'); rect(s0, s1, g.zaf, d.ztop, 'die');
+        rect(s0, s1, g.zt, g.zaf, 'uf'); rect(s0, s1, g.zaf, d.ztop, 'si');
         if (g.lid) rect(s0, s1, d.ztop, g.lid.zLidBot, 'tim');
       } else {
         const f = C.filletHeight(g, x, y);
@@ -424,12 +458,32 @@ const xsection = {
         if (inOuter && !inInner) { rect(s0, s1, g.zt, g.stiff.zAdhTop, 'adh'); rect(s0, s1, g.stiff.zAdhTop, g.stiff.zTop, 'stiff'); }
       }
     }
+    // names of the dies and modules the cut crosses, in one row above the package
+    ctx.fillStyle = text; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    for (let k = 0; k < n;) {
+      const d = hit[k]; let k1 = k + 1;
+      while (k1 < n && hit[k1] === d) k1++;
+      if (d) {
+        const xa = X(-L / 2 + L * k / n), xb = X(-L / 2 + L * k1 / n), yl = Z(zmax) - 3;
+        for (const [t, px] of [[d.name, 11], [d.id, 11], [d.id, 10]]) { ctx.font = px + 'px ' + cssVar('--font'); if (ctx.measureText(t).width <= xb - xa) { ctx.fillText(t, 0.5 * (xa + xb), yl); break; } }
+      }
+      k = k1;
+    }
     // axis
     ctx.strokeStyle = muted; ctx.beginPath(); ctx.moveTo(X(-L / 2), Z(0)); ctx.lineTo(X(L / 2), Z(0)); ctx.stroke();
     ctx.fillStyle = text; ctx.font = '11px ' + cssVar('--font'); ctx.textAlign = 'left'; ctx.textBaseline = 'top';
     ctx.fillText('Section A-A\' along ' + along + ' at ' + (along === 'x' ? 'y' : 'x') + ' = ' + fmt(cl.pos, 2) + ' mm, vertical exaggeration ' + ex + '×', 30, 4);
     ctx.textAlign = 'right'; ctx.fillText('total substrate ' + fmt(g.zt * 1000, 0) + ' µm; z up', w - 10, 4);
+    this.drawKey(g, dark);
     ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
     for (const t of ticks(-L / 2, L / 2, 8)) ctx.fillText(String(t), X(t), H - 4);
+  },
+  /** Colour key under the section, shared with the floorplan; rebuilt only when its entries change. */
+  drawKey(g, dark) {
+    const el = $('#xs-key'); if (!el) return;
+    const items = partKeyItems(g), sig = (dark ? 'd' : 'l') + items.map(i => i[0] + i[1]).join('|');
+    if (el.dataset.sig === sig) return;
+    el.dataset.sig = sig; el.innerHTML = '';
+    el.append(h('span', null, 'Colours (floorplan and section):'), ...items.map(([key, label]) => h('span', { class: 'key-item' }, h('span', { class: 'swatch', style: 'background:' + partColor(key, dark) }), label)));
   },
 };

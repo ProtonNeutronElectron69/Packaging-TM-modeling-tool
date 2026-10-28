@@ -5,7 +5,7 @@
 // restore the default size. Sizes are a per-viewer convenience kept through
 // prefs (localStorage, try/catch); without storage the defaults apply.
 
-const LAYOUT_DEFAULTS = { stepperW: 190, contextW: 440, xsectionH: 190, view3dH: 560 };
+const LAYOUT_DEFAULTS = { stepperW: 190, contextW: 440, xsectionH: 240, view3dH: 560 };
 const LAYOUT_LIMITS = {
   stepperW: [48, 420], contextW: [280, 1400], xsectionH: [80, 1600], view3dH: [200, 2000], canvasH: [90, 1600],
   centerMinW: 420,      // px kept for the central area when a side panel grows

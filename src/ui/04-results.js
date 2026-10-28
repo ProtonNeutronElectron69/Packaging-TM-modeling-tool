@@ -598,8 +598,10 @@ function update3D() {
   else if (v.color === 'stress') { let mx = 0, mn = Infinity; for (const s of stress) { mx = Math.max(mx, s); mn = Math.min(mn, s); } scale = makeScale(mn, mx, mn < 0); }
   // by PART index: substrate, solder, underfill, fillet, die, TIM, lid, lid adhesive, stiffener, stiffener adhesive, then the stacked-module
   // parts: chiplets, Si base, TSV Cu, RDL, DDI microbumps, DDI fill, wafer underfill fillet, wafer mold
-  const partCol = [[0.85, 0.78, 0.65], [0.72, 0.72, 0.72], [0.91, 0.72, 0.42], [0.91, 0.72, 0.42], [0.48, 0.65, 0.84], [0.84, 0.63, 0.84], [0.75, 0.54, 0.35], [0.62, 0.79, 0.65], [0.75, 0.54, 0.35], [0.62, 0.79, 0.65],
-    [0.48, 0.65, 0.84], [0.62, 0.69, 0.77], [0.85, 0.6, 0.36], [0.78, 0.7, 0.49], [0.72, 0.72, 0.72], [0.91, 0.72, 0.42], [0.91, 0.72, 0.42], [0.56, 0.56, 0.56]];
+  // the floorplan colours (PART_COLORS, light set); the DDI fill takes the mold colour when the mold fills the gap
+  const ddiFill = app.cfg.stack && app.cfg.stack.fill === 'mold' ? 'mold' : 'uf';
+  const partCol = ['substrate', 'solder', 'uf', 'uf', 'si', 'tim', 'metal', 'adh', 'metal', 'adh', 'si', 'si', 'cu', 'rdl', 'solder', ddiFill, 'uf', 'mold']
+    .map(k => { const x = partColor(k, false); return [1, 3, 5].map(i => parseInt(x.slice(i, i + 2), 16) / 255); });
   const ex = v.scale;
   let k = 0;
   const tri = [[0, 1, 2], [0, 2, 3]];

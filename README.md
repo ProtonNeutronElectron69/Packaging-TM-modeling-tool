@@ -334,7 +334,7 @@ See the in-app "Assumptions and limitations" panel for every modeling assumption
 
 ## Verification status
 
-Last headless run (Node 22, 4-core container, PR 34), 18 of 18 pass: V1 to V14 and V16 to V18 in one run of 59 minutes, V15 (the timing benchmark of the default package, whose code is unchanged) from its last run. `dist/verification.json` holds the full text of each measurement.
+Last headless run (Node 22, 4-core container, PR 39), 18 of 18 pass: V1 to V14 and V16 to V18 in one run of 62 minutes (two other jobs sharing the cores), V15 (the timing benchmark of the default package, whose code is unchanged) from its last run. `dist/verification.json` holds the full text of each measurement.
 
 | ID | Test | Measured | Criterion | Result |
 |---|---|---|---|---|
@@ -355,7 +355,7 @@ Last headless run (Node 22, 4-core container, PR 34), 18 of 18 pass: V1 to V14 a
 | V15 | Timing benchmark | see below | report | pass |
 | V16 | Underfill cooled through its Tg (165 to 25 °C) on the thermal path: free block; block held at its sides | free 9.0e-14 × EαΔT; held 45.52 vs 45.52 MPa exact (0.00 %); a secant form gives 125.47 MPa | 1e-8; 0.1 % | pass |
 | V17 | Results file round trip (small bare-die package, full thermal path, 63 steps, 9.1k DOF since h_min stops at the preset h_max under its 6k cap) | warpage at 25 °C 1.2e-9, interpolated near 125 °C 8.9e-10; die stress map, CPI shear, cross-section and bump strain history identical; NaN, Infinity, Map, Set and typed arrays kept; changed mesh and truncated file refused | 1e-6 | pass |
-| V18 | Stacked modules (small Si-base module, two chiplets, bare): uniform-CTE module through its process stages; module support reactions; package sign, silicon stresses, microbump loads and wCUF tractions; series microbump column against the closed form | max stress 2.17e-4 × EαΔT (the 1e-6 pull of the unborn bumps and underfill); reactions 7.95e-9 of the force scale; RT warpage +21.69 µm convex; chiplet backside 42.5 MPa, Si base top 60.5 MPa (whole-face Gauss-point peaks); worst microbump shear 23.7 mN, wCUF sidewall shear 4.25 MPa; series column 1.6e-13, in-plane 5.5e-14 | 1e-3; 1e-6; convex, finite; 1e-4, 1e-3 | pass |
+| V18 | Stacked modules (small Si-base module, two chiplets, bare): uniform-CTE module through its process stages; module support reactions; package sign, silicon stresses, microbump loads and wCUF tractions; series microbump column against the closed form | max stress 2.14e-4 × EαΔT (in the Si base under the superposed TSV Cu); reactions 1.39e-12 of the force scale; RT warpage +10.28 µm convex (+21.69 µm before PR 39, which removed the substrate motion summed in from the module stages); chiplet backside 42.5 MPa, Si base top 60.5 MPa (whole-face Gauss-point peaks); worst microbump shear 23.7 mN, wCUF sidewall shear 4.25 MPa; series column 1.6e-13, in-plane 5.5e-14 | 1e-3; 1e-6; convex, finite; 1e-4, 1e-3 | pass |
 
 ## Measured performance
 

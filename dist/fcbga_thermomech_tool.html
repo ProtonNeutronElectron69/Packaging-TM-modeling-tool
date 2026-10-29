@@ -8429,9 +8429,11 @@ const RUN_MODULE_FACTOR = 2.4;  // stacked modules: PCG iterations per step agai
 // steps, peak resident memory): Draft 76.9k DOF 367 MB on 1 worker and 811 MB on 3; Standard 505.7k DOF 2876 MB on 2
 // and 3632 MB on 3. The main worker holds the model and its preconditioner, every step's increment (single precision,
 // counted apart so the step count enters), the fields at every evaluation temperature and the post-processing states;
-// each helper holds its own model and preconditioner only.
+// each helper holds its own model and preconditioner only. Helpers are compute processes of their own since PR 43 (each
+// with its Node runtime), refitted from the summed resident memory of the process tree in Electron's Node: Draft 65.3k
+// DOF 401 MB on 1 worker and 995 MB on 3; Standard 314.4k DOF 1685 MB on 2 and 2319 MB on 3 (one helper 297 and 634 MB).
 const MEM_MAIN_MB = 53, MEM_MAIN_MB_PER_DOF = 3.83e-3;      // without the step increments
-const MEM_HELPER_MB = 126, MEM_HELPER_MB_PER_DOF = 1.245e-3;
+const MEM_HELPER_MB = 209, MEM_HELPER_MB_PER_DOF = 1.353e-3;
 
 /** Estimated DOF, memory and runtime for the current configuration and preset. */
 function estimateRun(cfg, preset) {

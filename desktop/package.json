@@ -1,7 +1,7 @@
 {
   "name": "fcbga-thermomech-tool",
   "productName": "FCBGA Thermomechanical Screening Tool",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Approximate 3D finite-element warpage, die stress, bump loading and solder fatigue screening for flip chip BGA packages (desktop app).",
   "author": "ProtonNeutronElectron69",
   "repository": "github:ProtonNeutronElectron69/Packaging-TM-modeling-tool",

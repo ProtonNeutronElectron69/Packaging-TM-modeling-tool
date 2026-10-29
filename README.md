@@ -43,7 +43,7 @@ The same tool also comes as a Windows desktop app, for runs that need more memor
 
 ## Project status
 
-The specification in `CLAUDE.md` is implemented in full. Forty pull requests are merged on `main`:
+The specification in `CLAUDE.md` is implemented in full. Forty-one pull requests are merged on `main`:
 
 | PR | Merged | Content |
 |---|---|---|
@@ -87,6 +87,7 @@ The specification in `CLAUDE.md` is implemented in full. Forty pull requests are
 | [#38](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/38) | 2026-10-27 | End-of-run dialogs: a summary when a run finishes (total time, mesh, workers, solves, PCG iterations, solver time, screening, RT warpage, step times; warning banner for failed tests or unconverged solves) and the cause when it fails, crashes (worker or compute process died) or is cancelled (where it stopped, what is kept, Restore analysis, what to try, last log lines); helper solve records carry converged and fallback |
 | [#39](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/39) | 2026-10-28 | Stacked modules: well-posed module stages (only the born module parts are assembled and every other node is held, so no spurious substrate warpage; each module supported on three well-separated nodes of its base; multigrid aggregates from the born parts; h_min growth capped at 4 times the lowest module height); fixes the Draft aborts on thin modules; V18 RT warpage 21.69 to 10.28 µm; monolithic results unchanged |
 | [#40](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/40) | 2026-10-28 | Element layers per region by mesh preset: at least 1 at Draft, 2 at Standard and 4 at Fine (TIM 1; substrate groups and RDL interposers split into as many layered bands; die bands and the lid plate start at half, so Fine is unchanged); with the same caps Draft and Standard reach their preset h_min on the default package with fewer DOF (65k and 314k, from 77k and 506k): full Draft 133 s (187), Standard 611 s in Chromium; RT warpage Draft −69.34 µm (−68.58), Standard −69.30 µm (−69.08); V5 tests one band per group; run-time estimate refitted; smoke test returns to the floorplan tab before its reload |
+| [#41](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/41) | 2026-10-28 | Desktop app version raised to 1.2.0 at the user's request, so the release after the per-preset element layers of PR 40 is desktop-v1.2.0 (PR 40 itself went out as desktop-v1.1.5) |
 
 Open items are listed under "Known issues and next steps" below. The largest is performance against the Section 13 targets.
 

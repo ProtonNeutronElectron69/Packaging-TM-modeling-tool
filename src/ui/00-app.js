@@ -246,7 +246,7 @@ function setStatus(text, frac) {
   if (runProgress.job) progressStatusbar();
 }
 
-const RUN_S_PER_STEP = 2.7;  // s per step solve of the thermal path per 28k DOF (Draft lidded default, 76.9k DOF: full analysis 187 s on 3 workers, headless Chromium, 4-core container)
+const RUN_S_PER_STEP = 2.33;  // s per step solve of the thermal path per 28k DOF (lidded default, full analysis on 3 workers, headless Chromium, 4-core container: Draft 65.3k DOF 133 s, Standard 314k DOF 611 s)
 const RUN_MODULE_FACTOR = 2.4;  // stacked modules: PCG iterations per step against a monolithic package of the same size (Standard, first solves of stage 1 and stage 3: 265 / 121 and 135 / 54)
 // Peak memory of a full analysis, fitted to the desktop compute process on the lidded default package (67 thermal-path
 // steps, peak resident memory): Draft 76.9k DOF 367 MB on 1 worker and 811 MB on 3; Standard 505.7k DOF 2876 MB on 2

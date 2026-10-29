@@ -165,11 +165,20 @@ const DESKTOP_MEM_WARN = 0.8;  // the run panel warns when the estimate passes t
  * limited by the computer, not by a browser tab. An unexpected stop (most often memory running out)
  * arrives as onerror with exited set.
  */
+/** Plain-language cause of a compute process exit ({code, signal, reason}; reason is what the process reported, if anything). */
+function computeExitMessage(info) {
+  const how = info.signal ? 'signal ' + info.signal : 'exit code ' + info.code, why = (info.reason || '').trim();
+  const kept = ' Results already shown are kept.';
+  if (!why) return 'The compute process stopped unexpectedly (' + how + ') without reporting a cause; the computer most likely ran out of memory.' + kept + ' Fewer parallel workers or a coarser mesh need less memory.';
+  const heap = /heap out of memory|memory limit|Allocation failed/i.test(why);
+  return 'The compute process stopped unexpectedly (' + how + '): ' + why + (heap ? ' (the JavaScript heap of one compute process ran out; it is capped at about 4 GB whatever the computer\'s free memory).' : '.') + kept;
+}
+
 class DesktopWorker {
   constructor() {
     this.onmessage = null; this.onerror = null;
     this.handle = DESKTOP.spawn(msg => { if (this.onmessage) this.onmessage({ data: msg }); },
-      info => { if (this.onerror) this.onerror({ exited: true, message: 'The compute process stopped unexpectedly (' + (info.signal ? 'signal ' + info.signal : 'exit code ' + info.code) + '); the computer most likely ran out of memory. Results already shown are kept; fewer parallel workers or a coarser mesh need less memory.' }); });
+      info => { if (this.onerror) this.onerror({ exited: true, message: computeExitMessage(info) }); });
   }
   postMessage(msg) { this.handle.post(msg); }
   terminate() { this.handle.terminate(); }

@@ -56,11 +56,12 @@ function substrateRowEC(row, T, lib, cuId) {
  * Bottom-up list of substrate rows with z ranges, and their grouping into
  * element bands (Section 5.3): three groups (bottom solder resist + bottom
  * build-up; core with its adjacent core Cu layers; top build-up + top solder
- * resist), each split into MIN_LAYERS_PER_REGION bands of equal thickness.
+ * resist), each split into nb bands of equal thickness (the mesh preset's
+ * minimum element layers per region).
  * Each band is one layered element layer; sub-layers it cuts are clipped.
  * Config rows are listed top to bottom.
  */
-function substrateBands(layers) {
+function substrateBands(layers, nb) {
   const rowsTopDown = layers;
   const n = rowsTopDown.length;
   const rows = [];
@@ -83,10 +84,9 @@ function substrateBands(layers) {
   } else {
     groups = [[0, total]];
   }
-  // each group (bottom build-up, core with its Cu foils, top build-up) is split into MIN_LAYERS_PER_REGION
+  // each group (bottom build-up, core with its Cu foils, top build-up) is split into nb
   // bands of equal thickness, one element layer each
   const cuts = [0];
-  const nb = CONST.MIN_LAYERS_PER_REGION;
   for (const [z0, z1] of groups) for (let q = 1; q <= nb; q++) cuts.push(z0 + (z1 - z0) * q / nb);
   // drop zero-thickness bands
   const planes = [cuts[0]];

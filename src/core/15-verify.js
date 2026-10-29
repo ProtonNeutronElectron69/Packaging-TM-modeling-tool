@@ -211,7 +211,8 @@ const VERIFICATION_TESTS = [
       const layers = cfg.substrate.layers;
       const coreIdx = layers.findIndex(r => r.type === 'core');
       const asym = layers.slice(0, coreIdx + 2).concat([layers[layers.length - 1]]);
-      const sb = substrateBands(asym);
+      // one layered band per group, as at Draft: the fewest sub-layer bands the tool meshes
+      const sb = substrateBands(asym, CONST.MESH_PRESETS.draft.layers);
       const lib = cfg.materials;
       const xs = linspace(-10, 10, 16), ys = linspace(-10, 10, 16);
       const run = (zs, groups, assign) => {

@@ -69,6 +69,8 @@ if (args.includes('--full')) {
     });
     console.log('submodel section:', JSON.stringify(ss));
     if (!ss.residual || !ss.totalFinite || !ss.totalIsTotal || !(ss.residualMaxMPa > 0)) errors.push('error: submodel total stress: ' + JSON.stringify(ss));
+    // back to the floorplan tab: the page remembers the centre tab, and the reload below waits for the floorplan
+    await page.evaluate(() => setCenterTab('floorplan'));
   }
   // results file: view one temperature (cached), save, reload the page, reopen the file; then a temperature never
   // evaluated before saving must come out of the reloaded analysis as it did from the original one

@@ -62,13 +62,13 @@ function stackThickness(rows) { return rows.reduce((t, r) => t + r.t, 0); }
 /**
  * Element bands of an organic RDL interposer whose bottom is at z0: the rows
  * (listed top to bottom) bottom-up with z ranges, split into
- * MIN_LAYERS_PER_REGION layered bands of equal thickness (as a substrate group).
+ * nb layered bands of equal thickness (as a substrate group).
  */
-function rdlBands(rowsTopDown, z0) {
+function rdlBands(rowsTopDown, z0, nb) {
   const rows = [];
   let z = z0;
   for (let i = rowsTopDown.length - 1; i >= 0; i--) { rows.push({ idx: i, row: rowsTopDown[i], z0: z, z1: z + rowsTopDown[i].t }); z += rowsTopDown[i].t; }
-  const nb = CONST.MIN_LAYERS_PER_REGION, bands = [];
+  const bands = [];
   for (let q = 0; q < nb; q++) {
     const a = z0 + (z - z0) * q / nb, b = z0 + (z - z0) * (q + 1) / nb;
     const subs = [];
@@ -78,14 +78,22 @@ function rdlBands(rowsTopDown, z0) {
   return { total: z - z0, rows, bands };
 }
 
+/** Minimum element layers per region of the configuration's mesh preset (Standard when unset). */
+function meshLayers(cfg) {
+  const p = CONST.MESH_PRESETS[(cfg.mesh && cfg.mesh.preset) || 'standard'] || CONST.MESH_PRESETS.standard;
+  return p.layers;
+}
+
 /**
  * Derived geometry from a configuration: z levels, the objects on the flip chip
  * bump layer (g.dies: monolithic dies, then module bases), module chiplets and
  * DDI fields, silicon parts for the die stress (g.siParts), fillets, lid /
  * stiffener footprints, BGA ball sites.
  */
-function deriveGeometry(cfg) {
-  const sub = substrateBands(cfg.substrate.layers);
+function deriveGeometry(cfg, layers) {
+  // element layers per region: the mesh preset's minimum (the mesher passes the preset it builds at)
+  const nb = layers || meshLayers(cfg);
+  const sub = substrateBands(cfg.substrate.layers, nb);
   const zt = sub.total;
   const so = cfg.bump.standoff;
   const zaf = zt + so;
@@ -115,7 +123,7 @@ function deriveGeometry(cfg) {
       index: cfg.dies.length + mi, kind: 'module', modIndex: mi, id: m.id, name: m.name, t: H, zaf, ztop: zaf + H,
       base: rdl ? 'rdl' : 'si', tBase, zBaseTop, zDdiTop, si: m.si || 'aniso', tsv: rdl ? 0 : Math.max(0, m.tsv || 0),
     });
-    if (rdl) o.rdl = rdlBands(m.rdl, zaf);
+    if (rdl) o.rdl = rdlBands(m.rdl, zaf, nb);
     // chiplets: centres rotated with the module, sizes and DDI pitch swapped by the module and the chiplet rotation
     const dpx = st.ddi.px, dpy = st.ddi.py, abump = Math.PI * st.ddi.d * st.ddi.d / 4;
     o.chiplets = m.chiplets.map((c, ci) => {
@@ -137,7 +145,7 @@ function deriveGeometry(cfg) {
   });
   const objs = dies.concat(modules);
   const tmax = objs.reduce((m, d) => Math.max(m, d.t), 0);
-  const g = { cfg, sub, zt, zaf, so, substrate, dies: objs, monoDies: dies, modules, siParts, tmax, type: cfg.packageType, stack: st };
+  const g = { cfg, layers: nb, sub, zt, zaf, so, substrate, dies: objs, monoDies: dies, modules, siParts, tmax, type: cfg.packageType, stack: st };
   g.uf = { Wf: cfg.underfill.Wf, Hf: cfg.underfill.Hf };
   if (st) g.wcuf = st.fill === 'wcuf' ? { Wf: st.wcuf.Wf, Hf: st.wcuf.Hf } : null;
   if (cfg.packageType === 'lid') {

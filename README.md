@@ -335,7 +335,7 @@ See the in-app "Assumptions and limitations" panel for every modeling assumption
 
 ## Verification status
 
-Last headless run (Node 22, 4-core container, PR 39), 18 of 18 pass: V1 to V14 and V16 to V18 in one run of 62 minutes (two other jobs sharing the cores), V15 (the timing benchmark of the default package, whose code is unchanged) from its last run. `dist/verification.json` holds the full text of each measurement.
+Last headless run (Node 22, 4-core container, PR 40), 18 of 18 pass in one run of 47 minutes (V10 30 minutes, V15 12). `dist/verification.json` holds the full text of each measurement.
 
 | ID | Test | Measured | Criterion | Result |
 |---|---|---|---|---|
@@ -343,20 +343,20 @@ Last headless run (Node 22, 4-core container, PR 39), 18 of 18 pass: V1 to V14 a
 | V2 | Patch test, incompatible-mode hex, distorted mesh | displacement 6.8e-17, strain 6.5e-16 | 1e-9 | pass |
 | V3 | Bimaterial plate curvature vs Timoshenko | 2.0692e-3 vs 2.0692e-3 1/mm (0.00 %) | 3 % | pass |
 | V4 | Three-layer laminate vs classical lamination theory | kx 0.01 %, ky 0.17 % | 3 % | pass |
-| V5 | Layered integration vs one element per layer | 104.25 vs 104.47 µm (0.21 %) | 1 % | pass |
+| V5 | Layered integration vs one element per layer | 104.55 vs 104.47 µm (0.08 %), one layered band per substrate group as at Draft (0.21 % with four bands before PR 40) | 1 % | pass |
 | V6 | Anand saturation stress vs closed form | 42.04 / 22.81 / 13.02 MPa vs 42.09 / 22.83 / 13.04 | 1 % | pass |
-| V7 | Submodel consistency with homogenized bump layer | 0.38 % (bump-layer domain, uniform phases, stepped with the global up branch); 0.83 % with the production domain, reported as information | 2 % | pass |
-| V8 | Symmetry of the warpage field | 2.1e-10 (x), 2.2e-10 (y), 2.2e-11 (diagonal), 1.3e-10 mirrored | 1e-6 | pass |
-| V9 | Physical sanity on the presets | bare RT +220 µm convex; backside +64 MPa tensile; 0.8 mm core 162 vs 280 µm; 795G LH 168 vs 705G 261 µm | all four | pass |
-| V10 | Mesh convergence, Standard vs Fine | warpage 0.40 %, die interior peak 2.72 % (506k vs 1.18M DOF; peak 3.4 GB in one Node process) | 5 % | pass |
-| V11 | Solver integrity (last process step S3 30 to 25 °C) | residual 8.4e-11, reactions 1.1e-10 of the force scale, energy balance 1.2e-13 | 1e-8 / 1e-9 | pass |
+| V7 | Submodel consistency with homogenized bump layer | 0.11 % (bump-layer domain, uniform phases, stepped with the global up branch); 0.64 % with the production domain, reported as information | 2 % | pass |
+| V8 | Symmetry of the warpage field | 1.5e-11 (x), 1.4e-11 (y), 9.8e-13 (diagonal), 5.9e-12 mirrored | 1e-6 | pass |
+| V9 | Physical sanity on the presets | bare RT +222.7 µm convex; backside +65.8 MPa tensile; 0.8 mm core 166.0 vs 285.8 µm; 795G LH 169.5 vs 705G 263.6 µm (Draft, 1 layer per region; 220 / 64 / 162 vs 280 / 168 vs 261 with 4 layers before PR 40) | all four | pass |
+| V10 | Mesh convergence, Standard vs Fine | −69.3 vs −69.4 µm (0.09 %), die interior peak 72.6 vs 70.0 MPa (3.67 %) (Standard 314k with 2 layers per region vs Fine 1.18M with 4; before PR 40: 0.40 % and 2.72 % at 506k vs 1.18M) | 5 % | pass |
+| V11 | Solver integrity (last process step S3 30 to 25 °C) | residual 7.5e-11 (20 iterations), reactions 2.3e-10 of the force scale, energy balance 5.7e-14 | 1e-8 / 1e-9 | pass |
 | V12 | JEITA sign and magnitude on synthetic domes | signs +1 / -1, magnitude error 0.0 | exact / 1e-9 | pass |
 | V13 | Unit checks (Si CTE, rotated Si moduli, SAC305 E, AlSiC-9 strain, Turner, Voigt, Reuss) | all exact | 1e-9 (formulas), printed precision (rounded references) | pass |
 | V14 | JSON save / load round trip, with and without stacked modules; a file from before stacked modules | identical hashes; geometry and process hashes unchanged | identical | pass |
 | V15 | Timing benchmark | see below | report | pass |
 | V16 | Underfill cooled through its Tg (165 to 25 °C) on the thermal path: free block; block held at its sides | free 9.0e-14 × EαΔT; held 45.52 vs 45.52 MPa exact (0.00 %); a secant form gives 125.47 MPa | 1e-8; 0.1 % | pass |
-| V17 | Results file round trip (small bare-die package, full thermal path, 63 steps, 9.1k DOF since h_min stops at the preset h_max under its 6k cap) | warpage at 25 °C 1.2e-9, interpolated near 125 °C 8.9e-10; die stress map, CPI shear, cross-section and bump strain history identical; NaN, Infinity, Map, Set and typed arrays kept; changed mesh and truncated file refused | 1e-6 | pass |
-| V18 | Stacked modules (small Si-base module, two chiplets, bare): uniform-CTE module through its process stages; module support reactions; package sign, silicon stresses, microbump loads and wCUF tractions; series microbump column against the closed form | max stress 2.14e-4 × EαΔT (in the Si base under the superposed TSV Cu); reactions 1.39e-12 of the force scale; RT warpage +10.28 µm convex (+21.69 µm before PR 39, which removed the substrate motion summed in from the module stages); chiplet backside 42.5 MPa, Si base top 60.5 MPa (whole-face Gauss-point peaks); worst microbump shear 23.7 mN, wCUF sidewall shear 4.25 MPa; series column 1.6e-13, in-plane 5.5e-14 | 1e-3; 1e-6; convex, finite; 1e-4, 1e-3 | pass |
+| V17 | Results file round trip (small bare-die package, full thermal path, 63 steps, 5.9k DOF under its 6k cap) | warpage at 25 °C 1.6e-8, interpolated near 125 °C 3.8e-8 ; die stress map, CPI shear, cross-section and bump strain history identical; NaN, Infinity, Map, Set and typed arrays kept; changed mesh and truncated file refused | 1e-6 | pass |
+| V18 | Stacked modules (small Si-base module, two chiplets, bare): uniform-CTE module through its process stages; module support reactions; package sign, silicon stresses, microbump loads and wCUF tractions; series microbump column against the closed form | max stress 3.87e-5 × EαΔT; reactions 6.95e-11 of the force scale; RT warpage +11.04 µm convex (+10.28 µm with 4 layers before PR 40, +21.69 µm before PR 39); whole-face Gauss-point peaks (top / bottom) chiplets 49.6 / 5.3 MPa, Si base 20.2 / 18.3 MPa; worst microbump shear 75.3 mN, wCUF sidewall shear 4.43 MPa; series column 1.6e-13, in-plane 5.5e-14. With 1 layer per region the 20k cap now allows h_min 0.6 mm instead of 3.0 mm, which resolves the chiplet corner: on the same 3.0 mm grid, 1 and 4 layers give 24.7 and 23.7 mN microbump shear | 1e-3; 1e-6; convex, finite; 1e-4, 1e-3 | pass |
 
 ## Measured performance
 
@@ -373,8 +373,8 @@ Headless Chromium on a 4-core cloud container with 3 workers, Section 13 targets
 | Quick preview of the Foveros-S-like stacked-module preset (Draft, the 25 steps of the module stages and the process chain) | 1216 s at 112k DOF on one thread in Node (other jobs sharing the 4 cores); 17 to 633 PCG iterations per step, 288 on average (the default package's 15 preview steps: 22 to 97, 41 on average); RT warpage −59.2 µm, chiplet backside interior peaks 39 to 40 MPa | none |
 | Sensitivity (Draft, default input set, worker pool) | not re-measured | 3 min |
 | Peak memory at Standard | 3.6 GB for the desktop compute process with its two helper threads at 506k DOF (2.9 GB on 2 workers): 2.1 GB for the main worker, 0.76 GB per helper; Draft 367 MB on 1 worker, 811 MB on 3. The run panel estimate is fitted to these four runs | 600 MB |
-| V15, process chain to 25 °C (15 steps), Draft 77k DOF | multigrid 81.7 s (iterations 22 to 97); IC(0) on the first step does not converge in 2000 iterations (53 s, residual 3.2e-6, then the multigrid fallback) | report |
-| V15, process chain to 25 °C (15 steps), Standard 420k DOF (measured with the lid foot edges at 1.5 × h_min; 506k DOF now) | multigrid 455 s (iterations 18 to 116); IC(0) on the first step does not converge in 2000 iterations (411 s, residual 8.6e-6) | report |
+| V15, process chain to 25 °C (15 steps), Draft 65k DOF (1 layer per region) | multigrid 61.5 s (iterations 12 to 52; 81.7 s and 22 to 97 at 77k with 4 layers before PR 40); IC(0) converges on the first step in 1614 iterations (33.6 s) | report |
+| V15, process chain to 25 °C (15 steps), Standard 314k DOF (2 layers per region) | multigrid 363 s (iterations 15 to 98; 455 s and 18 to 116 at 420k with 4 layers before PR 40); IC(0) on the first step does not converge in 2000 iterations (252 s, residual 1.4e-4, then the multigrid fallback) | report |
 
 Multigrid is the default preconditioner; on the refined meshes IC(0) no longer converges within 2000 iterations and is kept only as the first fallback. Multigrid PCG iterations per step of the thermal path on the lidded default at Standard: 0 to 116, 33 on average, with a fresh preconditioner per step and the warm start from the previous steps (before the incremental path: 37 to 74 for the stage solves and 30 to 180 in the temperature sweep).
 

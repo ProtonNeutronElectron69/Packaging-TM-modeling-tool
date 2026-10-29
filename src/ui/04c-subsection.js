@@ -1,15 +1,17 @@
 // ===== UI: bump submodel cross-section stress view ================================
 // Stress on a vertical cut through one bump submodel (one pitch cell around a solder
-// joint) at the end of each ramp and dwell of the last simulated cycle. The core
+// joint) at the end of each ramp and dwell of the last simulated cycle. The cut turns
+// in 15 degree steps about the vertical axis and slides along its normal. The core
 // (C.submodelSection) cuts the corner stresses stored with the submodel result; the
 // plot reuses the package cross-section drawing (drawSectionPlot) in micrometres
-// from the bump axis and from the substrate top.
+// along the cut and from the substrate top.
 
 const SUBSEC_FOCUS = [['uf', 'underfill (others grey)'], ['solder', 'solder (others grey)'], ['all', 'all materials']];
 const SUBSEC_GROUP = { uf: 2, solder: 1 };  // submodel material groups: 0 substrate slice, 1 solder, 2 underfill, 3 silicon
 const SUBSEC_GREY = { light: [205, 178, 192, 226], dark: [72, 98, 85, 112] };  // grey level per group when shown as context
 const SUBSEC_PLOT_H = 420;  // px, default height of the plot
 const SUBSEC_PLAN_H = 260;  // px, height of the plan view of the pitch cell
+const SUBSEC_OFF_STEP = 0.5;  // um, step of the cut offset slider
 
 function subSecKey(sm) { return sm.dieIdx + ':' + sm.site.ix + ':' + sm.site.iy; }
 
@@ -20,8 +22,8 @@ function subSecMoment(snap) {
   return 'cycle ' + snap.cycle + ', ' + what;
 }
 
-/** Plan view of the pitch cell: voxel grid, joint outline, the cut line and the direction to the die centre; a click moves the cut. */
-function subSecPlan(sm, st, nAcross) {
+/** Plan view of the pitch cell: voxel grid, joint outline, the cut line and the direction to the die centre; a click moves the cut through the point. */
+function subSecPlan(sm, st, sec, range) {
   const S = sm.section;
   const cv = h('canvas', tip('subSecPlan', { class: 'map', style: 'width:100%;height:' + SUBSEC_PLAN_H + 'px;cursor:crosshair' }));
   const px = S.xs[S.xs.length - 1] - S.xs[0], py = S.ys[S.ys.length - 1] - S.ys[0];
@@ -56,23 +58,32 @@ function subSecPlan(sm, st, nAcross) {
       ctx.font = '11px ' + cssVar('--font'); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText('die centre', X(ex) + 10 * Math.cos(a) * 3, Y(ey) + 10 * Math.sin(a) * 1.6);
     }
-    // the cut
-    const alongY = st.axis === 'y', c = (alongY ? S.xs : S.ys)[st.pos];
-    const seg = alongY ? [c, S.ys[0], c, S.ys[S.ys.length - 1]] : [S.xs[0], c, S.xs[S.xs.length - 1], c];
-    drawSectionLine(ctx, X, Y, alongY ? { axis: 'y', c, a0: seg[1], a1: seg[3] } : { axis: 'x', c, a0: seg[0], a1: seg[2] }, cssVar('--accent2'));
+    // the cut, B to B' in the direction of increasing s
+    if (sec.n) {
+      const [fx, fy] = sec.foot, [dx2, dy2] = sec.dir, a = sec.a0 / 1000, b = sec.a1 / 1000;
+      drawSectionLine(ctx, X, Y, { pts: [fx + dx2 * a, fy + dy2 * a, fx + dx2 * b, fy + dy2 * b] }, cssVar('--accent2'));
+    }
   };
   cv.addEventListener('click', e => {
     if (!tx) return;
     const r = cv.getBoundingClientRect();
     const x = S.cx + (e.clientX - r.left - tx.w / 2) / tx.sc, y = S.cy - (e.clientY - r.top - tx.H / 2) / tx.sc;
-    const lines = st.axis === 'y' ? S.xs : S.ys, v = st.axis === 'y' ? x : y;
-    let best = 0;
-    for (let q = 1; q < lines.length; q++) if (Math.abs(lines[q] - v) < Math.abs(lines[best] - v)) best = q;
-    st.pos = Math.max(0, Math.min(nAcross, best));
+    const th = st.angle * Math.PI / 180, d = ((x - S.cx) * -Math.sin(th) + (y - S.cy) * Math.cos(th)) * 1000;
+    st.off = subSecClampOff(Math.round(d / SUBSEC_OFF_STEP) * SUBSEC_OFF_STEP, range);
     renderCenter();
   });
   requestAnimationFrame(() => { autoRedraw(cv, draw); draw(); });
   return cv;
+}
+
+/** Cut offset kept inside the cell (a hair inside its extreme corners, so the cut always crosses it). */
+function subSecClampOff(off, range) { return clampTo(off, range[0] + SUBSEC_OFF_STEP, range[1] - SUBSEC_OFF_STEP); }
+
+/** Cut direction in words: angle from +x, and the side it is seen from. */
+function subSecDirName(angle) {
+  if (angle === 0) return 'along x';
+  if (angle === 90) return 'along y';
+  return angle + '° from +x';
 }
 
 function renderSubmodelSectionView(root) {
@@ -85,35 +96,42 @@ function renderSubmodelSectionView(root) {
   }
   const st = app.subSection;
   let sm = list.find(x => subSecKey(x) === st.key);
-  if (!sm) { sm = list[0]; st.key = subSecKey(sm); st.snap = null; st.pos = null; }
-  const S = sm.section;
+  if (!sm) { sm = list[0]; st.key = subSecKey(sm); st.snap = null; st.off = null; }
+  // views saved before the cut could turn kept a grid-line index along x or y
+  if (st.angle === undefined) { st.angle = st.axis === 'y' ? 90 : 0; st.off = null; delete st.axis; delete st.pos; }
+  const S = sm.section, step = C.CONST.SUBSEC_ANGLE_STEP;
   if (st.snap === null || st.snap >= S.snaps.length) st.snap = S.snaps.length - 1;  // default: end of the cold dwell
-  const nAcross = (st.axis === 'y' ? S.xs : S.ys).length - 1;
-  if (st.pos === null || st.pos > nAcross) st.pos = Math.round(nAcross / 2);  // default: through the bump axis
+  st.angle = ((Math.round(st.angle / step) * step) % 180 + 180) % 180;
+  const range = C.submodelCutRange(sm, st.angle);
+  st.off = subSecClampOff(st.off === null || st.off === undefined ? 0 : st.off, range);  // default: through the bump axis
   const total = st.total && !!S.residual;
-  const sec = C.submodelSection(sm, st.snap, st.axis, st.pos, total);
+  const sec = C.submodelSection(sm, st.snap, st.angle, st.off, total);
   const snap = S.snaps[st.snap];
   const what = total ? 'total stress (as-assembled 25 °C stress plus the change)' : 'change from the as-assembled 25 °C state';
-  const sName = st.axis === 'x' ? 'x − x_bump' : 'y − y_bump', cName = st.axis === 'x' ? 'y − y_bump' : 'x − x_bump';
+  const dir = subSecDirName(st.angle), nAng = st.angle + 90;
+  const sName = st.angle === 0 ? 'x − x_bump' : st.angle === 90 ? 'y − y_bump' : 's';
   sec.labels = {
     title: sectionQtyLabel(st.qty) + ', MPa, ' + what + '; ' + subSecMoment(snap),
-    s: sName + ', µm (cut at ' + cName + ' = ' + fmt(sec.c, 1) + ' µm, seen from the ' + (st.axis === 'x' ? '−y' : '+x') + ' side)',
+    s: (sName === 's' ? 's along the cut (' + dir + ')' : sName) + ', µm; cut offset ' + fmt(st.off, 1) + ' µm from the bump axis toward ' + nAng + '° from +x, seen from the opposite side',
     z: 'z above the substrate top, µm', unit: 'µm', sName, zName: 'z',
   };
-  const ax = st.axis === 'x' ? 'x' : 'y', cx = st.axis === 'x' ? 'y' : 'x';
   sec.csv = {
-    header: '# bump submodel ' + sm.die + ' at (' + sm.site.x + ', ' + sm.site.y + ') mm, ' + subSecMoment(snap) + (total ? '; total stress (as-assembled 25 degC stress of the global model per voxel plus the change)' : '; stress change from the as-assembled 25 degC state') + '; cut along ' + ax + ' at ' + cx + ' - ' + cx + '_bump = ' + sec.c + ' um; corner values averaged within each material; MPa',
+    header: '# bump submodel ' + sm.die + ' at (' + sm.site.x + ', ' + sm.site.y + ') mm, ' + subSecMoment(snap) + (total ? '; total stress (as-assembled 25 degC stress of the global model per voxel plus the change)' : '; stress change from the as-assembled 25 degC state') + '; cut at ' + st.angle + ' deg from +x, offset ' + st.off + ' um from the bump axis toward ' + nAng + ' deg; corner values averaged within each material; MPa',
     columns: 'x_mm,y_mm,z_mm,material,sxx,syy,szz,txy,tyz,txz',
-    point: (s, z) => { const a = s / 1000, c = sec.c / 1000, zz = z / 1000 + S.zt; return st.axis === 'x' ? [+(S.cx + a).toFixed(6), +(S.cy + c).toFixed(6), +zz.toFixed(6)] : [+(S.cx + c).toFixed(6), +(S.cy + a).toFixed(6), +zz.toFixed(6)]; },
-    file: '_submodel_' + sm.die.replace(/[^\w.-]+/g, '_') + '_' + sm.site.ix + '_' + sm.site.iy + '_' + snap.phase.replace(/ /g, '_') + '_' + fmt(snap.T, 0) + 'C',
+    point: (s, z) => { const a = s / 1000, zz = z / 1000 + S.zt; return [+(sec.foot[0] + sec.dir[0] * a).toFixed(6), +(sec.foot[1] + sec.dir[1] * a).toFixed(6), +zz.toFixed(6)]; },
+    file: '_submodel_' + sm.die.replace(/[^\w.-]+/g, '_') + '_' + sm.site.ix + '_' + sm.site.iy + '_' + snap.phase.replace(/ /g, '_') + '_' + fmt(snap.T, 0) + 'C_' + st.angle + 'deg',
   };
-  const smSel = h('select', tip('subSecModel', { onchange: e => { st.key = e.target.value; st.snap = null; st.pos = null; renderCenter(); } }),
+  const smSel = h('select', tip('subSecModel', { onchange: e => { st.key = e.target.value; st.snap = null; st.off = null; renderCenter(); } }),
     ...list.map(x => h('option', { value: subSecKey(x), selected: x === sm ? '' : null }, x.die + ' bump at (' + fmt(x.site.x, 2) + ', ' + fmt(x.site.y, 2) + ') mm')));
   const snapSel = h('select', tip('subSecMoment', { onchange: e => { st.snap = +e.target.value; renderCenter(); } }),
     ...S.snaps.map((s, i) => h('option', { value: i, selected: i === st.snap ? '' : null }, subSecMoment(s))));
-  const axisSel = h('select', tip('subSecAxis', { onchange: e => { st.axis = e.target.value; st.pos = null; renderCenter(); } }),
-    h('option', { value: 'x', selected: st.axis === 'x' ? '' : null }, 'along x'), h('option', { value: 'y', selected: st.axis === 'y' ? '' : null }, 'along y'));
-  const posIn = h('input', tip('subSecPos', { type: 'range', class: 'grow', min: 0, max: nAcross, step: 1, value: st.pos, onchange: e => { st.pos = +e.target.value; renderCenter(); } }));
+  const turn = d => { st.angle = ((st.angle + d) % 180 + 180) % 180; renderCenter(); };
+  const angles = []; for (let a = 0; a < 180; a += step) angles.push(a);
+  const angleSel = h('select', tip('subSecAngle', { onchange: e => { st.angle = +e.target.value; renderCenter(); } }),
+    ...angles.map(a => h('option', { value: a, selected: a === st.angle ? '' : null }, a + '°' + (a === 0 ? ' (along x)' : a === 90 ? ' (along y)' : ''))));
+  const rotL = h('button', tip('subSecRotCcw', { class: 'small', onclick: () => turn(step) }), '⟲ ' + step + '°');
+  const rotR = h('button', tip('subSecRotCw', { class: 'small', onclick: () => turn(-step) }), '⟳ ' + step + '°');
+  const posIn = h('input', tip('subSecPos', { type: 'range', class: 'grow', min: subSecClampOff(-Infinity, range), max: subSecClampOff(Infinity, range), step: SUBSEC_OFF_STEP, value: st.off, onchange: e => { st.off = +e.target.value; renderCenter(); } }));
   const qtySel = h('select', tip('sectionQty', { onchange: e => { st.qty = e.target.value; renderCenter(); } }),
     ...SECTION_QTY.map(([g, items]) => h('optgroup', { label: g }, ...items.map(([k, l]) => h('option', { value: k, selected: k === st.qty ? '' : null }, l)))));
   const focusSel = h('select', tip('subSecFocus', { onchange: e => { st.focus = e.target.value; renderCenter(); } }), ...SUBSEC_FOCUS.map(([k, l]) => h('option', { value: k, selected: k === st.focus ? '' : null }, l)));
@@ -121,7 +139,8 @@ function renderSubmodelSectionView(root) {
   const totalSel = h('select', tip('subSecTotal', { disabled: S.residual ? null : '', onchange: e => { st.total = e.target.value === 'total'; renderCenter(); } }),
     h('option', { value: 'change', selected: total ? null : '' }, 'change from 25 °C'), h('option', { value: 'total', selected: total ? '' : null }, 'total stress'));
   root.append(h('div', { class: 'row' }, h('span', null, 'submodel ', smSel), h('span', null, 'moment ', snapSel), h('span', null, 'stress ', totalSel)),
-    h('div', { class: 'row' }, h('span', null, 'cut ', axisSel), h('span', { class: 'grow row' }, 'position ', posIn, h('span', { class: 'small muted' }, fmt(sec.c, 1) + ' µm from the bump axis')), h('span', null, 'quantity ', qtySel), h('span', null, 'show ', focusSel), meshBox,
+    h('div', { class: 'row' }, h('span', null, 'cut angle ', angleSel), rotL, rotR, h('span', { class: 'grow row' }, 'offset ', posIn, h('span', { class: 'small muted' }, fmt(st.off, 1) + ' µm from the bump axis, across the cut'))),
+    h('div', { class: 'row' }, h('span', null, 'quantity ', qtySel), h('span', null, 'show ', focusSel), meshBox,
       h('button', tip('subSecCsv', { class: 'small', onclick: () => exportSectionCSV(sec) }), 'Export section CSV')));
   // values: all corners, or the focused material only
   const F = sectionFields(sec, st.qty, 'all');
@@ -138,7 +157,7 @@ function renderSubmodelSectionView(root) {
     }
     stats.set(name, s);
   }
-  const left = h('div', null, subSecPlan(sm, st, nAcross), h('div', { class: 'small muted' }, 'Pitch cell around the bump, seen from the top: voxel grid, widest joint outline (solid) and the die-side and substrate-side pad diameters (dashed). Click to move the cut to the nearest grid line.'));
+  const left = h('div', null, subSecPlan(sm, st, sec, range), h('div', { class: 'small muted' }, 'Pitch cell around the bump, seen from the top: voxel grid, widest joint outline (solid) and the die-side and substrate-side pad diameters (dashed). The cut runs from B to B′; click to move it through that point at the same angle.'));
   const right = h('div', null, h('div', { class: 'card' }, h('h3', null, sm.die + ' bump at (' + fmt(sm.site.x, 2) + ', ' + fmt(sm.site.y, 2) + ') mm, ' + sm.nxy + ' × ' + sm.nxy + ' × ' + sm.nz + ' voxels'),
     h('table', tip('subSecStats', { class: 'small' }), h('tr', null, h('th', null, 'Material on the cut'), h('th', null, 'min, MPa'), h('th', null, 'max, MPa')),
       ...Array.from(stats, ([name, s]) => h('tr', null, h('td', null, name), h('td', null, fmt(s.lo, 1)), h('td', null, fmt(s.hi, 1))))),
@@ -146,7 +165,8 @@ function renderSubmodelSectionView(root) {
     h('details', null, h('summary', null, 'What this means'),
       h('p', { class: 'small' }, 'The bump submodel resolves one solder joint as a truncated sphere surrounded by underfill, between a slice of the die and a slice of the substrate, in a voxel grid of one bump pitch. It is driven by the global displacements on its cut faces and steps through the temperature cycles with the Anand solder model. This view shows the stress on a vertical plane through that cell at the end of each ramp and dwell of the last cycle, so the underfill stress next to the joint, at the joint neck and at the pad edges becomes visible, which the homogenized bump layer of the global model cannot show.'),
       h('p', { class: 'small' }, 'The submodel works relative to the as-assembled state at 25 °C: by default the stresses shown are the change caused by the temperature cycle. "Total stress" adds the residual assembly stress at 25 °C from the global model (the underfill from its cure temperature down to 25 °C, the silicon and the substrate layer at each voxel), constant within each voxel, so the underfill shows its full tension or compression; the global model gives that residual for the homogenized layer, not around the joint itself. The solder starts stress-free at 25 °C, assuming room-temperature relaxation.'),
-      h('p', { class: 'small' }, 'The joint is stair-stepped on the voxel grid, so the corners where the solder meets the pads and the underfill are singular and mesh dependent: compare peak values between designs and bump locations, do not read them as strengths. A cut that runs along a voxel face between two materials shows the voxel nearer the bump axis.'))));
+      h('p', { class: 'small' }, 'The joint is stair-stepped on the voxel grid, so the corners where the solder meets the pads and the underfill are singular and mesh dependent: compare peak values between designs and bump locations, do not read them as strengths. A cut that runs along a voxel face between two materials shows the voxel nearer the bump axis; a turned cut crosses the voxels at an angle, so the stair steps of the joint show as uneven steps along it.'),
+      h('p', { class: 'small' }, 'The line-frame components turn with the cut: along the line is the direction from B to B′, across the line points 90° counterclockwise from it, seen from the top.'))));
   root.append(h('div', { class: 'grid2' }, left, right));
   // contour across the full width
   const dark = isDark(), greys = dark ? SUBSEC_GREY.dark : SUBSEC_GREY.light;

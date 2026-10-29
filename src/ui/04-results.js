@@ -125,7 +125,7 @@ function runFull() {
   const request = { type: 'run', cfg: structuredClone(app.cfg), preset: app.cfg.mesh.preset, evaluations: 'full', workers: app.workers };
   startRun(Object.assign({}, request), 'Full global analysis').then(res => {
     res.request = request; app.analysisLost = false;
-    app.results = res; app.fieldsCache.clear(); app.sectionCache.clear(); app.sectionDraft = null; app.currentFields = res.at25; app.selectedT = 25; app.dirty = false;
+    app.results = res; app.fieldsCache.clear(); app.sectionCache.clear(); app.tractionCache.clear(); app.sectionDraft = null; app.currentFields = res.at25; app.selectedT = 25; app.dirty = false;
     app.screening = res.screening || null; app.submodels = [];
     setCenterTab('results'); renderAll();
   }).catch(err => { if (err.message !== 'cancelled' && !err.reported) toast('Analysis failed: ' + err.message, 'error', 9000); });
@@ -135,7 +135,7 @@ function runPreview() {
   const request = { type: 'run', cfg: structuredClone(app.cfg), preset: 'draft', evaluations: 'preview', workers: app.workers };
   startRun(Object.assign({}, request), 'Draft preview').then(res => {
     res.preview = true; res.request = request; app.analysisLost = false;
-    app.results = res; app.fieldsCache.clear(); app.sectionCache.clear(); app.sectionDraft = null; app.currentFields = res.at25; app.selectedT = 25;
+    app.results = res; app.fieldsCache.clear(); app.sectionCache.clear(); app.tractionCache.clear(); app.sectionDraft = null; app.currentFields = res.at25; app.selectedT = 25;
     floorplan.draw();
     renderContext();
   }).catch(err => { if (err.message !== 'cancelled' && !err.reported) toast('Preview failed: ' + err.message, 'error'); });
@@ -402,6 +402,9 @@ function renderUFView(root, res, f, Tsel) {
   if (hasDdi) root.append(h('div', { class: 'row' }, ...[['fli', 'Flip chip underfill', 'layerFli'], ['wcuf', f.ddi[0].wcuf.fill === 'mold' ? 'Wafer mold at the chiplets' : 'Wafer underfill at the chiplets', 'layerWcuf']].map(([k, l, t]) => h('button', tip(t, { class: (app.ufLayer || 'fli') === k ? 'primary small' : 'small', onclick: () => { app.ufLayer = k; renderCenter(); } }), l))));
   root.append(h('div', { class: 'row' }, h('b', null, wc ? (mold ? 'Wafer mold interface tractions at the chiplets' : 'Wafer underfill interface tractions') : 'Underfill interface tractions'), ' at ', Tsel, h('span', { class: 'conf' }, CONFIDENCE.corner)));
   const fill = mold ? 'mold' : 'wafer underfill';
+  // perimeter line plots of every die, or contour maps of chosen sides; one at a time
+  root.append(h('div', { class: 'row' }, h('span', { class: 'small muted' }, 'show'), ...[['lines', 'Perimeter line plots', 'ufModeLines'], ['maps', 'Side contour maps', 'ufModeMaps']].map(([k, l, t]) => h('button', tip(t, { class: app.ufMode === k ? 'primary small' : 'small', onclick: () => { app.ufMode = k; renderCenter(); } }), l))));
+  if (app.ufMode === 'maps') { renderUFMaps(root, f, wc, fill); return; }
   for (const d of (wc ? f.ddi.map(c => ({ name: c.name, uf: c.wcuf })) : f.dies)) {
     const u = d.uf;
     const c1 = h('canvas', tip('ufSide', { class: 'plot' })), c2 = h('canvas', tip('ufFace', { class: 'plot' }));
@@ -480,7 +483,7 @@ function renderSubmodelCard(sm) {
   const card = h('div', { class: 'card' }, h('h3', null, 'Submodel: ' + sm.die + ' bump at (' + fmt(sm.site.x, 2) + ', ' + fmt(sm.site.y, 2) + ') mm, ' + sm.nxy + '×' + sm.nxy + '×' + sm.nz + ' voxels'),
     h('div', { class: 'kv' }, kl('ΔW stabilized cycle (critical layer: ' + sm.critical + ')', 'subDW'), h('b', null, fmtE(sm.dW, 3) + ' MPa/cycle'), kl('die side / substrate side', 'subDW'), h('span', null, fmtE(sm.dWdie, 3) + ' / ' + fmtE(sm.dWsub, 3)), kl('Equivalent inelastic strain range', 'subDE'), h('span', null, fmtE(sm.dE, 3)), kl('Cycle-to-cycle change of ΔW', 'subStab'), h('span', { class: sm.stabWarn ? 'warnc' : 'ok' }, fmt(100 * sm.stabChange, 1) + ' %' + (sm.stabWarn ? ' (not stabilized; run more cycles)' : '')), kl('Life, Syed energy model', 'lifeSyedE'), h('b', null, fmt(life.syedEnergy, 0) + ' cycles'), kl('Life, Syed strain model', 'lifeSyedS'), h('span', null, fmt(life.syedStrain, 0) + ' cycles'), kl('Life, Darveaux', 'lifeDarv'), h('span', null, life.darveaux === null ? 'enter K1 to K4 in step 5' : fmt(life.darveaux, 0) + ' cycles (N0 ' + fmt(life.darveauxN0, 0) + ', a = ' + fmt(sm.dJoint * 1000, 0) + ' µm)'), app.baseline && app.baseline.submodels && app.baseline.submodels[0] ? kl('Life ratio vs baseline', 'lifeRatio') : null, app.baseline && app.baseline.submodels && app.baseline.submodels[0] ? h('b', null, fmt(life.syedEnergy / app.baseline.submodels[0].life.syedEnergy, 2)) : null, kl('Steps / cutbacks / Newton per step', 'subSteps'), h('span', null, sm.steps + ' / ' + sm.cutbacks + ' / ' + fmt(sm.newtonPerStep, 1) + ', ' + fmt(sm.ms / 1000, 1) + ' s')),
     c1, h('div', { class: 'small muted' }, 'Per cycle: ' + sm.perCycle.map(c => 'cycle ' + c.cycle + ': ' + fmtE(Math.max(c.dWdie, c.dWsub), 2)).join('; ')),
-    sm.section ? h('button', tip('openSubSection', { class: 'small', onclick: () => { app.subSection.key = subSecKey(sm); app.subSection.snap = null; app.subSection.pos = null; app.resultsView = 'subSection'; renderCenter(); } }), 'Cross-section of this submodel') : null,
+    sm.section ? h('button', tip('openSubSection', { class: 'small', onclick: () => { app.subSection.key = subSecKey(sm); app.subSection.snap = null; app.subSection.off = null; app.resultsView = 'subSection'; renderCenter(); } }), 'Cross-section of this submodel') : null,
     h('details', null, h('summary', null, 'What this means'), h('p', { class: 'small' }, 'The submodel resolves one solder joint with the Anand viscoplastic model, driven by cut-boundary displacements from the global model. ΔW is the inelastic work density of the last simulated cycle averaged over a 25 µm layer at each interface; the larger side is used. Energy-based lives use Syed\'s constant (fitted to a different model and joint geometry) and are order-of-magnitude. The Darveaux model needs constants calibrated to this averaging scheme. The solder is assumed stress-free at 25 °C in the as-assembled state (room-temperature relaxation).')));
   requestAnimationFrame(() => linePlot(c1, [{ x: sm.loop.gamma, y: sm.loop.tau, label: 'die-side layer' }, { x: sm.loop.gammaSub, y: sm.loop.tauSub, label: 'substrate-side layer', dash: [3, 3] }], { title: 'Shear hysteresis (volume averaged in the interface layers, radial direction)', xlabel: 'shear strain γ', ylabel: 'τ, MPa', zero: false }));
   return card;

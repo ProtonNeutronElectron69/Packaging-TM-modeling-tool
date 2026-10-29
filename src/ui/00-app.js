@@ -45,9 +45,9 @@ const app = {
   workers: Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1, maxWorkers())), nestedWorkers: true,
   decisions: [], showOverlay: 'warpage', cutDirty: true,
   // submodel cross-section view: submodel key (die:ix:iy), stored moment, cut direction and grid-line index, display options
-  subSection: { key: null, snap: null, axis: 'x', pos: null, qty: 'vm', focus: 'uf', mesh: false, total: false },
+  subSection: { key: null, snap: null, angle: 0, off: null, qty: 'vm', focus: 'uf', mesh: false, total: false },
   // cross-section stress view: line {axis, c, a0, a1}, first click while drawing, display options, worker results by temperature and line
-  section: null, sectionDraft: null, sectionQty: 'vm', sectionPhase: 'uf', sectionMesh: false, sectionExag: 'fit', sectionRange: 'all', sectionResize: false, sectionCache: new Map(), sectionPending: null,
+  section: null, sectionDraft: null, sectionQty: 'vm', sectionPhase: 'uf', sectionMesh: false, sectionExag: 'fit', sectionRange: 'all', sectionResize: false, sectionCache: new Map(), tractionCache: new Map(), tractionPending: new Set(), ufMode: 'lines', ufMaps: null, ufMapQty: 'peel', ufMapDepth: 0.5, ufMapShared: true, sectionPending: null,
   colorMap: prefs.get('colorMap', 'rainbow') === 'colorblind' ? 'colorblind' : 'rainbow',  // contour colours: rainbow or colorblind-safe
 };
 

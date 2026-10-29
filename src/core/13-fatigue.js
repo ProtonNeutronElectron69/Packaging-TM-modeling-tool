@@ -1131,48 +1131,93 @@ function submodelResidual(an, S) {
 }
 
 /**
- * Vertical cut through a bump submodel result sm along the x or y grid lines at
- * grid-line index jc across the cut, for snapshot si. Returns the record the
- * cross-section plot draws (see sectionStress), in local coordinates: s in um from
- * the bump axis, z in um above the substrate top. A cut along a voxel face between
- * two materials shows the element nearer the bump axis; corner values are averaged
- * only within one material. total: add the as-assembled 25 degC stress of each
+ * Vertical cut through a bump submodel result sm for snapshot si: the plane
+ * through the line at angle degrees from +x (counterclockwise seen from the top),
+ * offset off um from the bump axis along its normal n = (-sin, cos). The line is
+ * cut at every voxel grid line it crosses, so each segment lies in one voxel
+ * column; values at the segment ends come from the voxel's corner stresses
+ * (bilinear on its bottom or top face). A segment along a voxel face shows both
+ * voxels averaged when they hold the same material, else the one nearer the
+ * bump axis. Corner values are then averaged only within one material. Returns
+ * the record the cross-section plot draws (see sectionStress) in local
+ * coordinates: s in um along the line from its point nearest the bump axis, z in
+ * um above the substrate top. total: add the as-assembled 25 degC stress of each
  * element (S.residual, submodelResidual) to the change from 25 degC.
  */
-function submodelSection(sm, si, axis, jc, total) {
+function submodelSection(sm, si, angle, off, total) {
   const S = sm.section, snap = S.snaps[si], res = total && S.residual ? S.residual : null;
-  const alongY = axis === 'y';
-  const along = alongY ? S.ys : S.xs, across = alongY ? S.xs : S.ys;
-  const nx = S.xs.length - 1, ny = S.ys.length - 1, nz = S.zs.length - 1;
-  const na = along.length - 1, nc = across.length - 1;
-  jc = Math.max(0, Math.min(nc, Math.round(jc)));
-  const c0 = alongY ? S.cx : S.cy;
-  const cell = (ia, ic, k) => (alongY ? (ic * ny + ia) : (ia * ny + ic)) * nz + k;
-  // corner order of the cut face (s-, z-), (s+, z-), (s+, z+), (s-, z+) on the element below (A, its + face) and above (B, its - face) the cut
-  const faceA = alongY ? [1, 2, 6, 5] : [3, 2, 6, 7], faceB = alongY ? [0, 3, 7, 4] : [0, 1, 5, 4];
-  const toUm = 1000;
-  const sl = Float64Array.from(along, v => (v - (alongY ? S.cy : S.cx)) * toUm), zl = Float64Array.from(S.zs, v => (v - S.zt) * toUm);
+  const nx = S.xs.length - 1, ny = S.ys.length - 1, nz = S.zs.length - 1, toUm = 1000;
+  const th = angle * Math.PI / 180, tx = Math.cos(th), ty = Math.sin(th), qx = -ty, qy = tx;
+  const ox = S.cx + qx * off / toUm, oy = S.cy + qy * off / toUm;  // foot of the line, mm
+  const x0 = S.xs[0], x1 = S.xs[nx], y0 = S.ys[0], y1 = S.ys[ny], tol = CONST.SUBSEC_TOL;
+  // the line inside the cell (Liang-Barsky clip), then its crossings with the grid lines
+  let lo = -Infinity, hi = Infinity;
+  for (const [d, a, b] of [[tx, x0 - ox, x1 - ox], [ty, y0 - oy, y1 - oy]]) {
+    if (Math.abs(d) < 1e-12) { if (a > 0 || b < 0) lo = Infinity; continue; }
+    const p = a / d, q = b / d;
+    lo = Math.max(lo, Math.min(p, q)); hi = Math.min(hi, Math.max(p, q));
+  }
+  const cuts = [];
+  if (hi - lo > tol) {
+    cuts.push(lo, hi);
+    if (Math.abs(tx) > 1e-12) for (const x of S.xs) { const t = (x - ox) / tx; if (t > lo && t < hi) cuts.push(t); }
+    if (Math.abs(ty) > 1e-12) for (const y of S.ys) { const t = (y - oy) / ty; if (t > lo && t < hi) cuts.push(t); }
+  }
+  cuts.sort((a, b) => a - b);
+  const ts = [];
+  for (const t of cuts) if (!ts.length || t - ts[ts.length - 1] > tol) ts.push(t);
+  const na = Math.max(0, ts.length - 1);
+  const find = (arr, v) => { let a = 0, b = arr.length - 2; while (a < b) { const m = (a + b + 1) >> 1; if (arr[m] <= v) a = m; else b = m - 1; } return a; };
+  const inCell = (x, y) => x >= x0 && x <= x1 && y >= y0 && y <= y1;
+  // voxel columns of each segment: both sides of the line a hair off the midpoint (two columns when it runs along a face)
+  const cols = [];
+  for (let a = 0; a < na; a++) {
+    const t = 0.5 * (ts[a] + ts[a + 1]), mx = ox + tx * t, my = oy + ty * t, d = tol;
+    const c = [];
+    for (const sg of [-1, 1]) {
+      const px = mx + sg * qx * d, py = my + sg * qy * d;
+      if (!inCell(px, py)) continue;
+      const i = find(S.xs, px), j = find(S.ys, py);
+      if (!c.some(v => v[0] === i && v[1] === j)) c.push([i, j]);
+    }
+    cols.push(c);
+  }
+  const sl = Float64Array.from(ts, v => v * toUm), zl = Float64Array.from(S.zs, v => (v - S.zt) * toUm);
   const ns = na + 1, nzl = nz + 1, ng = S.groups.length, nn = ns * nzl;
   const acc = new Float64Array(ng * nn * 7), quads = [], face = new Float64Array(24);
-  for (let k = 0; k < nz; k++) for (let ia = 0; ia < na; ia++) {
-    const eA = jc > 0 ? cell(ia, jc - 1, k) : -1, eB = jc < nc ? cell(ia, jc, k) : -1;
-    let use;
-    if (eA >= 0 && eB >= 0 && S.grp[eA] !== S.grp[eB]) {
-      const dA = Math.abs(0.5 * (across[jc - 1] + across[jc]) - c0), dB = Math.abs(0.5 * (across[jc] + across[jc + 1]) - c0);
-      use = dA < dB ? [[eA, faceA]] : [[eB, faceB]];
-    } else use = [[eA, faceA], [eB, faceB]].filter(([e]) => e >= 0);
+  // stress at plan point (px, py) on the bottom (top = 0) or top (top = 4) face of element e, bilinear in its corners
+  const at = (e, i, j, px, py, top, out, o, w) => {
+    const u = Math.min(1, Math.max(0, (px - S.xs[i]) / (S.xs[i + 1] - S.xs[i]))), v = Math.min(1, Math.max(0, (py - S.ys[j]) / (S.ys[j + 1] - S.ys[j])));
+    const wt = [(1 - u) * (1 - v), u * (1 - v), u * v, (1 - u) * v];
+    for (let cc = 0; cc < 6; cc++) {
+      let x = res ? res[6 * e + cc] : 0;
+      for (let k = 0; k < 4; k++) x += wt[k] * snap.sig[48 * e + 6 * (top + k) + cc];
+      out[o + cc] += w * x;
+    }
+  };
+  for (let k = 0; k < nz; k++) for (let a = 0; a < na; a++) {
+    let use = cols[a].map(([i, j]) => [i, j, (i * ny + j) * nz + k]);
+    if (!use.length) continue;
+    if (use.length === 2 && S.grp[use[0][2]] !== S.grp[use[1][2]]) {
+      const dist = ([i, j]) => Math.abs((0.5 * (S.xs[i] + S.xs[i + 1]) - S.cx) * qx + (0.5 * (S.ys[j] + S.ys[j + 1]) - S.cy) * qy);
+      use = [dist(use[0]) <= dist(use[1]) ? use[0] : use[1]];
+    }
     face.fill(0);
-    for (const [e, fc] of use) for (let v = 0; v < 4; v++) for (let cc = 0; cc < 6; cc++) face[6 * v + cc] += (snap.sig[48 * e + 6 * fc[v] + cc] + (res ? res[6 * e + cc] : 0)) / use.length;
-    const grp = S.grp[use[0][0]];
-    [[ia, k], [ia + 1, k], [ia + 1, k + 1], [ia, k + 1]].forEach(([ca, cb], v) => {
+    const ends = [ts[a], ts[a + 1]];
+    for (const [i, j, e] of use) {
+      // quad corners (s-, z-), (s+, z-), (s+, z+), (s-, z+)
+      [[0, 0], [1, 0], [1, 4], [0, 4]].forEach(([se, top], v) => at(e, i, j, ox + tx * ends[se], oy + ty * ends[se], top, face, 6 * v, 1 / use.length));
+    }
+    const grp = S.grp[use[0][2]];
+    [[a, k], [a + 1, k], [a + 1, k + 1], [a, k + 1]].forEach(([ca, cb], v) => {
       const o = (grp * nn + ca * nzl + cb) * 7;
       for (let cc = 0; cc < 6; cc++) acc[o + cc] += face[6 * v + cc];
       acc[o + 6]++;
     });
-    quads.push({ a: ia, b: k, grp });
+    quads.push({ a, b: k, grp });
   }
   const n = quads.length, sig = new Float32Array(24 * n);
-  const out = { T: snap.T, axis: alongY ? 'y' : 'x', c: +((across[jc] - c0) * toUm).toFixed(6), a0: sl[0], a1: sl[na], zMin: zl[0], zTop: zl[nz], sl, zl, n,
+  const out = { T: snap.T, axis: 'x', theta: th, angle, c: +(+off).toFixed(6), foot: [ox, oy], dir: [tx, ty], a0: na ? sl[0] : 0, a1: na ? sl[na] : 0, zMin: zl[0], zTop: zl[nz], sl, zl, n,
     qa: new Int32Array(n), qb: new Int32Array(n), part: new Int8Array(n), grp: new Int16Array(n), pair: new Int8Array(n), cutBelow: new Int8Array(n), sig,
     topA: new Float32Array(n).fill(NaN), topB: new Float32Array(n).fill(NaN), groups: S.groups, submodel: true, total: !!res };
   quads.forEach((Q, t) => {
@@ -1183,4 +1228,18 @@ function submodelSection(sm, si, axis, jc, total) {
     });
   });
   return out;
+}
+
+/**
+ * Range of the cut offset (um) along the normal of a submodel cut at angle
+ * degrees: the cell corners projected on n = (-sin, cos) about the bump axis.
+ */
+function submodelCutRange(sm, angle) {
+  const S = sm.section, th = angle * Math.PI / 180, qx = -Math.sin(th), qy = Math.cos(th);
+  let lo = Infinity, hi = -Infinity;
+  for (const x of [S.xs[0], S.xs[S.xs.length - 1]]) for (const y of [S.ys[0], S.ys[S.ys.length - 1]]) {
+    const d = ((x - S.cx) * qx + (y - S.cy) * qy) * 1000;
+    lo = Math.min(lo, d); hi = Math.max(hi, d);
+  }
+  return [lo, hi];
 }

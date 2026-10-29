@@ -52,17 +52,17 @@ if (args.includes('--full')) {
       worker.send({ type: 'submodels', jobs, nxy: app.cfg.submodel.nxy, nz: app.cfg.submodel.nz, workers }).then(r => { app.submodels = r; resolve({ ms: performance.now() - t, n: r.length, dW: r.map(x => x.dW), life: r.map(x => x.life.syedEnergy), steps: r.map(x => x.steps), perBumpMs: r.map(x => x.ms), snapshots: r.map(x => x.section ? x.section.snaps.length : 0) }); }).catch(e => reject(e.message));
     }), workers);
     console.log('submodels:', JSON.stringify(sub));
-    // submodel cross-section: every moment, both cut directions, all three material focus choices, change and total stress
+    // submodel cross-section: every moment, cuts along x, turned 45 and 165 degrees (offset off the axis) and along y, all three material focus choices, change and total stress
     await page.evaluate(() => { app.resultsView = 'subSection'; setCenterTab('results'); });
     await page.waitForTimeout(300);
     const ss = await page.evaluate(async () => {
       const st = app.subSection, out = [];
-      for (const total of [false, true]) for (const axis of ['x', 'y']) for (const focus of ['uf', 'solder', 'all']) {
-        st.total = total; st.axis = axis; st.focus = focus; st.pos = null; st.mesh = focus === 'all';
+      for (const total of [false, true]) for (const [angle, off] of [[0, 0], [45, 10], [90, 0], [165, -15]]) for (const focus of ['uf', 'solder', 'all']) {
+        st.total = total; st.angle = angle; st.off = off; st.focus = focus; st.mesh = focus === 'all';
         for (let k = 0; k < app.submodels[0].section.snaps.length; k++) { st.snap = k; renderCenter(); await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); }
-        out.push(axis + '/' + focus + (total ? '/total' : ''));
+        out.push(angle + '/' + focus + (total ? '/total' : ''));
       }
-      const sm = app.submodels[0], sec = C.submodelSection(sm, st.snap, st.axis, st.pos), tot = C.submodelSection(sm, st.snap, st.axis, st.pos, true);
+      const sm = app.submodels[0], sec = C.submodelSection(sm, st.snap, st.angle, st.off), tot = C.submodelSection(sm, st.snap, st.angle, st.off, true);
       let dmax = 0;
       for (let q = 0; q < sec.sig.length; q++) dmax = Math.max(dmax, Math.abs(tot.sig[q] - sec.sig[q]));
       return { combos: out.length, plots: document.querySelectorAll('#center-body canvas.map').length, quads: sec.n, finite: sec.sig.every(Number.isFinite), residual: !!sm.section.residual, totalFinite: tot.sig.every(Number.isFinite), totalIsTotal: tot.total, residualMaxMPa: +dmax.toFixed(2), stats: document.querySelectorAll('#center-body table tr').length - 1 };
@@ -72,6 +72,14 @@ if (args.includes('--full')) {
     // back to the floorplan tab: the page remembers the centre tab, and the reload below waits for the floorplan
     await page.evaluate(() => setCenterTab('floorplan'));
   }
+  // underfill traction contour maps: the four sides of the first die at 25 degC through the view (saved with the results file below)
+  await page.evaluate(() => { app.ufMode = 'maps'; app.ufMaps = { fli: [0, 1, 2, 3].map(k => ({ o: 0, side: k })) }; app.resultsView = 'uf'; setCenterTab('results'); });
+  await page.waitForFunction(() => app.tractionCache.size >= 4 && !app.tractionPending.size, null, { timeout: 120000 });
+  await page.waitForTimeout(300);
+  const um = await page.evaluate(() => { const ms = [...app.tractionCache.values()]; return { maps: ms.length, errors: ms.filter(m => m.error).length, plots: document.querySelectorAll('#center-body canvas.map').length, finite: ms.every(m => !m.error && Array.from(m.face.peel).some(Number.isFinite) && Array.from(m.wall.peel).some(Number.isFinite)) }; });
+  console.log('underfill traction maps:', JSON.stringify(um));
+  if (um.maps < 4 || um.errors || um.plots !== 4 || !um.finite) errors.push('error: underfill traction maps: ' + JSON.stringify(um));
+  await page.evaluate(() => { app.ufMode = 'lines'; setCenterTab('floorplan'); });
   // results file: view one temperature (cached), save, reload the page, reopen the file; then a temperature never
   // evaluated before saving must come out of the reloaded analysis as it did from the original one
   const rf = await page.evaluate(async () => {
@@ -80,7 +88,7 @@ if (args.includes('--full')) {
     const t0 = performance.now();
     while (!app.fieldsCache.has(T1) && performance.now() - t0 < 60000) await new Promise(r => setTimeout(r, 100));
     const ref = await worker.send({ type: 'fieldsAt', T: T2 });
-    return { T1, T2, w25: app.results.at25.warpage.signed, w2: ref.warpage.signed, s2: ref.dies[0].top.peakInterior, hash: C.configHashes(app.cfg).all, nSub: app.submodels.length, nCache: app.fieldsCache.size };
+    return { T1, T2, w25: app.results.at25.warpage.signed, w2: ref.warpage.signed, s2: ref.dies[0].top.peakInterior, hash: C.configHashes(app.cfg).all, nSub: app.submodels.length, nCache: app.fieldsCache.size, nTrac: app.tractionCache.size };
   });
   const dlP = page.waitForEvent('download', { timeout: 120000 });
   await page.evaluate(() => saveResultsFile());
@@ -99,11 +107,11 @@ if (args.includes('--full')) {
     const t0 = performance.now();
     while (!app.fieldsCache.has(T2) && performance.now() - t0 < 60000) await new Promise(r => setTimeout(r, 100));
     const f = app.fieldsCache.get(T2);
-    return { cached, w25: app.results.at25.warpage.signed, w2: f ? f.warpage.signed : null, s2: f ? f.dies[0].top.peakInterior : null, hash: C.configHashes(app.cfg).all, nSub: app.submodels.length, step: app.step, tab: app.centerTab };
+    return { cached, w25: app.results.at25.warpage.signed, w2: f ? f.warpage.signed : null, s2: f ? f.dies[0].top.peakInterior : null, hash: C.configHashes(app.cfg).all, nSub: app.submodels.length, nTrac: app.tractionCache.size, step: app.step, tab: app.centerTab };
   }, [rf.T1, rf.T2]);
   const rel = (a, b) => Math.abs(a - b) / Math.max(Math.abs(a), 1e-30);
   console.log('results file:', JSON.stringify({ file: path.basename(rfPath), MB: +(rfSize / 1048576).toFixed(1), before: rf, after: rb, warpageRel: rel(rf.w2, rb.w2), stressRel: rel(rf.s2, rb.s2) }));
-  if (!rb.cached || rb.w25 !== rf.w25 || rb.hash !== rf.hash || rb.nSub !== rf.nSub || !(rel(rf.w2, rb.w2) < 1e-5) || !(rel(rf.s2, rb.s2) < 1e-5)) errors.push('error: results file round trip: ' + JSON.stringify({ rf, rb }));
+  if (!rb.cached || rb.w25 !== rf.w25 || rb.hash !== rf.hash || rb.nSub !== rf.nSub || rb.nTrac !== rf.nTrac || !(rel(rf.w2, rb.w2) < 1e-5) || !(rel(rf.s2, rb.s2) < 1e-5)) errors.push('error: results file round trip: ' + JSON.stringify({ rf, rb }));
   fs.unlinkSync(rfPath);
   // render results views
   await page.evaluate(() => { app.section = { axis: 'x', c: 0, a0: -20, a1: 20 }; app.sectionMesh = true; });

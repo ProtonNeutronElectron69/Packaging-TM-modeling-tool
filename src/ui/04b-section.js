@@ -17,9 +17,22 @@ const SECTION_CLICK_SLOP = 4;    // px of pointer travel that still counts as a 
 
 function sectionQtyLabel(k) { for (const [, items] of SECTION_QTY) for (const [id, l] of items) if (id === k) return l; return k; }
 
-/** Scalar of quantity qty from the six components at offset o of s (xx, yy, zz, xy, yz, xz); line along x or y. */
-function sectionValue(qty, alongY, s, o, eig, tmp) {
+/**
+ * Scalar of quantity qty from the six components at offset o of s (xx, yy, zz, xy, yz, xz); line along x or y,
+ * or, when rot = [cos, sin] is given, along the direction t = (cos, sin) with n = (-sin, cos) across it.
+ */
+function sectionValue(qty, alongY, s, o, eig, tmp, rot) {
   const xx = s[o], yy = s[o + 1], zz = s[o + 2], xy = s[o + 3], yz = s[o + 4], xz = s[o + 5];
+  if (rot) {
+    const c = rot[0], n = rot[1];
+    switch (qty) {
+      case 'sss': return c * c * xx + n * n * yy + 2 * c * n * xy;
+      case 'snn': return n * n * xx + c * c * yy - 2 * c * n * xy;
+      case 'tsz': return c * xz + n * yz;
+      case 'tnz': return c * yz - n * xz;
+      case 'tsn': return c * n * (yy - xx) + (c * c - n * n) * xy;
+    }
+  }
   switch (qty) {
     case 'vm': return Math.sqrt(0.5 * ((xx - yy) ** 2 + (yy - zz) ** 2 + (zz - xx) ** 2) + 3 * (xy * xy + yz * yz + xz * xz));
     case 's1': case 's3': { for (let c = 0; c < 6; c++) tmp[c] = s[o + c]; const ev = eig(tmp); return qty === 's1' ? ev[0] : ev[2]; }
@@ -103,11 +116,13 @@ function snappedLine(p, q) {
 }
 
 function drawSectionLine(ctx, X, Y, s, color, dash) {
-  const [xa, ya, xb, yb] = s.axis === 'x' ? [s.a0, s.c, s.a1, s.c] : [s.c, s.a0, s.c, s.a1];
+  // s: {axis, c, a0, a1} for a line along x or y, or {pts: [xa, ya, xb, yb]} for any direction
+  const [xa, ya, xb, yb] = s.pts || (s.axis === 'x' ? [s.a0, s.c, s.a1, s.c] : [s.c, s.a0, s.c, s.a1]);
   ctx.strokeStyle = color; ctx.lineWidth = 2.5; ctx.setLineDash(dash || []);
   ctx.beginPath(); ctx.moveTo(X(xa), Y(ya)); ctx.lineTo(X(xb), Y(yb)); ctx.stroke(); ctx.setLineDash([]); ctx.lineWidth = 1;
   ctx.fillStyle = color; ctx.font = '600 12px ' + cssVar('--font'); ctx.textBaseline = 'middle';
-  for (const [x, y, l, dx, dy] of s.axis === 'x' ? [[xa, ya, 'B', -12, 0], [xb, yb, 'B′', 12, 0]] : [[xa, ya, 'B', 0, 12], [xb, yb, 'B′', 0, -12]]) {
+  const L = Math.hypot(X(xb) - X(xa), Y(yb) - Y(ya)) || 1, ux = (X(xb) - X(xa)) / L * 12, uy = (Y(yb) - Y(ya)) / L * 12;
+  for (const [x, y, l, dx, dy] of [[xa, ya, 'B', -ux, -uy], [xb, yb, 'B′', ux, uy]]) {
     ctx.beginPath(); ctx.arc(X(x), Y(y), 3.5, 0, 6.3); ctx.fill();
     ctx.textAlign = 'center'; ctx.fillText(l, X(x) + dx, Y(y) + dy);
   }
@@ -155,8 +170,8 @@ function sectionMap(res) {
 function sectionFields(sec, qty, phase) {
   const eig = C.eigSym3, tmp = new Float64Array(6), out = new Float64Array(3);
   const vals = new Float64Array(4 * sec.n);
-  const alongY = sec.axis === 'y';
-  for (let q = 0; q < sec.n; q++) for (let v = 0; v < 4; v++) vals[4 * q + v] = sectionValue(qty, alongY, sec.sig, 24 * q + 6 * v, s => eig(s, out), tmp);
+  const alongY = sec.axis === 'y', rot = sec.theta !== undefined ? [Math.cos(sec.theta), Math.sin(sec.theta)] : null;
+  for (let q = 0; q < sec.n; q++) for (let v = 0; v < 4; v++) vals[4 * q + v] = sectionValue(qty, alongY, sec.sig, 24 * q + 6 * v, s => eig(s, out), tmp, rot);
   const nzs = sec.zl.length - 1, idx = new Int32Array((sec.sl.length - 1) * nzs).fill(-1), idx2 = new Int32Array(idx.length).fill(-1);
   // a cell cut by a fillet wedge with a second material over it (wafer underfill below, wafer mold above): the wedge
   // quad is the primary one, the other fills the cell above the wedge surface (idx2)

@@ -408,6 +408,75 @@ function perimeterTractions(view, name, r, z0, sideParts, facePart) {
 }
 
 /**
+ * Traction field on side k of a die (ufTractionMap) or chiplet (wcufTractionMap),
+ * unfolded at the edge: see tractionMap. depth: width of the active-face band, mm.
+ */
+function ufTractionMap(view, geom, dieIdx, side, depth) {
+  const d = geom.dies[dieIdx];
+  return tractionMap(view, d.name, d.rect, d.zaf, side, Math.min(1, geom.uf.Hf) * d.t, depth, [PART.UF_FILLET], PART.UF_BUMP);
+}
+function wcufTractionMap(view, geom, mi, ci, side, depth) {
+  const m = geom.modules[mi], c = m.chiplets[ci];
+  // the wafer underfill fillet, then the mold over it (or mold only): the sidewall interface runs up the whole chiplet
+  const r = tractionMap(view, c.name, c.rect, m.zDdiTop, side, geom.stack.chipletT, depth, [PART.WCUF_FILLET, PART.MOLD], PART.DDI_FILL);
+  r.module = mi; r.chiplet = ci; r.fill = geom.wcuf ? 'wcuf' : 'mold';
+  return r;
+}
+
+/**
+ * Traction field on side k of rectangle r (from corner k + 1 to corner k + 2 of
+ * dieCorners, clockwise from corner 1), unfolded at the edge into one map: the
+ * sidewall just outside the side from z0 up to z0 + hSide (first of sideParts
+ * found in the cell, as perimeterTractions) and the face just below z0 from the
+ * edge inward to depth (facePart, depth at most half the rectangle across the
+ * side). Point values of the underfill-side stress, no patch averaging, at cell
+ * centres of a grid of columns along the side (TRACTION_MAP_DS apart, at most
+ * TRACTION_MAP_COLS_MAX) and TRACTION_MAP_ROWS rows through each part. For each
+ * point: peel = traction normal to the interface (tension positive), along =
+ * shear traction along the side (toward the side's second corner), cross =
+ * shear traction across it (sidewall: upward; face: outward, toward the edge).
+ * NaN where no element of the parts is found.
+ */
+function tractionMap(view, name, r, z0, side, hSide, depth, sideParts, facePart) {
+  const mesh = view.model.mesh, cs = dieCorners(r), c0 = cs[side], c1 = cs[(side + 1) % 4];
+  const L = Math.hypot(c1.x - c0.x, c1.y - c0.y), tx = (c1.x - c0.x) / L, ty = (c1.y - c0.y) / L;
+  const nx = c0.sx === c1.sx ? c0.sx : 0, ny = c0.sy === c1.sy ? c0.sy : 0;
+  const across = nx ? r.x1 - r.x0 : r.y1 - r.y0;
+  depth = Math.min(depth, 0.5 * across);
+  const m = Math.min(CONST.TRACTION_MAP_COLS_MAX, Math.max(CONST.TRACTION_MAP_COLS_MIN, Math.round(L / CONST.TRACTION_MAP_DS)));
+  const nr = CONST.TRACTION_MAP_ROWS, eps = 1e-6;
+  const st = { eps: new Float64Array(6), sig: new Float64Array(6) };
+  const sigAt = (x, y, z, part) => {
+    const [i, j, k] = cellAt(mesh, x, y, z);
+    const e = elementInCell(mesh, i, j, k, part);
+    if (e < 0) return null;
+    const [xi, eta, zeta] = naturalCoords(mesh, e, x, y, z);
+    view.point(e, xi, eta, zeta, st);
+    return st.sig;
+  };
+  const sideSig = (x, y, z) => { for (const p of sideParts) { const sg = sigAt(x, y, z, p); if (sg) return sg; } return sigAt(x, y, z, null); };
+  const mk = () => ({ peel: new Float32Array(nr * m).fill(NaN), along: new Float32Array(nr * m).fill(NaN), cross: new Float32Array(nr * m).fill(NaN) });
+  const wall = mk(), face = mk(), s = new Float64Array(m), vWall = new Float64Array(nr), vFace = new Float64Array(nr);
+  for (let b = 0; b < nr; b++) { vWall[b] = (b + 0.5) / nr * hSide; vFace[b] = (b + 0.5) / nr * depth; }
+  for (let p = 0; p < m; p++) {
+    const sc = s[p] = (p + 0.5) * L / m, x = c0.x + tx * sc, y = c0.y + ty * sc;
+    for (let b = 0; b < nr; b++) {
+      const o = b * m + p;
+      // sidewall: traction t = sigma n, n = (nx, ny, 0)
+      const sg = sideSig(x + nx * eps, y + ny * eps, z0 + vWall[b]);
+      if (sg) {
+        const t0 = sg[0] * nx + sg[3] * ny, t1 = sg[3] * nx + sg[1] * ny, t2 = sg[5] * nx + sg[4] * ny;
+        wall.peel[o] = t0 * nx + t1 * ny; wall.along[o] = t0 * tx + t1 * ty; wall.cross[o] = t2;
+      }
+      // active face: traction on the plane z = z0 from the stress just below it, t = (txz, tyz, szz)
+      const sf = sigAt(x - nx * vFace[b], y - ny * vFace[b], z0 - eps, facePart);
+      if (sf) { face.peel[o] = sf[2]; face.along[o] = sf[5] * tx + sf[4] * ty; face.cross[o] = sf[5] * nx + sf[4] * ny; }
+    }
+  }
+  return { name, side, from: c0.n, to: c1.n, L, hSide, depth, m, nr, s, vWall, vFace, wall, face, T: view.T };
+}
+
+/**
  * Stress in one sub-layer of a layered substrate element at (xi, eta, zeta),
  * recovered as in laminate theory: the in-plane strains are the element's, while
  * the out-of-plane stresses (szz, tyz, txz) are continuous through the band and

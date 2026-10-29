@@ -278,6 +278,13 @@
           post({ type: 'result', id, payload: sectionStress(an.view(msg.T), an.mesh.geom, msg.cut) });
           break;
         }
+        case 'tractionMap': {
+          // underfill traction contour of one die side (layer 'fli') or chiplet side (layer 'wcuf', obj = [module, chiplet])
+          if (!state.an) throw new Error('No analysis in memory; run the analysis first.');
+          const an = state.an, g = an.mesh.geom, view = an.view(msg.T);
+          post({ type: 'result', id, payload: msg.layer === 'wcuf' ? wcufTractionMap(view, g, msg.obj[0], msg.obj[1], msg.side, msg.depth) : ufTractionMap(view, g, msg.obj, msg.side, msg.depth) });
+          break;
+        }
         case 'submodel': {
           if (!state.an) throw new Error('No analysis in memory; run the analysis first.');
           const sm = new BumpSubmodel(state.an, msg.die, msg.site, { nxy: msg.nxy, nz: msg.nz, progress: (f, m) => progress(id, f, m) });

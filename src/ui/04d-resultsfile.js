@@ -8,7 +8,7 @@
 
 /** View settings saved with the results, so the file opens where the user left off. */
 const RESULTS_VIEW_KEYS = ['selectedT', 'resultsView', 'selectedDie', 'selectedChiplet', 'dirty', 'section', 'sectionQty', 'sectionPhase', 'sectionMesh', 'sectionExag', 'sectionRange',
-  'subSection', 'bumpState', 'bumpComp', 'dieStressFace', 'showOverlay', 'exaggeration', 'cutLine', 'view3dOpts', 'submodelSelection', 'sensInputs'];
+  'subSection', 'ufMode', 'ufMaps', 'ufMapQty', 'ufMapDepth', 'ufMapShared', 'bumpState', 'bumpComp', 'dieStressFace', 'showOverlay', 'exaggeration', 'cutLine', 'view3dOpts', 'submodelSelection', 'sensInputs'];
 
 function resultsFileName() {
   const r = app.results;
@@ -24,7 +24,7 @@ function resultsFileTree(analysis) {
     kind: 'fcbga-results', savedAt: new Date().toISOString(),
     config: app.cfg, results: app.results, baseline: app.baseline && app.baseline === app.results ? 'results' : app.baseline,
     screening: app.screening, submodels: app.submodels, sensitivity: app.sensitivity, verification: app.verification,
-    fieldsCache: app.fieldsCache, sectionCache: app.sectionCache, view, analysis,
+    fieldsCache: app.fieldsCache, sectionCache: app.sectionCache, tractionCache: app.tractionCache, view, analysis,
   };
 }
 
@@ -134,6 +134,7 @@ function applyResultsFile(t) {
   app.verification = t.verification || null; app.verifying = null;
   app.fieldsCache = t.fieldsCache instanceof Map ? t.fieldsCache : new Map();
   app.sectionCache = t.sectionCache instanceof Map ? t.sectionCache : new Map();
+  app.tractionCache = t.tractionCache instanceof Map ? t.tractionCache : new Map(); app.tractionPending.clear();
   app.sectionPending = null; app.sectionDraft = null; app.submodelSelection = null; app.sensInputs = null;
   const v = t.view || {};
   for (const k of RESULTS_VIEW_KEYS) if (v[k] !== undefined) app[k] = v[k];

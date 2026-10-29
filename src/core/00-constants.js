@@ -88,7 +88,13 @@ const CONST = Object.freeze({
   PATCH_SAMPLES: 5,          // samples per side inside a patch
   TRACTION_PATCH: 0.05,      // mm, 50 um x 50 um underfill traction patch
   TRACTION_SAMPLES: 3,
+  TRACTION_MAP_DS: 0.05,     // mm, column spacing along a die side in the traction contour map
+  TRACTION_MAP_COLS_MIN: 20, // columns along a side, fewest
+  TRACTION_MAP_COLS_MAX: 600, // columns along a side, most
+  TRACTION_MAP_ROWS: 24,     // rows through the sidewall and through the active-face band
   SECTION_MIN_LENGTH: 0.01, // mm, shortest section line
+  SUBSEC_TOL: 1e-7,          // mm, submodel cut: shortest segment kept, and the offset that tells the two voxels along a face apart
+  SUBSEC_ANGLE_STEP: 15,     // degrees, rotation step of the submodel cut
   DIAG_SAMPLES: 201,
   SIGN_MARGINAL: 0.25,       // |AB_max + AB_min + CD_max + CD_min| / |C| below this flags a marginal JEITA sign
   GF_PER_N: 101.97162,

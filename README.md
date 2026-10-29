@@ -43,7 +43,7 @@ The same tool also comes as a Windows desktop app, for runs that need more memor
 
 ## Project status
 
-The specification in `CLAUDE.md` is implemented in full. Thirty-nine pull requests are merged on `main`:
+The specification in `CLAUDE.md` is implemented in full. Forty pull requests are merged on `main`:
 
 | PR | Merged | Content |
 |---|---|---|
@@ -86,6 +86,7 @@ The specification in `CLAUDE.md` is implemented in full. Thirty-nine pull reques
 | [#37](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/37) | 2026-10-27 | One colour per material in the floorplan, section sketch and 3D view (all silicon blue, all underfill orange, lid and stiffener grey, RDL interposer light brown, wafer mold dark grey), colour key under the section, die and chiplet labels that fit their boxes, floorplan readout moved under the floorplan, section names over each die and module with seamless fills and a 240 px default height, grid and rulers kept inside the substrate |
 | [#38](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/38) | 2026-10-27 | End-of-run dialogs: a summary when a run finishes (total time, mesh, workers, solves, PCG iterations, solver time, screening, RT warpage, step times; warning banner for failed tests or unconverged solves) and the cause when it fails, crashes (worker or compute process died) or is cancelled (where it stopped, what is kept, Restore analysis, what to try, last log lines); helper solve records carry converged and fallback |
 | [#39](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/39) | 2026-10-28 | Stacked modules: well-posed module stages (only the born module parts are assembled and every other node is held, so no spurious substrate warpage; each module supported on three well-separated nodes of its base; multigrid aggregates from the born parts; h_min growth capped at 4 times the lowest module height); fixes the Draft aborts on thin modules; V18 RT warpage 21.69 to 10.28 µm; monolithic results unchanged |
+| [#40](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/40) | 2026-10-28 | Element layers per region by mesh preset: at least 1 at Draft, 2 at Standard and 4 at Fine (TIM 1; substrate groups and RDL interposers split into as many layered bands; die bands and the lid plate start at half, so Fine is unchanged); with the same caps Draft and Standard reach their preset h_min on the default package with fewer DOF (65k and 314k, from 77k and 506k): full Draft 133 s (187), Standard 611 s in Chromium; RT warpage Draft −69.34 µm (−68.58), Standard −69.30 µm (−69.08); V5 tests one band per group; run-time estimate refitted; smoke test returns to the floorplan tab before its reload |
 
 Open items are listed under "Known issues and next steps" below. The largest is performance against the Section 13 targets.
 

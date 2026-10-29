@@ -43,7 +43,7 @@ The same tool also comes as a Windows desktop app, for runs that need more memor
 
 ## Project status
 
-The specification in `CLAUDE.md` is implemented in full. Forty-one pull requests are merged on `main`:
+The specification in `CLAUDE.md` is implemented in full. Forty-two pull requests are merged on `main`:
 
 | PR | Merged | Content |
 |---|---|---|
@@ -88,6 +88,7 @@ The specification in `CLAUDE.md` is implemented in full. Forty-one pull requests
 | [#39](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/39) | 2026-10-28 | Stacked modules: well-posed module stages (only the born module parts are assembled and every other node is held, so no spurious substrate warpage; each module supported on three well-separated nodes of its base; multigrid aggregates from the born parts; h_min growth capped at 4 times the lowest module height); fixes the Draft aborts on thin modules; V18 RT warpage 21.69 to 10.28 µm; monolithic results unchanged |
 | [#40](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/40) | 2026-10-28 | Element layers per region by mesh preset: at least 1 at Draft, 2 at Standard and 4 at Fine (TIM 1; substrate groups and RDL interposers split into as many layered bands; die bands and the lid plate start at half, so Fine is unchanged); with the same caps Draft and Standard reach their preset h_min on the default package with fewer DOF (65k and 314k, from 77k and 506k): full Draft 133 s (187), Standard 611 s in Chromium; RT warpage Draft −69.34 µm (−68.58), Standard −69.30 µm (−69.08); V5 tests one band per group; run-time estimate refitted; smoke test returns to the floorplan tab before its reload |
 | [#41](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/41) | 2026-10-28 | Desktop app version raised to 1.2.0 at the user's request, so the release after the per-preset element layers of PR 40 is desktop-v1.2.0 (PR 40 itself went out as desktop-v1.1.5) |
+| [#42](https://github.com/ProtonNeutronElectron69/Packaging-TM-modeling-tool/pull/42) | 2026-10-28 | Submodel cross-section cut turned about the bump axis in 15° steps and slid along its normal (offset in µm; segments cut at the voxel grid lines, bilinear in each voxel, so 0° and 90° on a grid line give the earlier cuts exactly; line-frame components turn with the cut); underfill interface view shows the perimeter line plots or up to 4 side contour maps stacked to fit the results pane (each die or chiplet side unfolded at the edge: sidewall above, active-face band below; peel, shear magnitude or components; shared or per-map rainbow scale; core tractionMap, worker message tractionMap, maps cached and saved in the results file) |
 
 Open items are listed under "Known issues and next steps" below. The largest is performance against the Section 13 targets.
 

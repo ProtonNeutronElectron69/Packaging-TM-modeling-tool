@@ -98,6 +98,9 @@ th { color: var(--muted); font-weight: 500; }
 td input[type=number], td select, td input[type=text] { width: 100%; padding: 2px 4px; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); color: var(--text); font: inherit; }
 td.num, th.num { text-align: right; }
 .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; box-shadow: var(--shadow); }
+.ufmap { margin-bottom: 8px; padding-top: 4px; border-top: 1px solid var(--border); }
+.ufmap .row { margin: 2px 0; flex-wrap: nowrap; }
+.ufmap-read { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .card h3 { margin-top: 0; }
 .card .big { font-size: 22px; font-weight: 600; }
 .card .sub { color: var(--muted); font-size: 11px; }

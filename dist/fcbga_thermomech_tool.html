@@ -106,6 +106,9 @@ th { color: var(--muted); font-weight: 500; }
 td input[type=number], td select, td input[type=text] { width: 100%; padding: 2px 4px; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); color: var(--text); font: inherit; }
 td.num, th.num { text-align: right; }
 .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; box-shadow: var(--shadow); }
+.ufmap { margin-bottom: 8px; padding-top: 4px; border-top: 1px solid var(--border); }
+.ufmap .row { margin: 2px 0; flex-wrap: nowrap; }
+.ufmap-read { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .card h3 { margin-top: 0; }
 .card .big { font-size: 22px; font-weight: 600; }
 .card .sub { color: var(--muted); font-size: 11px; }
@@ -12462,7 +12465,9 @@ async function bindDesktopResultsFile() {
 const UFMAP_QTY = [['peel', 'peel (normal traction, tension positive)'], ['shear', 'shear traction magnitude'], ['along', 'shear along the side'], ['cross', 'shear across the side (sidewall: up; face: outward)']];
 const UFMAP_DEPTHS = [0.25, 0.5, 1, 2];  // mm, width of the active-face band shown below the edge
 const UFMAP_MAX = 4;                     // maps compared at once
-const UFMAP_H = 200;                     // px, default height of one map
+const UFMAP_H = [110, 280];              // px, height of one map: sized so the stack fits the results pane, within these bounds
+const UFMAP_H0 = 180;                    // px, height before the stack is fitted
+const UFMAP_PAD = 8;                     // px left free under the last map
 const UFMAP_SIDES = ['side 1-2 (−y edge)', 'side 2-3 (−x edge)', 'side 3-4 (+y edge)', 'side 4-1 (+x edge)'];
 const TRACTION_CACHE_MAX = 40;           // cached maps
 
@@ -12518,7 +12523,7 @@ function ufMapRange(M, qty) {
 function drawUfMap(cv, M, qty, scale, title) {
   const { ctx, w, h: H } = setupCanvas(cv);
   ctx.clearRect(0, 0, w, H);
-  const L = 58, R = 14, T = 22, B = 34;
+  const L = 58, R = 14, T = 20, B = 30;
   const pw = Math.max(10, w - L - R), ph = Math.max(10, H - T - B);
   const vTop = M.hSide * 1000, vBot = -M.depth * 1000;
   cv.__tx = { L, T, pw, ph, bx0: 0, bx1: M.L, by0: vBot, by1: vTop };
@@ -12576,6 +12581,15 @@ function ufMapReadout(cv, M, qty, e) {
   return where + ': ' + (x === x ? fmt(x, 2) + ' MPa' : 'no underfill at this point');
 }
 
+/** Share the height left in the results pane under the controls between the map plots, so the whole stack shows at once. */
+function fitUfMaps(root) {
+  const body = root.closest('#center-body') || root, cvs = [...root.querySelectorAll('canvas.ufmap-plot')], cards = root.querySelectorAll('.ufmap');
+  if (!cvs.length || !cards.length || !body.clientHeight) return;
+  const top = body.getBoundingClientRect().top - body.scrollTop, lastBottom = cards[cards.length - 1].getBoundingClientRect().bottom - top;
+  const each = (body.clientHeight - UFMAP_PAD - lastBottom) / cards.length;
+  for (const cv of cvs) cv.style.height = Math.round(clampTo(cv.getBoundingClientRect().height + each, UFMAP_H[0], UFMAP_H[1])) + 'px';
+}
+
 function renderUFMaps(root, f, wc, fill) {
   const layer = wc ? 'wcuf' : 'fli', objs = ufMapObjects(f, wc), T = app.selectedT, depth = app.ufMapDepth, qty = app.ufMapQty;
   app.ufMaps = app.ufMaps || {};
@@ -12605,27 +12619,31 @@ function renderUFMaps(root, f, wc, fill) {
     const objSel = h('select', tip('ufMapObj', { onchange: e => { sl.o = +e.target.value; renderCenter(); } }), ...objs.map((ob, k) => h('option', { value: k, selected: k === sl.o ? '' : null }, ob.label)));
     const sideSel = h('select', tip('ufMapSide', { onchange: e => { sl.side = +e.target.value; renderCenter(); } }), ...UFMAP_SIDES.map((l, k) => h('option', { value: k, selected: k === sl.side ? '' : null }, l)));
     const rm = h('button', tip('ufMapRemove', { class: 'small', disabled: slots.length <= 1 ? '' : null, onclick: () => { slots.splice(i, 1); renderCenter(); } }), '× Remove');
-    const card = h('div', { class: 'card' }, h('div', { class: 'row' }, h('b', null, 'Map ' + (i + 1)), h('span', null, wc ? 'chiplet ' : 'die ', objSel), h('span', null, sideSel), rm));
+    const head = h('div', { class: 'row' }, h('b', null, 'Map ' + (i + 1)), h('span', null, wc ? 'chiplet ' : 'die ', objSel), h('span', null, sideSel));
+    const card = h('div', { class: 'ufmap' }, head);
     root.append(card);
     const M = maps[i], cached = app.tractionCache.get(tractionKey(T, layer, objs[sl.o].obj, sl.side, depth));
     if (!M) {
       if (cached && cached.error) card.append(h('div', { class: 'msg err' }, cached.error));
       else if (app.analysisLost) card.append(h('div', { class: 'msg warn' }, analysisMissing('This map needs')));
       else card.append(h('div', { class: 'msg info' }, 'Evaluating the map…'));
+      head.append(rm);
       return;
     }
     const [lo, hi] = ufMapRange(M, qty);
     const scale = shared || makeScale(isFinite(lo) ? lo : 0, isFinite(hi) ? hi : 0, signedOf(lo, hi));
     const title = M.name + ', side ' + M.from + '-' + M.to + ': ' + ufMapQtyLabel(qty) + ', MPa';
-    const cv = h('canvas', tip('ufMapPlot', { class: 'map', style: 'width:100%;height:' + UFMAP_H + 'px' }));
-    const hint = 'Point at the map to read the value.';
-    const readout = h('div', { class: 'small muted', style: 'min-height:1.4em' }, hint);
+    const cv = h('canvas', tip('ufMapPlot', { class: 'map ufmap-plot', style: 'width:100%;height:' + UFMAP_H0 + 'px' }));
+    const hint = 'range ' + (isFinite(lo) ? fmt(lo, 1) + ' to ' + fmt(hi, 1) + ' MPa' : 'none') + '; sidewall ' + fmt(M.hSide * 1000, 0) + ' µm high (to the ' + (wc ? 'chiplet top' : 'fillet top') + '), face band ' + fmt(M.depth * 1000, 0) + ' µm' + (M.depth < depth - 1e-9 ? ' (half the ' + (wc ? 'chiplet' : 'die') + ' width)' : '');
+    const readout = h('span', { class: 'small muted grow ufmap-read', 'data-tip': hint + '. Point at the map to read a value.' }, hint);
     cv.addEventListener('pointermove', e => { readout.textContent = ufMapReadout(cv, M, qty, e) || hint; });
+    cv.addEventListener('pointerleave', () => { readout.textContent = hint; });
+    head.append(readout, rm);
     card.append(cv);
     if (!shared) card.append(legendRow(scale, ufMapQtyLabel(qty) + unitNote));
-    card.append(h('div', { class: 'small' }, 'range on this side ' + (isFinite(lo) ? fmt(lo, 1) + ' to ' + fmt(hi, 1) + ' MPa' : 'none') + '; sidewall ' + fmt(M.hSide * 1000, 0) + ' µm high (to the ' + (wc ? 'chiplet top' : 'fillet top') + '), active-face band ' + fmt(M.depth * 1000, 0) + ' µm wide' + (M.depth < depth - 1e-9 ? ' (half the ' + (wc ? 'chiplet' : 'die') + ' width across this side)' : '')), readout);
     requestAnimationFrame(() => { const draw = () => drawUfMap(cv, M, qty, scale, title); autoRedraw(cv, draw); draw(); });
   });
+  requestAnimationFrame(() => fitUfMaps(root));
   root.append(h('details', null, h('summary', null, 'What this means'),
     h('p', { class: 'small' }, 'Each map unfolds one side of the ' + (wc ? 'chiplet' : 'die') + ' at its bottom edge: above the line is the sidewall interface with the ' + (wc ? fill + ' (from the DDI gap up the chiplet side)' : 'underfill fillet (from the active face up to the fillet top)') + ', below it the active face interface with the ' + (wc ? 'DDI fill' : 'bump-layer underfill') + ', from the edge inward. The horizontal axis runs along the side from its first corner to its second, so the die corners are at the left and right ends.'),
     h('p', { class: 'small' }, 'Values are point tractions of the ' + (wc ? 'fill' : 'underfill') + '-side stress next to the interface, sampled every ' + fmt(C.CONST.TRACTION_MAP_DS * 1000, 0) + ' µm along the side and on ' + C.CONST.TRACTION_MAP_ROWS + ' rows through each part, without the 50 µm patch averaging of the perimeter plots, so peaks can be higher than the line plots show. Peel is the traction normal to the interface (tension positive); the shear components lie in the interface plane. Blank areas have no underfill at that point (for example above a short fillet next to a neighbouring die). The die corners and the edge line are singular: compare designs and sides by these maps, do not read the values as strengths.')));

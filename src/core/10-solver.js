@@ -198,8 +198,9 @@ function galerkinProduct(level) {
   const acc = new Float64Array(nnc * bcc);
   const touched = [];
   const rowPtr = new Int32Array(nnc + 1);
-  const cols = [];
-  const vals = [];
+  // blocks in typed arrays grown as needed: plain arrays of this size (hundreds of MB at Fine) would sit on the
+  // JavaScript heap, which the desktop app's threads share within a cap of a few GB
+  let cols = new Int32Array(Math.max(64, 27 * nnc)), vals = new Float64Array(cols.length * bcc), nb = 0;
   const T = new Float64Array(bfc);
   for (let I = 0; I < nnc; I++) {
     touched.length = 0;
@@ -229,13 +230,18 @@ function galerkinProduct(level) {
     }
     touched.sort((a, b) => a - b);
     rowPtr[I + 1] = rowPtr[I] + touched.length;
-    for (const J of touched) { cols.push(J); for (let t = 0; t < bcc; t++) vals.push(acc[bcc * J + t]); }
+    if (nb + touched.length > cols.length) {
+      const cap = Math.ceil(1.5 * (nb + touched.length)), c2 = new Int32Array(cap), v2 = new Float64Array(cap * bcc);
+      c2.set(cols.subarray(0, nb)); v2.set(vals.subarray(0, nb * bcc));
+      cols = c2; vals = v2;
+    }
+    for (const J of touched) { cols[nb] = J; vals.set(acc.subarray(bcc * J, bcc * J + bcc), bcc * nb); nb++; }
   }
-  const col = Int32Array.from(cols);
+  const col = cols.slice(0, nb);
   const diag = new Int32Array(nnc);
   for (let I = 0; I < nnc; I++) for (let k = rowPtr[I]; k < rowPtr[I + 1]; k++) if (col[k] === I) { diag[I] = k; break; }
   coarse.P = { n: nnc, rowPtr, col, nb: col.length, diag };
-  coarse.val = Float64Array.from(vals);
+  coarse.val = vals.slice(0, nb * bcc);
 }
 
 /** Parts whose elements are compliant layers that split a column into separate shell aggregates. */

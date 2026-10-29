@@ -17,7 +17,8 @@
 
   // ---- helper workers (nested) for the temperature sweep and the submodels ----
   // In the desktop app this driver runs in a Node compute process, which provides self.__spawnHelper
-  // (a worker thread with the Web Worker interface used below; desktop/compute-worker.js).
+  // (a helper compute process of its own with the Web Worker interface used below; desktop/compute-worker.js,
+  // whose relay also carries the helper's live reports, so no port is made here).
   const nodeHelpers = () => typeof self.__spawnHelper === 'function';
   const canNest = () => nodeHelpers() || (typeof Worker !== 'undefined' && typeof URL !== 'undefined' && !!state.src);
   function spawnHelper(slot) {
@@ -26,7 +27,7 @@
     w.postMessage({ type: 'init', db: state.db, id: 0, w: slot + 1, live: port }, port ? [port] : []);
     return w;
   }
-  /** A message port whose other end is with the page (browser) or the compute process relay (desktop), for a helper's live reports. */
+  /** A message port whose other end is with the page, for a helper's live reports (browser; the desktop relay needs none). */
   function livePort() {
     if (nodeHelpers()) return typeof self.__livePort === 'function' ? self.__livePort() : null;
     if (typeof MessageChannel === 'undefined') return null;

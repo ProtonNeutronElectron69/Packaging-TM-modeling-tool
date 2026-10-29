@@ -29,6 +29,14 @@ global.fcbgaCompute = compute;  // read by tools/desktop-smoke.mjs (process coun
 
 function workerKey(wc, id) { return wc.id + ':' + id; }
 
+const ERR_TAIL = 4000;  // characters of a compute process's error output kept for the crash report
+/** Why a compute process stopped: the cause its relay sent, else the fatal line or last lines of its error output. */
+function exitReason(child) {
+  if (child.fatal) return child.fatal;
+  const lines = child.errTail.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  return lines.find(l => /FATAL ERROR|out of memory|Allocation failed/i.test(l)) || lines.slice(-3).join(' | ');
+}
+
 /** Start compute process `id` for a page; its messages go back to that page, and so does its unexpected exit. */
 function spawnCompute(wc, id) {
   if (!computeSrc) computeSrc = computeSource(PAGE);
@@ -36,17 +44,23 @@ function spawnCompute(wc, id) {
     serialization: 'advanced',  // structured clone, so typed arrays cross intact
     env: Object.assign({}, process.env, { ELECTRON_RUN_AS_NODE: '1' }),
     execArgv: [],
-    stdio: app.isPackaged ? ['ignore', 'ignore', 'ignore', 'ipc'] : ['ignore', 'inherit', 'inherit', 'ipc'],
+    stdio: ['ignore', app.isPackaged ? 'ignore' : 'inherit', 'pipe', 'ipc'],
     windowsHide: true,
   });
   const key = workerKey(wc, id);
   compute.set(key, child);
+  // the tail of its error output (V8 prints fatal errors there) and the cause it reports, for the page's crash report
+  child.errTail = '';
+  child.stderr.on('data', d => { const s = d.toString(); child.errTail = (child.errTail + s).slice(-ERR_TAIL); if (!app.isPackaged) process.stderr.write(s); });
   child.send({ __fcbgaLoad: computeSrc });
-  child.on('message', msg => { if (!wc.isDestroyed()) wc.send('fcbga:message', id, msg); });
+  child.on('message', msg => {
+    if (msg && msg.__fatal) { child.fatal = msg.__fatal; return; }
+    if (!wc.isDestroyed()) wc.send('fcbga:message', id, msg);
+  });
   child.on('error', () => { /* reported through 'exit' */ });
   child.on('exit', (code, signal) => {
     if (compute.get(key) === child) compute.delete(key);
-    if (!child.stopping && !wc.isDestroyed()) wc.send('fcbga:exit', id, { code, signal });
+    if (!child.stopping && !wc.isDestroyed()) wc.send('fcbga:exit', id, { code, signal, reason: exitReason(child) });
   });
 }
 

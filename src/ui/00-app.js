@@ -165,11 +165,20 @@ const DESKTOP_MEM_WARN = 0.8;  // the run panel warns when the estimate passes t
  * limited by the computer, not by a browser tab. An unexpected stop (most often memory running out)
  * arrives as onerror with exited set.
  */
+/** Plain-language cause of a compute process exit ({code, signal, reason}; reason is what the process reported, if anything). */
+function computeExitMessage(info) {
+  const how = info.signal ? 'signal ' + info.signal : 'exit code ' + info.code, why = (info.reason || '').trim();
+  const kept = ' Results already shown are kept.';
+  if (!why) return 'The compute process stopped unexpectedly (' + how + ') without reporting a cause; the computer most likely ran out of memory.' + kept + ' Fewer parallel workers or a coarser mesh need less memory.';
+  const heap = /heap out of memory|memory limit|Allocation failed/i.test(why);
+  return 'The compute process stopped unexpectedly (' + how + '): ' + why + (heap ? ' (the JavaScript heap of one compute process ran out; it is capped at about 4 GB whatever the computer\'s free memory).' : '.') + kept;
+}
+
 class DesktopWorker {
   constructor() {
     this.onmessage = null; this.onerror = null;
     this.handle = DESKTOP.spawn(msg => { if (this.onmessage) this.onmessage({ data: msg }); },
-      info => { if (this.onerror) this.onerror({ exited: true, message: 'The compute process stopped unexpectedly (' + (info.signal ? 'signal ' + info.signal : 'exit code ' + info.code) + '); the computer most likely ran out of memory. Results already shown are kept; fewer parallel workers or a coarser mesh need less memory.' }); });
+      info => { if (this.onerror) this.onerror({ exited: true, message: computeExitMessage(info) }); });
   }
   postMessage(msg) { this.handle.post(msg); }
   terminate() { this.handle.terminate(); }
@@ -252,9 +261,11 @@ const RUN_MODULE_FACTOR = 2.4;  // stacked modules: PCG iterations per step agai
 // steps, peak resident memory): Draft 76.9k DOF 367 MB on 1 worker and 811 MB on 3; Standard 505.7k DOF 2876 MB on 2
 // and 3632 MB on 3. The main worker holds the model and its preconditioner, every step's increment (single precision,
 // counted apart so the step count enters), the fields at every evaluation temperature and the post-processing states;
-// each helper holds its own model and preconditioner only.
+// each helper holds its own model and preconditioner only. Helpers are compute processes of their own since PR 43 (each
+// with its Node runtime), refitted from the summed resident memory of the process tree in Electron's Node: Draft 65.3k
+// DOF 401 MB on 1 worker and 995 MB on 3; Standard 314.4k DOF 1685 MB on 2 and 2319 MB on 3 (one helper 297 and 634 MB).
 const MEM_MAIN_MB = 53, MEM_MAIN_MB_PER_DOF = 3.83e-3;      // without the step increments
-const MEM_HELPER_MB = 126, MEM_HELPER_MB_PER_DOF = 1.245e-3;
+const MEM_HELPER_MB = 209, MEM_HELPER_MB_PER_DOF = 1.353e-3;
 
 /** Estimated DOF, memory and runtime for the current configuration and preset. */
 function estimateRun(cfg, preset) {

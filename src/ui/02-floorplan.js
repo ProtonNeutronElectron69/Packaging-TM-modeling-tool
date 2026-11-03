@@ -308,7 +308,7 @@ const floorplan = {
     } else if (app.showOverlay === 'bumpN' || app.showOverlay === 'bumpV' || app.showOverlay === 'cpiN' || app.showOverlay === 'cpiV') {
       const cpi = app.showOverlay.startsWith('cpi');
       const comp = app.showOverlay.endsWith('N') ? 'N' : 'V';
-      const list = cpi ? res.cpi : f.dies.map(d => d.bumps);
+      const list = (cpi ? res.cpi : f.dies.map(d => d.bumps)) || [];  // a quick preview has no chip-join state
       let mn = Infinity, mx = -Infinity;
       for (const b of list) for (const v of b[comp]) if (isFinite(v)) { mn = Math.min(mn, v); mx = Math.max(mx, v); }
       scale = makeScale(mn, mx, comp === 'N');

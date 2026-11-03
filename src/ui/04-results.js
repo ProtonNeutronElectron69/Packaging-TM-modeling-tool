@@ -31,39 +31,40 @@ function renderRunPanel(root) {
   }
   const canRun = !app.validation.errors.length;
   root.append(h('div', { class: 'row' }, h('button', tip('runFull', { class: 'primary', disabled: canRun ? null : '', onclick: () => runFull() }), '▶ Run full global analysis'), h('button', tip('quickPreview', { disabled: canRun ? null : '', onclick: () => runPreview() }), 'Quick preview (Draft, 25 °C)')));
-  root.append(h('div', { class: 'row' }, h('button', tip('pinBaseline', { disabled: app.results ? null : '', onclick: pinBaseline }), 'Pin as baseline'), h('button', tip('clearBaseline', { disabled: app.baseline ? null : '', onclick: () => { app.baseline = null; renderContext(); } }), 'Clear baseline'), h('button', tip('meshCheck', { disabled: canRun ? null : '', onclick: checkMeshSensitivity }), 'Check mesh sensitivity'), h('button', tip('exportCsv', { disabled: app.results ? null : '', onclick: exportCSV }), 'Export CSV'), h('button', tip('report', { disabled: app.results ? null : '', onclick: openReport }), 'Report (print / PDF)')));
+  root.append(h('div', { class: 'row' }, h('button', tip('pinBaseline', { disabled: app.results ? null : '', onclick: pinBaseline }), 'Pin as baseline'), h('button', tip('pinBaselineFile', { onclick: pinBaselineFile }), 'Pin a results file'), h('button', tip('clearBaseline', { disabled: app.baseline ? null : '', onclick: clearBaseline }), 'Clear baseline'), h('button', tip('meshCheck', { disabled: canRun ? null : '', onclick: checkMeshSensitivity }), 'Check mesh sensitivity'), h('button', tip('exportCsv', { disabled: app.results ? null : '', onclick: exportCSV }), 'Export CSV'), h('button', tip('report', { disabled: app.results ? null : '', onclick: openReport }), 'Report (print / PDF)')));
   root.append(h('div', { class: 'row' }, h('button', tip('saveResults', { disabled: app.results ? null : '', onclick: saveResultsFile }), 'Save results (' + C.CONST.RESULTS_FILE_EXT + ')'), h('button', tip('openResults', { onclick: pickResultsFile }), 'Open results file')));
   if (cfg.name && cfg.name.startsWith('Core thickness study')) root.append(h('div', { class: 'row' }, h('button', tip('coreStudy', { onclick: runCoreStudy }), 'Run both core variants and compare')));
-  root.append(h('div', { class: 'small muted' }, 'Tip: pin a baseline, then compare variants. Ratios and deltas against the baseline are the most trustworthy outputs of a screening model.'));
+  root.append(baselineStatus());
   root.append(estimatedInputsCard(cfg));
   renderValidation(root);
   if (!app.results) { root.append(h('div', { class: 'msg info' }, 'No results yet. Run the analysis to populate the results views in the center area.')); return; }
   const res = app.results;
   root.append(h('h3', null, 'Summary at 25 °C'));
   const f = res.at25, w = f.warpage;
-  const base = app.baseline;
+  const base = baselineIsCurrent() ? null : app.baseline;  // no differences shown against the results themselves
+  const named = (list, n) => (list || []).find(x => (x.name || x.die) === n);
   const delta = (v, bv, unit, dgt) => bv === undefined || bv === null || !isFinite(bv) ? '' : ' (Δ ' + (v - bv >= 0 ? '+' : '') + fmt(v - bv, dgt) + unit + ', ×' + fmt(v / bv, 2) + ' vs baseline)';
   root.append(h('div', { class: 'card' }, h('h3', null, 'Signed warpage, JEITA, 25 °C', helpTip('warpSigned')), h('div', { class: 'big' }, um(w.signed) + ' µm', w.marginal ? h('span', { class: 'badge Handbook', 'data-tip': 'The diagonal sum that sets the JEITA sign is only ' + fmt(100 * w.signConf, 0) + ' % of the magnitude (saddle or ring shape); the sign can flip between neighbouring states while the magnitude barely changes. Compare magnitudes.' }, 'marginal sign') : null), h('div', { class: 'sub' }, shapeText(w) + '; magnitude ' + um(w.mag) + ' µm; RT reference ' + (w.limitRT * 1000) + ' µm' + (base ? delta(w.signed * 1000, base.at25.warpage.signed * 1000, ' µm', 1) : '')), whatThisMeans('warpage', res)));
   const peak = res.sweep.reduce((m, r) => Math.abs(r.signed) > Math.abs(m.signed) ? r : m, res.sweep[0]);
   root.append(h('div', { class: 'card' }, h('h3', null, 'Reflow sweep peak'), h('div', { class: 'big' }, um(peak.signed) + ' µm at ' + peak.T + ' °C'), h('div', { class: 'sub' }, 'JEITA limit for ' + cfg.bga.pitch + ' mm pitch: ' + (w.limitHot * 1000) + ' µm → ' + (Math.abs(peak.signed) <= w.limitHot ? 'within limit' : 'exceeds limit') + (base ? delta(peak.signed * 1000, base.sweep.reduce((m, r) => Math.abs(r.signed) > Math.abs(m.signed) ? r : m, base.sweep[0]).signed * 1000, ' µm', 1) : ''))));
   siList(f).forEach((d, i) => {
-    const bd = base && siList(base.at25)[i];
+    const bd = base && named(siList(base.at25), d.name);
     root.append(h('div', { class: 'card' }, h('h3', null, d.name + ' backside stress', helpTip('peakNodal')), h('div', { class: 'big' }, fmt(d.top.peakInterior, 1) + ' MPa'), h('div', { class: 'sub' }, 'interior peak (0.5 mm edge band excluded), max principal, nodal averaged; Gauss-point peak ' + fmt(d.top.gpPeakInterior, 1) + ' MPa' + (bd ? delta(d.top.peakInterior, bd.top.peakInterior, ' MPa', 1) : '') + (cfg.limits.dieStrength ? '; margin to strength ' + fmt(cfg.limits.dieStrength - d.top.peakInterior, 0) + ' MPa' : '')), h('div', { class: 'sub' }, 'corner patches 1 / 2 / 3 / 4 (comparative): ' + d.top.corners.map(c => fmt(c.value, 0)).join(' / ') + ' MPa'), h('div', { class: 'conf' }, CONFIDENCE.dieInterior + ' Corner values: ' + CONFIDENCE.corner)));
   });
-  res.cpi.forEach((b, i) => {
-    const bb = base && base.cpi[i];
+  (res.cpi || []).forEach((b, i) => {  // a quick preview has no chip-join state
+    const bb = base && named(base.cpi, b.die);
     root.append(h('div', { class: 'card' }, h('h3', null, b.die + ' bump loading (CPI proxy)', helpTip('stateCpi')), h('div', { class: 'big' }, gf(b.worstV) + ' gf shear'), h('div', { class: 'sub' }, 'worst bump at chip join cooldown, before underfill; axial ' + gf(b.worstN) + ' gf (' + fmt(b.worstN, 3) + ' N)' + (bb ? delta(b.worstV, bb.worstV, ' N', 3) : '')), h('div', { class: 'conf' }, 'Elastic upper bound; real joints relax by creep during cooldown. ' + CONFIDENCE.bumps)));
   });
   if (res.ddiJoin) res.ddiJoin.forEach((b, i) => {
-    const bb = base && base.ddiJoin && base.ddiJoin[i];
+    const bb = base && named(base.ddiJoin, b.die);
     root.append(h('div', { class: 'card' }, h('h3', null, b.die + ' DDI microbumps', helpTip('stateDdiJoin')), h('div', { class: 'big' }, gf(b.worstV) + ' gf shear'), h('div', { class: 'sub' }, 'worst microbump at chiplet join cooldown, before the DDI fill; axial ' + gf(b.worstN) + ' gf (' + fmt(b.worstN, 4) + ' N)' + (bb ? delta(b.worstV, bb.worstV, ' N', 4) : '')), h('div', { class: 'conf' }, 'Elastic upper bound; real joints relax by creep during cooldown. ' + CONFIDENCE.bumps)));
   });
   if (res.ddiScreening) res.ddiScreening.forEach((s, i) => {
-    const bs = base && base.ddiScreening && base.ddiScreening[i];
+    const bs = base && named(base.ddiScreening, s.die);
     root.append(h('div', { class: 'card' }, h('h3', null, s.die + ' DDI microbump screening', helpTip('ddiScreen')), h('div', { class: 'big' }, fmtE(s.top[0] ? s.top[0].dW : NaN, 3) + ' MPa/cycle'), h('div', { class: 'sub' }, 'worst-site ΔW_proxy of the solder caps at (' + fmt(s.top[0] && s.top[0].x, 3) + ', ' + fmt(s.top[0] && s.top[0].y, 3) + ') mm' + (bs && bs.top[0] ? delta(s.top[0].dW, bs.top[0].dW, ' MPa', 4) : '')), h('div', { class: 'conf' }, 'Screening index; ranks locations; not a life.')));
   });
   if (res.screening) res.screening.forEach((s, i) => {
-    const bs = base && base.screening && base.screening[i];
+    const bs = base && named(base.screening, s.die);
     root.append(h('div', { class: 'card' }, h('h3', null, s.die + ' solder fatigue screening', helpTip('dWproxy')), h('div', { class: 'big' }, fmtE(s.top[0] ? s.top[0].dW : NaN, 3) + ' MPa/cycle'), h('div', { class: 'sub' }, 'worst-site ΔW_proxy at (' + fmt(s.top[0] && s.top[0].x, 2) + ', ' + fmt(s.top[0] && s.top[0].y, 2) + ') mm; equivalent inelastic strain range ' + fmtE(s.top[0] && s.top[0].dE, 3) + (bs && bs.top[0] ? delta(s.top[0].dW, bs.top[0].dW, ' MPa', 4) : '')), h('div', { class: 'conf' }, 'Screening index; ranks locations; not a life. ' + (s.subsampled ? 'Sites subsampled above 20,000 (outer rows and corner blocks kept).' : ''))));
   });
   root.append(h('details', null, h('summary', tip('solverLog'), 'Solver log (' + res.solverLog.length + ' solves, ' + fmt(res.totalMs / 1000, 1) + ' s total)'), h('div', { class: 'mono small' }, 'Mesh ' + res.meshInfo.nDof + ' DOF, ' + res.meshInfo.nElem + ' elements, build ' + fmt(res.meshInfo.buildMs, 0) + ' ms; assembly ' + fmt(res.timings.assemble, 0) + ' ms; solves ' + fmt(res.timings.solve, 0) + ' ms'), h('table', { class: 'small' }, h('tr', null, h('th', null, 'Solve'), h('th', null, 'Iterations'), h('th', null, 'Residual'), h('th', null, 'Preconditioner'), h('th', null, 'ms')), ...res.solverLog.map(r => h('tr', null, h('td', null, r.label), h('td', null, String(r.iters) + (r.rebuilt ? ' (rebuilt)' : '') + (r.fallback ? ' (fallback from ' + r.fallback.first + ')' : '')), h('td', null, fmtE(r.relres, 1)), h('td', null, r.precond || ''), h('td', null, fmt(r.ms, 0)))))));
@@ -221,7 +222,6 @@ function analysisLostNotice() {
 function analysisMissing(what) {
   return what + (app.analysisLost === 'loading' ? ' the analysis, which is still loading from the results file; try again when it is back.' : ' the analysis, which is not in memory; use Restore analysis above the results first.');
 }
-function pinBaseline() { app.baseline = app.results; toast('Baseline pinned: ' + (app.cfg.name || 'current configuration') + ' at ' + app.results.preset + '.', 'ok'); renderContext(); }
 
 function checkMeshSensitivity() {
   const order = ['draft', 'standard', 'fine'];
@@ -231,10 +231,11 @@ function checkMeshSensitivity() {
   run(cur).then(a => run(next).then(b => {
     const wa = a.at25.warpage.signed, wb = b.at25.warpage.signed;
     const sa = a.at25.dies[0].top.peakInterior, sb = b.at25.dies[0].top.peakInterior;
-    const fa = a.cpi[0].worstV, fb = b.cpi[0].worstV;
+    // the as-assembled bump shear: a preview has no chip-join (CPI) state
+    const fa = a.at25.dies[0].bumps.worstV, fb = b.at25.dies[0].bumps.worstV;
     const pc = (x, y) => fmt(100 * Math.abs(x / y - 1), 1) + ' %';
     const conv = [wa / wb, sa / sb, fa / fb].every(r => Math.abs(r - 1) < 0.05);
-    showModal('Mesh sensitivity: ' + cur + ' → ' + next, h('div', null, h('table', null, h('tr', null, h('th'), h('th', null, cur + ' (' + a.meshInfo.nDof + ' DOF)'), h('th', null, next + ' (' + b.meshInfo.nDof + ' DOF)'), h('th', null, 'change')), h('tr', null, h('td', null, 'RT signed warpage'), h('td', null, um(wa) + ' µm'), h('td', null, um(wb) + ' µm'), h('td', null, pc(wa, wb))), h('tr', null, h('td', null, 'Die interior peak stress'), h('td', null, fmt(sa, 1) + ' MPa'), h('td', null, fmt(sb, 1) + ' MPa'), h('td', null, pc(sa, sb))), h('tr', null, h('td', null, 'Worst bump shear force'), h('td', null, fmt(fa, 3) + ' N'), h('td', null, fmt(fb, 3) + ' N'), h('td', null, pc(fa, fb)))), h('p', { class: conv ? 'ok' : 'warnc' }, conv ? 'Verdict: converged within 5 %.' : 'Verdict: results still mesh-sensitive; use the finer preset for decisions.')));
+    showModal('Mesh sensitivity: ' + cur + ' → ' + next, h('div', null, h('table', null, h('tr', null, h('th'), h('th', null, cur + ' (' + a.meshInfo.nDof + ' DOF)'), h('th', null, next + ' (' + b.meshInfo.nDof + ' DOF)'), h('th', null, 'change')), h('tr', null, h('td', null, 'RT signed warpage'), h('td', null, um(wa) + ' µm'), h('td', null, um(wb) + ' µm'), h('td', null, pc(wa, wb))), h('tr', null, h('td', null, 'Die interior peak stress'), h('td', null, fmt(sa, 1) + ' MPa'), h('td', null, fmt(sb, 1) + ' MPa'), h('td', null, pc(sa, sb))), h('tr', null, h('td', null, 'Worst bump shear force, as assembled'), h('td', null, fmt(fa, 3) + ' N'), h('td', null, fmt(fb, 3) + ' N'), h('td', null, pc(fa, fb)))), h('p', { class: conv ? 'ok' : 'warnc' }, conv ? 'Verdict: converged within 5 %.' : 'Verdict: results still mesh-sensitive; use the finer preset for decisions.')));
   })).catch(e => { if (e.message !== 'cancelled' && !e.reported) toast(e.message, 'error'); });
 }
 function runCoreStudy() {
@@ -246,7 +247,7 @@ function runCoreStudy() {
 }
 
 // ---- results views in the center area ----
-const RESULT_VIEWS = [['warpage', 'Warpage', 'viewWarpage'], ['dieStress', 'Die stress', 'viewDieStress'], ['bumps', 'Bump loading', 'viewBumps'], ['uf', 'Underfill interface', 'viewUf'], ['section', 'Cross-section stress', 'viewSection'], ['fatigue', 'Solder fatigue', 'viewFatigue'], ['subSection', 'Submodel section', 'viewSubSection'], ['view3d', '3D view', 'view3d'], ['sensitivity', 'Sensitivity', 'viewSens'], ['verification', 'Verification', 'viewVerify'], ['report', 'Report', 'viewReport']];
+const RESULT_VIEWS = [['warpage', 'Warpage', 'viewWarpage'], ['dieStress', 'Die stress', 'viewDieStress'], ['bumps', 'Bump loading', 'viewBumps'], ['uf', 'Underfill interface', 'viewUf'], ['section', 'Cross-section stress', 'viewSection'], ['fatigue', 'Solder fatigue', 'viewFatigue'], ['subSection', 'Submodel section', 'viewSubSection'], ['view3d', '3D view', 'view3d'], ['sensitivity', 'Sensitivity', 'viewSens'], ['verification', 'Verification', 'viewVerify'], ['compare', 'Baseline comparison', 'viewCompare'], ['report', 'Report', 'viewReport']];
 
 function renderResults(root) {
   const res = app.results;
@@ -269,6 +270,7 @@ function renderResults(root) {
     case 'view3d': renderView3D(root, res, f, Tsel); break;
     case 'sensitivity': renderSensitivityView(root); break;
     case 'verification': renderVerificationView(root); break;
+    case 'compare': renderCompareView(root, res); break;
     case 'report': renderReportView(root, res); break;
   }
 }
@@ -340,7 +342,7 @@ function renderWarpageView(root, res, f, Tsel) {
     const peakT = cfg.reflow.peak;
     const down = upWarp.map(r => ({ x: 2 * peakT - r.T, y: r.signed * 1000 })).reverse();
     linePlot(c2, [{ x: upWarp.map(r => r.T), y: upWarp.map(r => r.signed * 1000), label: 'heating', points: true }, { x: down.map(p => p.x), y: down.map(p => p.y), label: 'cooling (mirrored, same states)', dash: [4, 3] }, { x: upWarp.map(r => r.T), y: upWarp.map(r => r.mag * 1000), label: 'magnitude |C|', dash: [2, 3], color: cssVar('--muted') }], { title: 'Signed warpage over the reflow sweep (x axis: heating to peak, then mirrored cooling)', xlabel: '°C (then mirrored)', ylabel: 'µm', band: [-w.limitHot * 1000, w.limitHot * 1000], hlines: [{ y: 0 }], vlines: [{ x: 217, label: 'solidus' }, { x: 2 * peakT - 217 }].concat(upWarp.filter(r => r.marginal).map(r => ({ x: r.T, color: cssVar('--warn') }))) });
-    const bl = app.baseline ? [{ x: app.baseline.sweep.map(r => r.T), y: app.baseline.sweep.map(r => r.signed * 1000), label: 'baseline', dash: [2, 2] }] : [];
+    const bl = app.baseline && app.baseline.sweep && !baselineIsCurrent() ? [{ x: app.baseline.sweep.map(r => r.T), y: app.baseline.sweep.map(r => r.signed * 1000), label: 'baseline', dash: [2, 2] }] : [];
     linePlot(c3, [{ x: up, y: ws, label: 'current', points: true }].concat(bl, res.cycling ? [{ x: res.cycling.map(r => r.T), y: res.cycling.map(r => r.signed * 1000), label: 'cycling range', dash: [6, 3] }] : []), { title: 'Signed warpage versus temperature (all evaluated states)', xlabel: '°C', ylabel: 'µm', hlines: [{ y: w.limitHot * 1000, label: 'JEITA limit', color: cssVar('--warn') }, { y: -w.limitHot * 1000, color: cssVar('--warn') }] });
   });
 }
@@ -478,10 +480,12 @@ function runSubmodels(res) {
 }
 function renderSubmodelCard(sm) {
   const c1 = h('canvas', tip('hysteresis', { class: 'plot' }));
-  const base = app.baseline && app.baseline.submodelRef;
   const life = sm.life;
+  // the baseline's submodel at the same die and site, else its first one
+  const bsubs = app.baseline && !baselineIsCurrent() ? app.baseline.submodels || [] : [];
+  const baseSm = bsubs.find(b => b.die === sm.die && b.site.ix === sm.site.ix && b.site.iy === sm.site.iy) || bsubs[0];
   const card = h('div', { class: 'card' }, h('h3', null, 'Submodel: ' + sm.die + ' bump at (' + fmt(sm.site.x, 2) + ', ' + fmt(sm.site.y, 2) + ') mm, ' + sm.nxy + '×' + sm.nxy + '×' + sm.nz + ' voxels'),
-    h('div', { class: 'kv' }, kl('ΔW stabilized cycle (critical layer: ' + sm.critical + ')', 'subDW'), h('b', null, fmtE(sm.dW, 3) + ' MPa/cycle'), kl('die side / substrate side', 'subDW'), h('span', null, fmtE(sm.dWdie, 3) + ' / ' + fmtE(sm.dWsub, 3)), kl('Equivalent inelastic strain range', 'subDE'), h('span', null, fmtE(sm.dE, 3)), kl('Cycle-to-cycle change of ΔW', 'subStab'), h('span', { class: sm.stabWarn ? 'warnc' : 'ok' }, fmt(100 * sm.stabChange, 1) + ' %' + (sm.stabWarn ? ' (not stabilized; run more cycles)' : '')), kl('Life, Syed energy model', 'lifeSyedE'), h('b', null, fmt(life.syedEnergy, 0) + ' cycles'), kl('Life, Syed strain model', 'lifeSyedS'), h('span', null, fmt(life.syedStrain, 0) + ' cycles'), kl('Life, Darveaux', 'lifeDarv'), h('span', null, life.darveaux === null ? 'enter K1 to K4 in step 5' : fmt(life.darveaux, 0) + ' cycles (N0 ' + fmt(life.darveauxN0, 0) + ', a = ' + fmt(sm.dJoint * 1000, 0) + ' µm)'), app.baseline && app.baseline.submodels && app.baseline.submodels[0] ? kl('Life ratio vs baseline', 'lifeRatio') : null, app.baseline && app.baseline.submodels && app.baseline.submodels[0] ? h('b', null, fmt(life.syedEnergy / app.baseline.submodels[0].life.syedEnergy, 2)) : null, kl('Steps / cutbacks / Newton per step', 'subSteps'), h('span', null, sm.steps + ' / ' + sm.cutbacks + ' / ' + fmt(sm.newtonPerStep, 1) + ', ' + fmt(sm.ms / 1000, 1) + ' s')),
+    h('div', { class: 'kv' }, kl('ΔW stabilized cycle (critical layer: ' + sm.critical + ')', 'subDW'), h('b', null, fmtE(sm.dW, 3) + ' MPa/cycle'), kl('die side / substrate side', 'subDW'), h('span', null, fmtE(sm.dWdie, 3) + ' / ' + fmtE(sm.dWsub, 3)), kl('Equivalent inelastic strain range', 'subDE'), h('span', null, fmtE(sm.dE, 3)), kl('Cycle-to-cycle change of ΔW', 'subStab'), h('span', { class: sm.stabWarn ? 'warnc' : 'ok' }, fmt(100 * sm.stabChange, 1) + ' %' + (sm.stabWarn ? ' (not stabilized; run more cycles)' : '')), kl('Life, Syed energy model', 'lifeSyedE'), h('b', null, fmt(life.syedEnergy, 0) + ' cycles'), kl('Life, Syed strain model', 'lifeSyedS'), h('span', null, fmt(life.syedStrain, 0) + ' cycles'), kl('Life, Darveaux', 'lifeDarv'), h('span', null, life.darveaux === null ? 'enter K1 to K4 in step 5' : fmt(life.darveaux, 0) + ' cycles (N0 ' + fmt(life.darveauxN0, 0) + ', a = ' + fmt(sm.dJoint * 1000, 0) + ' µm)'), baseSm ? kl('Life ratio vs baseline', 'lifeRatio') : null, baseSm ? h('b', null, fmt(life.syedEnergy / baseSm.life.syedEnergy, 2)) : null, kl('Steps / cutbacks / Newton per step', 'subSteps'), h('span', null, sm.steps + ' / ' + sm.cutbacks + ' / ' + fmt(sm.newtonPerStep, 1) + ', ' + fmt(sm.ms / 1000, 1) + ' s')),
     c1, h('div', { class: 'small muted' }, 'Per cycle: ' + sm.perCycle.map(c => 'cycle ' + c.cycle + ': ' + fmtE(Math.max(c.dWdie, c.dWsub), 2)).join('; ')),
     sm.section ? h('button', tip('openSubSection', { class: 'small', onclick: () => { app.subSection.key = subSecKey(sm); app.subSection.snap = null; app.subSection.off = null; app.resultsView = 'subSection'; renderCenter(); } }), 'Cross-section of this submodel') : null,
     h('details', null, h('summary', null, 'What this means'), h('p', { class: 'small' }, 'The submodel resolves one solder joint with the Anand viscoplastic model, driven by cut-boundary displacements from the global model. ΔW is the inelastic work density of the last simulated cycle averaged over a 25 µm layer at each interface; the larger side is used. Energy-based lives use Syed\'s constant (fitted to a different model and joint geometry) and are order-of-magnitude. The Darveaux model needs constants calibrated to this averaging scheme. The solder is assumed stress-free at 25 °C in the as-assembled state (room-temperature relaxation).')));
@@ -741,12 +745,14 @@ function reportBody(res) {
   add('Signed warpage at 25 °C (JEITA)', um(w.signed) + ' µm (' + (w.sign > 0 ? 'convex' : 'concave') + ')', CONFIDENCE.warpage);
   for (const r of res.sweep.filter(r => cfg.reflow.reportTemps.includes(r.T))) add('Signed warpage at ' + r.T + ' °C', um(r.signed) + ' µm (limit ' + w.limitHot * 1000 + ')', CONFIDENCE.warpage);
   siList(f).forEach(d => { add(d.name + ' backside interior peak stress', fmt(d.top.peakInterior, 1) + ' MPa', CONFIDENCE.dieInterior); add(d.name + ' backside corner patches 1 / 2 / 3 / 4', d.top.corners.map(c => fmt(c.value, 0)).join(' / ') + ' MPa', CONFIDENCE.corner); add(d.name + ' active-face interior peak', fmt(d.bottom.peakInterior, 1) + ' MPa', CONFIDENCE.dieInterior); });
-  f.dies.forEach((d, i) => { add(d.name + ' worst CPI bump shear / axial', gf(res.cpi[i].worstV) + ' / ' + gf(res.cpi[i].worstN) + ' gf', CONFIDENCE.bumps); add(d.name + ' underfill max sidewall peel / shear', fmt(d.uf.maxPeelSide, 1) + ' / ' + fmt(d.uf.maxShearSide, 1) + ' MPa', CONFIDENCE.corner); });
+  f.dies.forEach((d, i) => { if (res.cpi) add(d.name + ' worst CPI bump shear / axial', gf(res.cpi[i].worstV) + ' / ' + gf(res.cpi[i].worstN) + ' gf', CONFIDENCE.bumps); add(d.name + ' underfill max sidewall peel / shear', fmt(d.uf.maxPeelSide, 1) + ' / ' + fmt(d.uf.maxShearSide, 1) + ' MPa', CONFIDENCE.corner); });
   if (res.screening) res.screening.forEach(s => add(s.die + ' worst ΔW_proxy', fmtE(s.top[0] ? s.top[0].dW : NaN, 3) + ' MPa/cycle', CONFIDENCE.fatigue));
   if (f.ddi) f.ddi.forEach((c, i) => { const j = res.ddiJoin && res.ddiJoin[i]; if (j) add(c.name + ' worst DDI microbump shear / axial, chiplet join', gf(j.worstV) + ' / ' + gf(j.worstN) + ' gf', CONFIDENCE.bumps); add(c.name + ' worst DDI microbump shear / axial, 25 °C', gf(c.bumps.worstV) + ' / ' + gf(c.bumps.worstN) + ' gf', CONFIDENCE.bumps); add(c.name + ' ' + (c.wcuf.fill === 'mold' ? 'wafer mold' : 'wafer underfill') + ' max sidewall peel / shear', fmt(c.wcuf.maxPeelSide, 1) + ' / ' + fmt(c.wcuf.maxShearSide, 1) + ' MPa', CONFIDENCE.corner); });
   if (res.ddiScreening) res.ddiScreening.forEach(s => add(s.die + ' worst DDI microbump ΔW_proxy', fmtE(s.top[0] ? s.top[0].dW : NaN, 3) + ' MPa/cycle', CONFIDENCE.fatigue));
   for (const sm of app.submodels) add('Submodel ' + sm.die + ' (' + fmt(sm.site.x, 1) + ', ' + fmt(sm.site.y, 1) + ') ΔW / Syed life', fmtE(sm.dW, 3) + ' MPa, ' + fmt(sm.life.syedEnergy, 0) + ' cycles', CONFIDENCE.fatigue);
   div.append(tbl);
+  const cmp = baselineReportSection(res);
+  if (cmp) div.append(cmp);
   if (app.sensitivity && app.sensitivity.warpRT) div.append(h('p', { class: 'small' }, 'Sensitivity (RT warpage), top drivers: ' + app.sensitivity.warpRT.rows.slice(0, 5).map(r => r.label).join(', ') + '.'));
   const estList = estimatedInputsInUse(cfg);
   div.append(h('h3', null, 'Estimated inputs in use (' + estList.length + ')'), h('p', { class: 'small' }, estList.map(e => e.material + ': ' + e.label + ' = ' + (typeof e.value === 'number' ? fmtInput(e.value) : e.value) + ' ' + e.unit).join('; ') || 'none'));
@@ -776,15 +782,16 @@ function exportCSV() {
   lines.push('warpage,signed_25C,' + f.warpage.signed * 1000 + ',um', 'warpage,magnitude_25C,' + f.warpage.mag * 1000 + ',um');
   for (const r of res.sweep) lines.push('warpage_sweep,T=' + r.T + ',' + r.signed * 1000 + ',um');
   siList(f).forEach(d => { lines.push('die_stress,' + d.name + '_top_interior_peak,' + d.top.peakInterior + ',MPa', 'die_stress,' + d.name + '_bottom_interior_peak,' + d.bottom.peakInterior + ',MPa'); d.top.corners.forEach(c => lines.push('die_stress,' + d.name + '_top_' + c.name.replace(/[^\w+-]+/g, '_').replace(/_$/, '') + ',' + c.value + ',MPa')); });
-  f.dies.forEach((d, i) => { lines.push('bumps,' + d.name + '_cpi_worst_shear,' + res.cpi[i].worstV + ',N', 'bumps,' + d.name + '_cpi_worst_axial,' + res.cpi[i].worstN + ',N', 'uf,' + d.name + '_max_sidewall_peel,' + d.uf.maxPeelSide + ',MPa', 'uf,' + d.name + '_max_sidewall_shear,' + d.uf.maxShearSide + ',MPa'); });
+  f.dies.forEach((d, i) => { if (res.cpi) lines.push('bumps,' + d.name + '_cpi_worst_shear,' + res.cpi[i].worstV + ',N', 'bumps,' + d.name + '_cpi_worst_axial,' + res.cpi[i].worstN + ',N'); lines.push('uf,' + d.name + '_max_sidewall_peel,' + d.uf.maxPeelSide + ',MPa', 'uf,' + d.name + '_max_sidewall_shear,' + d.uf.maxShearSide + ',MPa'); });
   if (res.screening) res.screening.forEach(s => lines.push('fatigue,' + s.die + '_worst_dW_proxy,' + (s.top[0] ? s.top[0].dW : '') + ',MPa'));
   if (f.ddi) f.ddi.forEach((c, i) => { const j = res.ddiJoin && res.ddiJoin[i]; if (j) lines.push('ddi,' + c.name + '_join_worst_shear,' + j.worstV + ',N', 'ddi,' + c.name + '_join_worst_axial,' + j.worstN + ',N'); lines.push('ddi,' + c.name + '_25C_worst_shear,' + c.bumps.worstV + ',N', 'ddi,' + c.name + '_25C_worst_axial,' + c.bumps.worstN + ',N', 'wcuf,' + c.name + '_max_sidewall_peel,' + c.wcuf.maxPeelSide + ',MPa', 'wcuf,' + c.name + '_max_sidewall_shear,' + c.wcuf.maxShearSide + ',MPa'); });
   if (res.ddiScreening) res.ddiScreening.forEach(s => lines.push('fatigue,' + s.die + '_ddi_worst_dW_proxy,' + (s.top[0] ? s.top[0].dW : '') + ',MPa'));
   for (const sm of app.submodels) lines.push('submodel,' + sm.die + '_' + sm.site.x + '_' + sm.site.y + '_dW,' + sm.dW + ',MPa', 'submodel,' + sm.die + '_' + sm.site.x + '_' + sm.site.y + '_life_syed,' + sm.life.syedEnergy + ',cycles');
+  lines.push(...baselineCsvLines(res, app.baseline));
   lines.push('', 'ball_x_mm,ball_y_mm,warpage_residual_25C_um,w_25C_um');
   for (let q = 0; q < f.warpage.ballX.length; q++) lines.push(f.warpage.ballX[q] + ',' + f.warpage.ballY[q] + ',' + f.warpage.ballRes[q] * 1000 + ',' + f.warpage.ballW[q] * 1000);
   if (f.ddi) f.ddi.forEach((c, i) => { const j = res.ddiJoin && res.ddiJoin[i], a = c.bumps; lines.push('', 'chiplet,microbump_x_mm,microbump_y_mm,N_join_N,V_join_N,N_asm25_N,V_asm25_N'); for (let q = 0; q < a.x.length; q++) lines.push(c.name + ',' + a.x[q] + ',' + a.y[q] + ',' + (j ? j.N[q] : '') + ',' + (j ? j.V[q] : '') + ',' + a.N[q] + ',' + a.V[q]); });
-  res.cpi.forEach((b, i) => { lines.push('', 'die,bump_x_mm,bump_y_mm,N_cpi_N,V_cpi_N,N_asm25_N,V_asm25_N'); const a = f.dies[i].bumps; for (let q = 0; q < b.x.length; q++) lines.push(b.die + ',' + b.x[q] + ',' + b.y[q] + ',' + b.N[q] + ',' + b.V[q] + ',' + a.N[q] + ',' + a.V[q]); });
+  (res.cpi || []).forEach((b, i) => { lines.push('', 'die,bump_x_mm,bump_y_mm,N_cpi_N,V_cpi_N,N_asm25_N,V_asm25_N'); const a = f.dies[i].bumps; for (let q = 0; q < b.x.length; q++) lines.push(b.die + ',' + b.x[q] + ',' + b.y[q] + ',' + b.N[q] + ',' + b.V[q] + ',' + a.N[q] + ',' + a.V[q]); });
   const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
   const a = h('a', { href: URL.createObjectURL(blob), download: (cfg.name || 'fcbga').replace(/[^\w.-]+/g, '_') + '_results.csv' });
   document.body.appendChild(a); a.click(); a.remove();

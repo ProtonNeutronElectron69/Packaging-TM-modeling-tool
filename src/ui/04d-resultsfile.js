@@ -16,13 +16,29 @@ function resultsFileName() {
 }
 const fmtMB = bytes => fmt(bytes / 1048576, bytes < 10 * 1048576 ? 1 : 0) + ' MB';
 
+/** The baseline as saved: when the results are the baseline they are not stored twice, only the 'results' marker
+ * (read by every version) and, in baselineMeta, the label and the submodels pinned with them. */
+function savedBaseline() {
+  const b = app.baseline;
+  if (!b) return { baseline: null, baselineMeta: null };
+  if (b === app.results || baselineIsCurrent()) return { baseline: 'results', baselineMeta: { submodels: b.submodels || [], pinned: b.pinned || null } };
+  return { baseline: b, baselineMeta: null };
+}
+/** The baseline a results file holds: null, full results, or the 'results' marker with its label and submodels. */
+function loadedBaseline(t) {
+  if (!t.baseline) return null;
+  if (t.baseline !== 'results') return t.baseline;
+  const m = t.baselineMeta || {};
+  return Object.assign({}, t.results, { submodels: m.submodels || t.submodels || [], pinned: m.pinned || undefined });
+}
+
 /** Everything a results file holds, as one value tree (analysis: the worker's state with its step increments, or null). */
 function resultsFileTree(analysis) {
   const view = {};
   for (const k of RESULTS_VIEW_KEYS) if (app[k] !== undefined && app[k] !== null) view[k] = app[k];
   return {
     kind: 'fcbga-results', savedAt: new Date().toISOString(),
-    config: app.cfg, results: app.results, baseline: app.baseline && app.baseline === app.results ? 'results' : app.baseline,
+    config: app.cfg, results: app.results, ...savedBaseline(),
     screening: app.screening, submodels: app.submodels, sensitivity: app.sensitivity, verification: app.verification,
     fieldsCache: app.fieldsCache, sectionCache: app.sectionCache, tractionCache: app.tractionCache, view, analysis,
   };
@@ -127,7 +143,11 @@ function applyResultsFile(t) {
   app.cfg = C.normalizeConfig(t.config); app.selectedDie = 0; app.selectedChiplet = -1;
   onConfigChanged('geometry', { released: true });
   app.results = t.results;
-  app.baseline = t.baseline === 'results' ? t.results : (t.baseline || null);
+  // a baseline pinned in this session stays (opening a file is the usual way to compare a saved design with it);
+  // the file's own baseline comes back only when none is pinned
+  const fileBase = loadedBaseline(t);
+  if (!app.baseline) app.baseline = fileBase;
+  else if (fileBase && fileBase.at25 !== app.baseline.at25) toast('Kept the baseline pinned in this session (' + baselineLabel(app.baseline) + '); the baseline saved in the file was not loaded. Clear the baseline first to use the file\'s.', 'warn', 9000);
   app.screening = t.screening || t.results.screening || null;
   app.submodels = t.submodels || [];
   app.sensitivity = t.sensitivity || null;

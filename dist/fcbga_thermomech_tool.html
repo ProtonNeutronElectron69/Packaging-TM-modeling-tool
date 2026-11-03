@@ -237,7 +237,7 @@ option.mat-good, option.mat-some, option.mat-many { font-weight: 600; }
 <body>
 <div id="app">
   <header id="topbar">
-    <div class="brand"><span class="logo">FCBGA</span> Thermomechanical Screening Tool <span class="build">build 2026-10-29</span></div>
+    <div class="brand"><span class="logo">FCBGA</span> Thermomechanical Screening Tool <span class="build">build 2026-11-03</span></div>
     <div class="banner" role="note">Screening tool. Results are approximate and intended for design comparison and trend studies, not sign-off.</div>
     <div class="topbtns">
       <button id="btn-theme" class="icon" aria-label="Toggle theme">◐</button>
@@ -8590,8 +8590,12 @@ const TIPS = {
   computeEngine: 'Where the analysis runs. In a browser every worker lives inside this tab, and the browser stops a tab that uses more than its memory allowance (around 10 GB has been seen in Edge and Brave), which ends the run. The desktop app runs each worker as a separate process on this computer, so large meshes and many workers can use all of its memory and cores.',
   runFull: 'The thermal path (process chain to 25 °C, heating to the reflow peak, cooling to the cycling minimum, chip-join state), bump screening and 3D fields, at the selected fidelity.',
   quickPreview: 'Draft mesh, the process chain down to the 25 °C state only (its steps split over the parallel workers); a quicker look at the warpage overlay. Edits never start an analysis on their own.',
-  pinBaseline: 'Keep the current results as the baseline; later runs show deltas and ratios against it.',
+  pinBaseline: 'Keep the current results (with their bump submodels) as the baseline. Change the design and run again: Results > Baseline comparison lists every result against it, and the summary cards, the report and the CSV show the differences.',
+  pinBaselineFile: 'Pin the results saved in a results file (.fcbgares) as the baseline, without opening it: compare the current design with one solved earlier.',
   clearBaseline: 'Remove the pinned baseline.',
+  viewCompare: 'Every headline result of the current run next to the pinned baseline: difference, ratio, the configuration sections that changed and a warning when the mesh presets differ.',
+  exportCompareCsv: 'Download the comparison table as CSV: quantity, unit, baseline, current, difference and ratio.',
+  compareSweep: 'Signed warpage at every evaluated temperature for the current results and the baseline.',
   meshCheck: 'Rerun the current case at the next finer preset and compare RT warpage, die interior peak stress and worst-bump force.',
   exportCsv: 'Download all scalar results plus the warpage at every ball site and the per-bump loads as CSV.',
   report: 'Open a printable report (inputs, assumptions, results, confidence labels, verification, materials with sources); print it to PDF from the browser.',
@@ -8705,7 +8709,7 @@ const TIPS = {
   lifeSyedE: 'N_f = 1 / (C_W ΔW). Order-of-magnitude; best used as a ratio against the baseline.',
   lifeSyedS: 'N_f = 1 / (C ε_acc) with the accumulated inelastic strain per cycle.',
   lifeDarv: 'N_f = N_0 + a / (da/dN) with a the joint diameter at the critical interface; needs K1 to K4 calibrated to this averaging scheme (step 5).',
-  lifeRatio: 'Life divided by the baseline\'s life for the first submodel; the most trustworthy fatigue output.',
+  lifeRatio: 'Life divided by the life of the baseline\'s submodel at the same die and bump site (or its first submodel when that site was not run); the most trustworthy fatigue output.',
   subSteps: 'Time steps, cutbacks on the inelastic strain increment limit, and Newton iterations per step.',
   hysteresis: 'Shear stress versus shear strain (radial direction) volume-averaged in the interface layers through the cycles.',
   // 3D
@@ -10217,7 +10221,7 @@ const floorplan = {
     } else if (app.showOverlay === 'bumpN' || app.showOverlay === 'bumpV' || app.showOverlay === 'cpiN' || app.showOverlay === 'cpiV') {
       const cpi = app.showOverlay.startsWith('cpi');
       const comp = app.showOverlay.endsWith('N') ? 'N' : 'V';
-      const list = cpi ? res.cpi : f.dies.map(d => d.bumps);
+      const list = (cpi ? res.cpi : f.dies.map(d => d.bumps)) || [];  // a quick preview has no chip-join state
       let mn = Infinity, mx = -Infinity;
       for (const b of list) for (const v of b[comp]) if (isFinite(v)) { mn = Math.min(mn, v); mx = Math.max(mx, v); }
       scale = makeScale(mn, mx, comp === 'N');
@@ -10912,39 +10916,40 @@ function renderRunPanel(root) {
   }
   const canRun = !app.validation.errors.length;
   root.append(h('div', { class: 'row' }, h('button', tip('runFull', { class: 'primary', disabled: canRun ? null : '', onclick: () => runFull() }), '▶ Run full global analysis'), h('button', tip('quickPreview', { disabled: canRun ? null : '', onclick: () => runPreview() }), 'Quick preview (Draft, 25 °C)')));
-  root.append(h('div', { class: 'row' }, h('button', tip('pinBaseline', { disabled: app.results ? null : '', onclick: pinBaseline }), 'Pin as baseline'), h('button', tip('clearBaseline', { disabled: app.baseline ? null : '', onclick: () => { app.baseline = null; renderContext(); } }), 'Clear baseline'), h('button', tip('meshCheck', { disabled: canRun ? null : '', onclick: checkMeshSensitivity }), 'Check mesh sensitivity'), h('button', tip('exportCsv', { disabled: app.results ? null : '', onclick: exportCSV }), 'Export CSV'), h('button', tip('report', { disabled: app.results ? null : '', onclick: openReport }), 'Report (print / PDF)')));
+  root.append(h('div', { class: 'row' }, h('button', tip('pinBaseline', { disabled: app.results ? null : '', onclick: pinBaseline }), 'Pin as baseline'), h('button', tip('pinBaselineFile', { onclick: pinBaselineFile }), 'Pin a results file'), h('button', tip('clearBaseline', { disabled: app.baseline ? null : '', onclick: clearBaseline }), 'Clear baseline'), h('button', tip('meshCheck', { disabled: canRun ? null : '', onclick: checkMeshSensitivity }), 'Check mesh sensitivity'), h('button', tip('exportCsv', { disabled: app.results ? null : '', onclick: exportCSV }), 'Export CSV'), h('button', tip('report', { disabled: app.results ? null : '', onclick: openReport }), 'Report (print / PDF)')));
   root.append(h('div', { class: 'row' }, h('button', tip('saveResults', { disabled: app.results ? null : '', onclick: saveResultsFile }), 'Save results (' + C.CONST.RESULTS_FILE_EXT + ')'), h('button', tip('openResults', { onclick: pickResultsFile }), 'Open results file')));
   if (cfg.name && cfg.name.startsWith('Core thickness study')) root.append(h('div', { class: 'row' }, h('button', tip('coreStudy', { onclick: runCoreStudy }), 'Run both core variants and compare')));
-  root.append(h('div', { class: 'small muted' }, 'Tip: pin a baseline, then compare variants. Ratios and deltas against the baseline are the most trustworthy outputs of a screening model.'));
+  root.append(baselineStatus());
   root.append(estimatedInputsCard(cfg));
   renderValidation(root);
   if (!app.results) { root.append(h('div', { class: 'msg info' }, 'No results yet. Run the analysis to populate the results views in the center area.')); return; }
   const res = app.results;
   root.append(h('h3', null, 'Summary at 25 °C'));
   const f = res.at25, w = f.warpage;
-  const base = app.baseline;
+  const base = baselineIsCurrent() ? null : app.baseline;  // no differences shown against the results themselves
+  const named = (list, n) => (list || []).find(x => (x.name || x.die) === n);
   const delta = (v, bv, unit, dgt) => bv === undefined || bv === null || !isFinite(bv) ? '' : ' (Δ ' + (v - bv >= 0 ? '+' : '') + fmt(v - bv, dgt) + unit + ', ×' + fmt(v / bv, 2) + ' vs baseline)';
   root.append(h('div', { class: 'card' }, h('h3', null, 'Signed warpage, JEITA, 25 °C', helpTip('warpSigned')), h('div', { class: 'big' }, um(w.signed) + ' µm', w.marginal ? h('span', { class: 'badge Handbook', 'data-tip': 'The diagonal sum that sets the JEITA sign is only ' + fmt(100 * w.signConf, 0) + ' % of the magnitude (saddle or ring shape); the sign can flip between neighbouring states while the magnitude barely changes. Compare magnitudes.' }, 'marginal sign') : null), h('div', { class: 'sub' }, shapeText(w) + '; magnitude ' + um(w.mag) + ' µm; RT reference ' + (w.limitRT * 1000) + ' µm' + (base ? delta(w.signed * 1000, base.at25.warpage.signed * 1000, ' µm', 1) : '')), whatThisMeans('warpage', res)));
   const peak = res.sweep.reduce((m, r) => Math.abs(r.signed) > Math.abs(m.signed) ? r : m, res.sweep[0]);
   root.append(h('div', { class: 'card' }, h('h3', null, 'Reflow sweep peak'), h('div', { class: 'big' }, um(peak.signed) + ' µm at ' + peak.T + ' °C'), h('div', { class: 'sub' }, 'JEITA limit for ' + cfg.bga.pitch + ' mm pitch: ' + (w.limitHot * 1000) + ' µm → ' + (Math.abs(peak.signed) <= w.limitHot ? 'within limit' : 'exceeds limit') + (base ? delta(peak.signed * 1000, base.sweep.reduce((m, r) => Math.abs(r.signed) > Math.abs(m.signed) ? r : m, base.sweep[0]).signed * 1000, ' µm', 1) : ''))));
   siList(f).forEach((d, i) => {
-    const bd = base && siList(base.at25)[i];
+    const bd = base && named(siList(base.at25), d.name);
     root.append(h('div', { class: 'card' }, h('h3', null, d.name + ' backside stress', helpTip('peakNodal')), h('div', { class: 'big' }, fmt(d.top.peakInterior, 1) + ' MPa'), h('div', { class: 'sub' }, 'interior peak (0.5 mm edge band excluded), max principal, nodal averaged; Gauss-point peak ' + fmt(d.top.gpPeakInterior, 1) + ' MPa' + (bd ? delta(d.top.peakInterior, bd.top.peakInterior, ' MPa', 1) : '') + (cfg.limits.dieStrength ? '; margin to strength ' + fmt(cfg.limits.dieStrength - d.top.peakInterior, 0) + ' MPa' : '')), h('div', { class: 'sub' }, 'corner patches 1 / 2 / 3 / 4 (comparative): ' + d.top.corners.map(c => fmt(c.value, 0)).join(' / ') + ' MPa'), h('div', { class: 'conf' }, CONFIDENCE.dieInterior + ' Corner values: ' + CONFIDENCE.corner)));
   });
-  res.cpi.forEach((b, i) => {
-    const bb = base && base.cpi[i];
+  (res.cpi || []).forEach((b, i) => {  // a quick preview has no chip-join state
+    const bb = base && named(base.cpi, b.die);
     root.append(h('div', { class: 'card' }, h('h3', null, b.die + ' bump loading (CPI proxy)', helpTip('stateCpi')), h('div', { class: 'big' }, gf(b.worstV) + ' gf shear'), h('div', { class: 'sub' }, 'worst bump at chip join cooldown, before underfill; axial ' + gf(b.worstN) + ' gf (' + fmt(b.worstN, 3) + ' N)' + (bb ? delta(b.worstV, bb.worstV, ' N', 3) : '')), h('div', { class: 'conf' }, 'Elastic upper bound; real joints relax by creep during cooldown. ' + CONFIDENCE.bumps)));
   });
   if (res.ddiJoin) res.ddiJoin.forEach((b, i) => {
-    const bb = base && base.ddiJoin && base.ddiJoin[i];
+    const bb = base && named(base.ddiJoin, b.die);
     root.append(h('div', { class: 'card' }, h('h3', null, b.die + ' DDI microbumps', helpTip('stateDdiJoin')), h('div', { class: 'big' }, gf(b.worstV) + ' gf shear'), h('div', { class: 'sub' }, 'worst microbump at chiplet join cooldown, before the DDI fill; axial ' + gf(b.worstN) + ' gf (' + fmt(b.worstN, 4) + ' N)' + (bb ? delta(b.worstV, bb.worstV, ' N', 4) : '')), h('div', { class: 'conf' }, 'Elastic upper bound; real joints relax by creep during cooldown. ' + CONFIDENCE.bumps)));
   });
   if (res.ddiScreening) res.ddiScreening.forEach((s, i) => {
-    const bs = base && base.ddiScreening && base.ddiScreening[i];
+    const bs = base && named(base.ddiScreening, s.die);
     root.append(h('div', { class: 'card' }, h('h3', null, s.die + ' DDI microbump screening', helpTip('ddiScreen')), h('div', { class: 'big' }, fmtE(s.top[0] ? s.top[0].dW : NaN, 3) + ' MPa/cycle'), h('div', { class: 'sub' }, 'worst-site ΔW_proxy of the solder caps at (' + fmt(s.top[0] && s.top[0].x, 3) + ', ' + fmt(s.top[0] && s.top[0].y, 3) + ') mm' + (bs && bs.top[0] ? delta(s.top[0].dW, bs.top[0].dW, ' MPa', 4) : '')), h('div', { class: 'conf' }, 'Screening index; ranks locations; not a life.')));
   });
   if (res.screening) res.screening.forEach((s, i) => {
-    const bs = base && base.screening && base.screening[i];
+    const bs = base && named(base.screening, s.die);
     root.append(h('div', { class: 'card' }, h('h3', null, s.die + ' solder fatigue screening', helpTip('dWproxy')), h('div', { class: 'big' }, fmtE(s.top[0] ? s.top[0].dW : NaN, 3) + ' MPa/cycle'), h('div', { class: 'sub' }, 'worst-site ΔW_proxy at (' + fmt(s.top[0] && s.top[0].x, 2) + ', ' + fmt(s.top[0] && s.top[0].y, 2) + ') mm; equivalent inelastic strain range ' + fmtE(s.top[0] && s.top[0].dE, 3) + (bs && bs.top[0] ? delta(s.top[0].dW, bs.top[0].dW, ' MPa', 4) : '')), h('div', { class: 'conf' }, 'Screening index; ranks locations; not a life. ' + (s.subsampled ? 'Sites subsampled above 20,000 (outer rows and corner blocks kept).' : ''))));
   });
   root.append(h('details', null, h('summary', tip('solverLog'), 'Solver log (' + res.solverLog.length + ' solves, ' + fmt(res.totalMs / 1000, 1) + ' s total)'), h('div', { class: 'mono small' }, 'Mesh ' + res.meshInfo.nDof + ' DOF, ' + res.meshInfo.nElem + ' elements, build ' + fmt(res.meshInfo.buildMs, 0) + ' ms; assembly ' + fmt(res.timings.assemble, 0) + ' ms; solves ' + fmt(res.timings.solve, 0) + ' ms'), h('table', { class: 'small' }, h('tr', null, h('th', null, 'Solve'), h('th', null, 'Iterations'), h('th', null, 'Residual'), h('th', null, 'Preconditioner'), h('th', null, 'ms')), ...res.solverLog.map(r => h('tr', null, h('td', null, r.label), h('td', null, String(r.iters) + (r.rebuilt ? ' (rebuilt)' : '') + (r.fallback ? ' (fallback from ' + r.fallback.first + ')' : '')), h('td', null, fmtE(r.relres, 1)), h('td', null, r.precond || ''), h('td', null, fmt(r.ms, 0)))))));
@@ -11102,7 +11107,6 @@ function analysisLostNotice() {
 function analysisMissing(what) {
   return what + (app.analysisLost === 'loading' ? ' the analysis, which is still loading from the results file; try again when it is back.' : ' the analysis, which is not in memory; use Restore analysis above the results first.');
 }
-function pinBaseline() { app.baseline = app.results; toast('Baseline pinned: ' + (app.cfg.name || 'current configuration') + ' at ' + app.results.preset + '.', 'ok'); renderContext(); }
 
 function checkMeshSensitivity() {
   const order = ['draft', 'standard', 'fine'];
@@ -11112,10 +11116,11 @@ function checkMeshSensitivity() {
   run(cur).then(a => run(next).then(b => {
     const wa = a.at25.warpage.signed, wb = b.at25.warpage.signed;
     const sa = a.at25.dies[0].top.peakInterior, sb = b.at25.dies[0].top.peakInterior;
-    const fa = a.cpi[0].worstV, fb = b.cpi[0].worstV;
+    // the as-assembled bump shear: a preview has no chip-join (CPI) state
+    const fa = a.at25.dies[0].bumps.worstV, fb = b.at25.dies[0].bumps.worstV;
     const pc = (x, y) => fmt(100 * Math.abs(x / y - 1), 1) + ' %';
     const conv = [wa / wb, sa / sb, fa / fb].every(r => Math.abs(r - 1) < 0.05);
-    showModal('Mesh sensitivity: ' + cur + ' → ' + next, h('div', null, h('table', null, h('tr', null, h('th'), h('th', null, cur + ' (' + a.meshInfo.nDof + ' DOF)'), h('th', null, next + ' (' + b.meshInfo.nDof + ' DOF)'), h('th', null, 'change')), h('tr', null, h('td', null, 'RT signed warpage'), h('td', null, um(wa) + ' µm'), h('td', null, um(wb) + ' µm'), h('td', null, pc(wa, wb))), h('tr', null, h('td', null, 'Die interior peak stress'), h('td', null, fmt(sa, 1) + ' MPa'), h('td', null, fmt(sb, 1) + ' MPa'), h('td', null, pc(sa, sb))), h('tr', null, h('td', null, 'Worst bump shear force'), h('td', null, fmt(fa, 3) + ' N'), h('td', null, fmt(fb, 3) + ' N'), h('td', null, pc(fa, fb)))), h('p', { class: conv ? 'ok' : 'warnc' }, conv ? 'Verdict: converged within 5 %.' : 'Verdict: results still mesh-sensitive; use the finer preset for decisions.')));
+    showModal('Mesh sensitivity: ' + cur + ' → ' + next, h('div', null, h('table', null, h('tr', null, h('th'), h('th', null, cur + ' (' + a.meshInfo.nDof + ' DOF)'), h('th', null, next + ' (' + b.meshInfo.nDof + ' DOF)'), h('th', null, 'change')), h('tr', null, h('td', null, 'RT signed warpage'), h('td', null, um(wa) + ' µm'), h('td', null, um(wb) + ' µm'), h('td', null, pc(wa, wb))), h('tr', null, h('td', null, 'Die interior peak stress'), h('td', null, fmt(sa, 1) + ' MPa'), h('td', null, fmt(sb, 1) + ' MPa'), h('td', null, pc(sa, sb))), h('tr', null, h('td', null, 'Worst bump shear force, as assembled'), h('td', null, fmt(fa, 3) + ' N'), h('td', null, fmt(fb, 3) + ' N'), h('td', null, pc(fa, fb)))), h('p', { class: conv ? 'ok' : 'warnc' }, conv ? 'Verdict: converged within 5 %.' : 'Verdict: results still mesh-sensitive; use the finer preset for decisions.')));
   })).catch(e => { if (e.message !== 'cancelled' && !e.reported) toast(e.message, 'error'); });
 }
 function runCoreStudy() {
@@ -11127,7 +11132,7 @@ function runCoreStudy() {
 }
 
 // ---- results views in the center area ----
-const RESULT_VIEWS = [['warpage', 'Warpage', 'viewWarpage'], ['dieStress', 'Die stress', 'viewDieStress'], ['bumps', 'Bump loading', 'viewBumps'], ['uf', 'Underfill interface', 'viewUf'], ['section', 'Cross-section stress', 'viewSection'], ['fatigue', 'Solder fatigue', 'viewFatigue'], ['subSection', 'Submodel section', 'viewSubSection'], ['view3d', '3D view', 'view3d'], ['sensitivity', 'Sensitivity', 'viewSens'], ['verification', 'Verification', 'viewVerify'], ['report', 'Report', 'viewReport']];
+const RESULT_VIEWS = [['warpage', 'Warpage', 'viewWarpage'], ['dieStress', 'Die stress', 'viewDieStress'], ['bumps', 'Bump loading', 'viewBumps'], ['uf', 'Underfill interface', 'viewUf'], ['section', 'Cross-section stress', 'viewSection'], ['fatigue', 'Solder fatigue', 'viewFatigue'], ['subSection', 'Submodel section', 'viewSubSection'], ['view3d', '3D view', 'view3d'], ['sensitivity', 'Sensitivity', 'viewSens'], ['verification', 'Verification', 'viewVerify'], ['compare', 'Baseline comparison', 'viewCompare'], ['report', 'Report', 'viewReport']];
 
 function renderResults(root) {
   const res = app.results;
@@ -11150,6 +11155,7 @@ function renderResults(root) {
     case 'view3d': renderView3D(root, res, f, Tsel); break;
     case 'sensitivity': renderSensitivityView(root); break;
     case 'verification': renderVerificationView(root); break;
+    case 'compare': renderCompareView(root, res); break;
     case 'report': renderReportView(root, res); break;
   }
 }
@@ -11221,7 +11227,7 @@ function renderWarpageView(root, res, f, Tsel) {
     const peakT = cfg.reflow.peak;
     const down = upWarp.map(r => ({ x: 2 * peakT - r.T, y: r.signed * 1000 })).reverse();
     linePlot(c2, [{ x: upWarp.map(r => r.T), y: upWarp.map(r => r.signed * 1000), label: 'heating', points: true }, { x: down.map(p => p.x), y: down.map(p => p.y), label: 'cooling (mirrored, same states)', dash: [4, 3] }, { x: upWarp.map(r => r.T), y: upWarp.map(r => r.mag * 1000), label: 'magnitude |C|', dash: [2, 3], color: cssVar('--muted') }], { title: 'Signed warpage over the reflow sweep (x axis: heating to peak, then mirrored cooling)', xlabel: '°C (then mirrored)', ylabel: 'µm', band: [-w.limitHot * 1000, w.limitHot * 1000], hlines: [{ y: 0 }], vlines: [{ x: 217, label: 'solidus' }, { x: 2 * peakT - 217 }].concat(upWarp.filter(r => r.marginal).map(r => ({ x: r.T, color: cssVar('--warn') }))) });
-    const bl = app.baseline ? [{ x: app.baseline.sweep.map(r => r.T), y: app.baseline.sweep.map(r => r.signed * 1000), label: 'baseline', dash: [2, 2] }] : [];
+    const bl = app.baseline && app.baseline.sweep && !baselineIsCurrent() ? [{ x: app.baseline.sweep.map(r => r.T), y: app.baseline.sweep.map(r => r.signed * 1000), label: 'baseline', dash: [2, 2] }] : [];
     linePlot(c3, [{ x: up, y: ws, label: 'current', points: true }].concat(bl, res.cycling ? [{ x: res.cycling.map(r => r.T), y: res.cycling.map(r => r.signed * 1000), label: 'cycling range', dash: [6, 3] }] : []), { title: 'Signed warpage versus temperature (all evaluated states)', xlabel: '°C', ylabel: 'µm', hlines: [{ y: w.limitHot * 1000, label: 'JEITA limit', color: cssVar('--warn') }, { y: -w.limitHot * 1000, color: cssVar('--warn') }] });
   });
 }
@@ -11359,10 +11365,12 @@ function runSubmodels(res) {
 }
 function renderSubmodelCard(sm) {
   const c1 = h('canvas', tip('hysteresis', { class: 'plot' }));
-  const base = app.baseline && app.baseline.submodelRef;
   const life = sm.life;
+  // the baseline's submodel at the same die and site, else its first one
+  const bsubs = app.baseline && !baselineIsCurrent() ? app.baseline.submodels || [] : [];
+  const baseSm = bsubs.find(b => b.die === sm.die && b.site.ix === sm.site.ix && b.site.iy === sm.site.iy) || bsubs[0];
   const card = h('div', { class: 'card' }, h('h3', null, 'Submodel: ' + sm.die + ' bump at (' + fmt(sm.site.x, 2) + ', ' + fmt(sm.site.y, 2) + ') mm, ' + sm.nxy + '×' + sm.nxy + '×' + sm.nz + ' voxels'),
-    h('div', { class: 'kv' }, kl('ΔW stabilized cycle (critical layer: ' + sm.critical + ')', 'subDW'), h('b', null, fmtE(sm.dW, 3) + ' MPa/cycle'), kl('die side / substrate side', 'subDW'), h('span', null, fmtE(sm.dWdie, 3) + ' / ' + fmtE(sm.dWsub, 3)), kl('Equivalent inelastic strain range', 'subDE'), h('span', null, fmtE(sm.dE, 3)), kl('Cycle-to-cycle change of ΔW', 'subStab'), h('span', { class: sm.stabWarn ? 'warnc' : 'ok' }, fmt(100 * sm.stabChange, 1) + ' %' + (sm.stabWarn ? ' (not stabilized; run more cycles)' : '')), kl('Life, Syed energy model', 'lifeSyedE'), h('b', null, fmt(life.syedEnergy, 0) + ' cycles'), kl('Life, Syed strain model', 'lifeSyedS'), h('span', null, fmt(life.syedStrain, 0) + ' cycles'), kl('Life, Darveaux', 'lifeDarv'), h('span', null, life.darveaux === null ? 'enter K1 to K4 in step 5' : fmt(life.darveaux, 0) + ' cycles (N0 ' + fmt(life.darveauxN0, 0) + ', a = ' + fmt(sm.dJoint * 1000, 0) + ' µm)'), app.baseline && app.baseline.submodels && app.baseline.submodels[0] ? kl('Life ratio vs baseline', 'lifeRatio') : null, app.baseline && app.baseline.submodels && app.baseline.submodels[0] ? h('b', null, fmt(life.syedEnergy / app.baseline.submodels[0].life.syedEnergy, 2)) : null, kl('Steps / cutbacks / Newton per step', 'subSteps'), h('span', null, sm.steps + ' / ' + sm.cutbacks + ' / ' + fmt(sm.newtonPerStep, 1) + ', ' + fmt(sm.ms / 1000, 1) + ' s')),
+    h('div', { class: 'kv' }, kl('ΔW stabilized cycle (critical layer: ' + sm.critical + ')', 'subDW'), h('b', null, fmtE(sm.dW, 3) + ' MPa/cycle'), kl('die side / substrate side', 'subDW'), h('span', null, fmtE(sm.dWdie, 3) + ' / ' + fmtE(sm.dWsub, 3)), kl('Equivalent inelastic strain range', 'subDE'), h('span', null, fmtE(sm.dE, 3)), kl('Cycle-to-cycle change of ΔW', 'subStab'), h('span', { class: sm.stabWarn ? 'warnc' : 'ok' }, fmt(100 * sm.stabChange, 1) + ' %' + (sm.stabWarn ? ' (not stabilized; run more cycles)' : '')), kl('Life, Syed energy model', 'lifeSyedE'), h('b', null, fmt(life.syedEnergy, 0) + ' cycles'), kl('Life, Syed strain model', 'lifeSyedS'), h('span', null, fmt(life.syedStrain, 0) + ' cycles'), kl('Life, Darveaux', 'lifeDarv'), h('span', null, life.darveaux === null ? 'enter K1 to K4 in step 5' : fmt(life.darveaux, 0) + ' cycles (N0 ' + fmt(life.darveauxN0, 0) + ', a = ' + fmt(sm.dJoint * 1000, 0) + ' µm)'), baseSm ? kl('Life ratio vs baseline', 'lifeRatio') : null, baseSm ? h('b', null, fmt(life.syedEnergy / baseSm.life.syedEnergy, 2)) : null, kl('Steps / cutbacks / Newton per step', 'subSteps'), h('span', null, sm.steps + ' / ' + sm.cutbacks + ' / ' + fmt(sm.newtonPerStep, 1) + ', ' + fmt(sm.ms / 1000, 1) + ' s')),
     c1, h('div', { class: 'small muted' }, 'Per cycle: ' + sm.perCycle.map(c => 'cycle ' + c.cycle + ': ' + fmtE(Math.max(c.dWdie, c.dWsub), 2)).join('; ')),
     sm.section ? h('button', tip('openSubSection', { class: 'small', onclick: () => { app.subSection.key = subSecKey(sm); app.subSection.snap = null; app.subSection.off = null; app.resultsView = 'subSection'; renderCenter(); } }), 'Cross-section of this submodel') : null,
     h('details', null, h('summary', null, 'What this means'), h('p', { class: 'small' }, 'The submodel resolves one solder joint with the Anand viscoplastic model, driven by cut-boundary displacements from the global model. ΔW is the inelastic work density of the last simulated cycle averaged over a 25 µm layer at each interface; the larger side is used. Energy-based lives use Syed\'s constant (fitted to a different model and joint geometry) and are order-of-magnitude. The Darveaux model needs constants calibrated to this averaging scheme. The solder is assumed stress-free at 25 °C in the as-assembled state (room-temperature relaxation).')));
@@ -11622,12 +11630,14 @@ function reportBody(res) {
   add('Signed warpage at 25 °C (JEITA)', um(w.signed) + ' µm (' + (w.sign > 0 ? 'convex' : 'concave') + ')', CONFIDENCE.warpage);
   for (const r of res.sweep.filter(r => cfg.reflow.reportTemps.includes(r.T))) add('Signed warpage at ' + r.T + ' °C', um(r.signed) + ' µm (limit ' + w.limitHot * 1000 + ')', CONFIDENCE.warpage);
   siList(f).forEach(d => { add(d.name + ' backside interior peak stress', fmt(d.top.peakInterior, 1) + ' MPa', CONFIDENCE.dieInterior); add(d.name + ' backside corner patches 1 / 2 / 3 / 4', d.top.corners.map(c => fmt(c.value, 0)).join(' / ') + ' MPa', CONFIDENCE.corner); add(d.name + ' active-face interior peak', fmt(d.bottom.peakInterior, 1) + ' MPa', CONFIDENCE.dieInterior); });
-  f.dies.forEach((d, i) => { add(d.name + ' worst CPI bump shear / axial', gf(res.cpi[i].worstV) + ' / ' + gf(res.cpi[i].worstN) + ' gf', CONFIDENCE.bumps); add(d.name + ' underfill max sidewall peel / shear', fmt(d.uf.maxPeelSide, 1) + ' / ' + fmt(d.uf.maxShearSide, 1) + ' MPa', CONFIDENCE.corner); });
+  f.dies.forEach((d, i) => { if (res.cpi) add(d.name + ' worst CPI bump shear / axial', gf(res.cpi[i].worstV) + ' / ' + gf(res.cpi[i].worstN) + ' gf', CONFIDENCE.bumps); add(d.name + ' underfill max sidewall peel / shear', fmt(d.uf.maxPeelSide, 1) + ' / ' + fmt(d.uf.maxShearSide, 1) + ' MPa', CONFIDENCE.corner); });
   if (res.screening) res.screening.forEach(s => add(s.die + ' worst ΔW_proxy', fmtE(s.top[0] ? s.top[0].dW : NaN, 3) + ' MPa/cycle', CONFIDENCE.fatigue));
   if (f.ddi) f.ddi.forEach((c, i) => { const j = res.ddiJoin && res.ddiJoin[i]; if (j) add(c.name + ' worst DDI microbump shear / axial, chiplet join', gf(j.worstV) + ' / ' + gf(j.worstN) + ' gf', CONFIDENCE.bumps); add(c.name + ' worst DDI microbump shear / axial, 25 °C', gf(c.bumps.worstV) + ' / ' + gf(c.bumps.worstN) + ' gf', CONFIDENCE.bumps); add(c.name + ' ' + (c.wcuf.fill === 'mold' ? 'wafer mold' : 'wafer underfill') + ' max sidewall peel / shear', fmt(c.wcuf.maxPeelSide, 1) + ' / ' + fmt(c.wcuf.maxShearSide, 1) + ' MPa', CONFIDENCE.corner); });
   if (res.ddiScreening) res.ddiScreening.forEach(s => add(s.die + ' worst DDI microbump ΔW_proxy', fmtE(s.top[0] ? s.top[0].dW : NaN, 3) + ' MPa/cycle', CONFIDENCE.fatigue));
   for (const sm of app.submodels) add('Submodel ' + sm.die + ' (' + fmt(sm.site.x, 1) + ', ' + fmt(sm.site.y, 1) + ') ΔW / Syed life', fmtE(sm.dW, 3) + ' MPa, ' + fmt(sm.life.syedEnergy, 0) + ' cycles', CONFIDENCE.fatigue);
   div.append(tbl);
+  const cmp = baselineReportSection(res);
+  if (cmp) div.append(cmp);
   if (app.sensitivity && app.sensitivity.warpRT) div.append(h('p', { class: 'small' }, 'Sensitivity (RT warpage), top drivers: ' + app.sensitivity.warpRT.rows.slice(0, 5).map(r => r.label).join(', ') + '.'));
   const estList = estimatedInputsInUse(cfg);
   div.append(h('h3', null, 'Estimated inputs in use (' + estList.length + ')'), h('p', { class: 'small' }, estList.map(e => e.material + ': ' + e.label + ' = ' + (typeof e.value === 'number' ? fmtInput(e.value) : e.value) + ' ' + e.unit).join('; ') || 'none'));
@@ -11657,15 +11667,16 @@ function exportCSV() {
   lines.push('warpage,signed_25C,' + f.warpage.signed * 1000 + ',um', 'warpage,magnitude_25C,' + f.warpage.mag * 1000 + ',um');
   for (const r of res.sweep) lines.push('warpage_sweep,T=' + r.T + ',' + r.signed * 1000 + ',um');
   siList(f).forEach(d => { lines.push('die_stress,' + d.name + '_top_interior_peak,' + d.top.peakInterior + ',MPa', 'die_stress,' + d.name + '_bottom_interior_peak,' + d.bottom.peakInterior + ',MPa'); d.top.corners.forEach(c => lines.push('die_stress,' + d.name + '_top_' + c.name.replace(/[^\w+-]+/g, '_').replace(/_$/, '') + ',' + c.value + ',MPa')); });
-  f.dies.forEach((d, i) => { lines.push('bumps,' + d.name + '_cpi_worst_shear,' + res.cpi[i].worstV + ',N', 'bumps,' + d.name + '_cpi_worst_axial,' + res.cpi[i].worstN + ',N', 'uf,' + d.name + '_max_sidewall_peel,' + d.uf.maxPeelSide + ',MPa', 'uf,' + d.name + '_max_sidewall_shear,' + d.uf.maxShearSide + ',MPa'); });
+  f.dies.forEach((d, i) => { if (res.cpi) lines.push('bumps,' + d.name + '_cpi_worst_shear,' + res.cpi[i].worstV + ',N', 'bumps,' + d.name + '_cpi_worst_axial,' + res.cpi[i].worstN + ',N'); lines.push('uf,' + d.name + '_max_sidewall_peel,' + d.uf.maxPeelSide + ',MPa', 'uf,' + d.name + '_max_sidewall_shear,' + d.uf.maxShearSide + ',MPa'); });
   if (res.screening) res.screening.forEach(s => lines.push('fatigue,' + s.die + '_worst_dW_proxy,' + (s.top[0] ? s.top[0].dW : '') + ',MPa'));
   if (f.ddi) f.ddi.forEach((c, i) => { const j = res.ddiJoin && res.ddiJoin[i]; if (j) lines.push('ddi,' + c.name + '_join_worst_shear,' + j.worstV + ',N', 'ddi,' + c.name + '_join_worst_axial,' + j.worstN + ',N'); lines.push('ddi,' + c.name + '_25C_worst_shear,' + c.bumps.worstV + ',N', 'ddi,' + c.name + '_25C_worst_axial,' + c.bumps.worstN + ',N', 'wcuf,' + c.name + '_max_sidewall_peel,' + c.wcuf.maxPeelSide + ',MPa', 'wcuf,' + c.name + '_max_sidewall_shear,' + c.wcuf.maxShearSide + ',MPa'); });
   if (res.ddiScreening) res.ddiScreening.forEach(s => lines.push('fatigue,' + s.die + '_ddi_worst_dW_proxy,' + (s.top[0] ? s.top[0].dW : '') + ',MPa'));
   for (const sm of app.submodels) lines.push('submodel,' + sm.die + '_' + sm.site.x + '_' + sm.site.y + '_dW,' + sm.dW + ',MPa', 'submodel,' + sm.die + '_' + sm.site.x + '_' + sm.site.y + '_life_syed,' + sm.life.syedEnergy + ',cycles');
+  lines.push(...baselineCsvLines(res, app.baseline));
   lines.push('', 'ball_x_mm,ball_y_mm,warpage_residual_25C_um,w_25C_um');
   for (let q = 0; q < f.warpage.ballX.length; q++) lines.push(f.warpage.ballX[q] + ',' + f.warpage.ballY[q] + ',' + f.warpage.ballRes[q] * 1000 + ',' + f.warpage.ballW[q] * 1000);
   if (f.ddi) f.ddi.forEach((c, i) => { const j = res.ddiJoin && res.ddiJoin[i], a = c.bumps; lines.push('', 'chiplet,microbump_x_mm,microbump_y_mm,N_join_N,V_join_N,N_asm25_N,V_asm25_N'); for (let q = 0; q < a.x.length; q++) lines.push(c.name + ',' + a.x[q] + ',' + a.y[q] + ',' + (j ? j.N[q] : '') + ',' + (j ? j.V[q] : '') + ',' + a.N[q] + ',' + a.V[q]); });
-  res.cpi.forEach((b, i) => { lines.push('', 'die,bump_x_mm,bump_y_mm,N_cpi_N,V_cpi_N,N_asm25_N,V_asm25_N'); const a = f.dies[i].bumps; for (let q = 0; q < b.x.length; q++) lines.push(b.die + ',' + b.x[q] + ',' + b.y[q] + ',' + b.N[q] + ',' + b.V[q] + ',' + a.N[q] + ',' + a.V[q]); });
+  (res.cpi || []).forEach((b, i) => { lines.push('', 'die,bump_x_mm,bump_y_mm,N_cpi_N,V_cpi_N,N_asm25_N,V_asm25_N'); const a = f.dies[i].bumps; for (let q = 0; q < b.x.length; q++) lines.push(b.die + ',' + b.x[q] + ',' + b.y[q] + ',' + b.N[q] + ',' + b.V[q] + ',' + a.N[q] + ',' + a.V[q]); });
   const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
   const a = h('a', { href: URL.createObjectURL(blob), download: (cfg.name || 'fcbga').replace(/[^\w.-]+/g, '_') + '_results.csv' });
   document.body.appendChild(a); a.click(); a.remove();
@@ -12313,13 +12324,29 @@ function resultsFileName() {
 }
 const fmtMB = bytes => fmt(bytes / 1048576, bytes < 10 * 1048576 ? 1 : 0) + ' MB';
 
+/** The baseline as saved: when the results are the baseline they are not stored twice, only the 'results' marker
+ * (read by every version) and, in baselineMeta, the label and the submodels pinned with them. */
+function savedBaseline() {
+  const b = app.baseline;
+  if (!b) return { baseline: null, baselineMeta: null };
+  if (b === app.results || baselineIsCurrent()) return { baseline: 'results', baselineMeta: { submodels: b.submodels || [], pinned: b.pinned || null } };
+  return { baseline: b, baselineMeta: null };
+}
+/** The baseline a results file holds: null, full results, or the 'results' marker with its label and submodels. */
+function loadedBaseline(t) {
+  if (!t.baseline) return null;
+  if (t.baseline !== 'results') return t.baseline;
+  const m = t.baselineMeta || {};
+  return Object.assign({}, t.results, { submodels: m.submodels || t.submodels || [], pinned: m.pinned || undefined });
+}
+
 /** Everything a results file holds, as one value tree (analysis: the worker's state with its step increments, or null). */
 function resultsFileTree(analysis) {
   const view = {};
   for (const k of RESULTS_VIEW_KEYS) if (app[k] !== undefined && app[k] !== null) view[k] = app[k];
   return {
     kind: 'fcbga-results', savedAt: new Date().toISOString(),
-    config: app.cfg, results: app.results, baseline: app.baseline && app.baseline === app.results ? 'results' : app.baseline,
+    config: app.cfg, results: app.results, ...savedBaseline(),
     screening: app.screening, submodels: app.submodels, sensitivity: app.sensitivity, verification: app.verification,
     fieldsCache: app.fieldsCache, sectionCache: app.sectionCache, tractionCache: app.tractionCache, view, analysis,
   };
@@ -12424,7 +12451,11 @@ function applyResultsFile(t) {
   app.cfg = C.normalizeConfig(t.config); app.selectedDie = 0; app.selectedChiplet = -1;
   onConfigChanged('geometry', { released: true });
   app.results = t.results;
-  app.baseline = t.baseline === 'results' ? t.results : (t.baseline || null);
+  // a baseline pinned in this session stays (opening a file is the usual way to compare a saved design with it);
+  // the file's own baseline comes back only when none is pinned
+  const fileBase = loadedBaseline(t);
+  if (!app.baseline) app.baseline = fileBase;
+  else if (fileBase && fileBase.at25 !== app.baseline.at25) toast('Kept the baseline pinned in this session (' + baselineLabel(app.baseline) + '); the baseline saved in the file was not loaded. Clear the baseline first to use the file\'s.', 'warn', 9000);
   app.screening = t.screening || t.results.screening || null;
   app.submodels = t.submodels || [];
   app.sensitivity = t.sensitivity || null;
@@ -12665,6 +12696,200 @@ function renderUFMaps(root, f, wc, fill) {
   root.append(h('details', null, h('summary', null, 'What this means'),
     h('p', { class: 'small' }, 'Each map unfolds one side of the ' + (wc ? 'chiplet' : 'die') + ' at its bottom edge: above the line is the sidewall interface with the ' + (wc ? fill + ' (from the DDI gap up the chiplet side)' : 'underfill fillet (from the active face up to the fillet top)') + ', below it the active face interface with the ' + (wc ? 'DDI fill' : 'bump-layer underfill') + ', from the edge inward. The horizontal axis runs along the side from its first corner to its second, so the die corners are at the left and right ends.'),
     h('p', { class: 'small' }, 'Values are point tractions of the ' + (wc ? 'fill' : 'underfill') + '-side stress next to the interface, sampled every ' + fmt(C.CONST.TRACTION_MAP_DS * 1000, 0) + ' µm along the side and on ' + C.CONST.TRACTION_MAP_ROWS + ' rows through each part, without the 50 µm patch averaging of the perimeter plots, so peaks can be higher than the line plots show. Peel is the traction normal to the interface (tension positive); the shear components lie in the interface plane. Blank areas have no underfill at that point (for example above a short fillet next to a neighbouring die). The die corners and the edge line are singular: compare designs and sides by these maps, do not read the values as strengths.')));
+}
+
+// ===== Baseline comparison ======================================================================
+// Pinning keeps a copy of the current results (with their bump submodels and a label) as the baseline;
+// a saved results file can be pinned as well. The Results > Baseline comparison view lists every headline
+// quantity of the current results next to the baseline (matched by die, chiplet and silicon-part name),
+// with the difference and the ratio, says which configuration sections changed, and warns when the two
+// were solved at different mesh presets. The step 6 summary cards, the report and the CSV export carry
+// the same comparison.
+
+/** Keep the current results as the baseline (a copy holding the submodels too, so the life ratio has a reference). */
+function pinBaseline() {
+  if (!app.results) return;
+  app.baseline = Object.assign({}, app.results, {
+    submodels: app.submodels.slice(),
+    pinned: { name: app.cfg.name || 'current configuration', at: new Date().toISOString(), source: 'run' },
+  });
+  toast('Baseline pinned: ' + app.baseline.pinned.name + ' at ' + app.results.preset + '. Change the design and run again; Results > Baseline comparison then lists every result against it.', 'ok', 8000);
+  renderAll();
+}
+
+/** Pin the results saved in a results file as the baseline, leaving the current results and analysis alone. */
+function pinBaselineFile() {
+  const inp = h('input', { type: 'file', accept: C.CONST.RESULTS_FILE_EXT });
+  inp.addEventListener('change', async () => {
+    const file = inp.files[0];
+    if (!file) return;
+    try {
+      setStatus('Reading ' + file.name, 0);
+      const t = C.decodeResultsFile(await file.arrayBuffer());
+      if (!t || t.kind !== 'fcbga-results' || !t.results) throw new Error('it holds no results');
+      app.baseline = Object.assign({}, t.results, {
+        submodels: t.submodels || [],
+        pinned: { name: (t.config && t.config.name) || file.name, at: new Date().toISOString(), source: 'file', file: file.name, savedAt: t.savedAt || null, hashes: t.results.hashes || null },
+      });
+      setStatus('Ready', null);
+      toast('Baseline pinned from ' + file.name + '.', 'ok', 6000);
+      app.resultsView = 'compare'; setCenterTab('results'); renderAll();
+    } catch (e) {
+      setStatus('Ready', null);
+      toast('Could not pin ' + file.name + ' as the baseline: ' + e.message, 'error', 9000);
+    }
+  });
+  inp.click();
+}
+
+function clearBaseline() { app.baseline = null; renderAll(); }
+
+/** The current results are the pinned ones (just pinned, or a file saved right after pinning). */
+const baselineIsCurrent = () => !!(app.baseline && app.results && app.baseline.at25 === app.results.at25);
+
+/** One line naming the baseline: configuration, preset, mesh and when it was pinned. */
+function baselineLabel(b) {
+  const p = b.pinned || {};
+  return (p.name || 'pinned results') + ', ' + (b.preset || '?') + (b.preview ? ' preview' : '') + (b.meshInfo ? ', ' + b.meshInfo.nDof.toLocaleString() + ' DOF' : '') + (p.file ? ', from ' + p.file : '') + (p.at ? ', pinned ' + new Date(p.at).toLocaleString() : '');
+}
+
+const peakSweep = r => (r.sweep && r.sweep.length ? r.sweep.reduce((m, s) => Math.abs(s.signed) > Math.abs(m.signed) ? s : m, r.sweep[0]) : null);
+const worstOf = list => (list && list.length ? list.reduce((m, s) => (s.dW > m.dW ? s : m), list[0]) : null);
+
+/**
+ * Comparison rows {group, label, unit, cur, ref, digits, conf}: every headline quantity present in both results,
+ * dies, silicon parts and chiplets matched by name (a part only one of them has is left out).
+ */
+function baselineRows(res, subs, base) {
+  const rows = [], a = res.at25, b = base.at25;
+  const add = (group, label, unit, cur, ref, digits, conf) => { if (isFinite(cur) && isFinite(ref)) rows.push({ group, label, unit, cur, ref, digits, conf }); };
+  const named = (list, n) => (list || []).find(x => (x.name || x.die) === n);
+  const toGf = v => v * C.CONST.GF_PER_N;
+  add('Warpage', 'Signed warpage at 25 °C (JEITA)', 'µm', a.warpage.signed * 1000, b.warpage.signed * 1000, 1, CONFIDENCE.warpage);
+  add('Warpage', 'Warpage magnitude at 25 °C', 'µm', a.warpage.mag * 1000, b.warpage.mag * 1000, 1, CONFIDENCE.warpage);
+  const pa = peakSweep(res), pb = peakSweep(base);
+  if (pa && pb && res.sweep.length > 1 && base.sweep.length > 1) add('Warpage', 'Reflow sweep peak, signed (current at ' + pa.T + ' °C, baseline at ' + pb.T + ' °C)', 'µm', pa.signed * 1000, pb.signed * 1000, 1, CONFIDENCE.warpage);
+  for (const d of siList(a)) {
+    const e = named(siList(b), d.name);
+    if (!e) continue;
+    add('Die stress', d.name + ': backside interior peak', 'MPa', d.top.peakInterior, e.top.peakInterior, 1, CONFIDENCE.dieInterior);
+    add('Die stress', d.name + ': active-face interior peak', 'MPa', d.bottom.peakInterior, e.bottom.peakInterior, 1, CONFIDENCE.dieInterior);
+    add('Die stress', d.name + ': worst backside corner patch', 'MPa', Math.max(...d.top.corners.map(c => c.value)), Math.max(...e.top.corners.map(c => c.value)), 1, CONFIDENCE.corner);
+  }
+  (res.cpi || []).forEach(c => {
+    const e = named(base.cpi, c.die);
+    if (!e) return;
+    add('Bumps', c.die + ': worst bump shear, chip join', 'gf', toGf(c.worstV), toGf(e.worstV), 1, CONFIDENCE.bumps);
+    add('Bumps', c.die + ': worst bump axial, chip join', 'gf', toGf(c.worstN), toGf(e.worstN), 1, CONFIDENCE.bumps);
+  });
+  a.dies.forEach(d => {
+    const e = named(b.dies, d.name);
+    if (!e) return;
+    if (d.bumps && e.bumps) add('Bumps', d.name + ': worst bump shear, as assembled', 'gf', toGf(d.bumps.worstV), toGf(e.bumps.worstV), 1, CONFIDENCE.bumps);
+    if (d.uf && e.uf) {
+      add('Underfill', d.name + ': max sidewall peel', 'MPa', d.uf.maxPeelSide, e.uf.maxPeelSide, 1, CONFIDENCE.corner);
+      add('Underfill', d.name + ': max sidewall shear', 'MPa', d.uf.maxShearSide, e.uf.maxShearSide, 1, CONFIDENCE.corner);
+    }
+  });
+  (res.ddiJoin || []).forEach(c => { const e = named(base.ddiJoin, c.die); if (e) add('DDI microbumps', c.die + ': worst microbump shear, chiplet join', 'gf', toGf(c.worstV), toGf(e.worstV), 2, CONFIDENCE.bumps); });
+  (a.ddi || []).forEach(c => { const e = named(b.ddi, c.name); if (e && c.bumps && e.bumps) add('DDI microbumps', c.name + ': worst microbump shear, as assembled', 'gf', toGf(c.bumps.worstV), toGf(e.bumps.worstV), 2, CONFIDENCE.bumps); });
+  (res.screening || []).forEach(s => { const e = named(base.screening, s.die); if (e && s.top[0] && e.top[0]) add('Fatigue screening', s.die + ': worst-site ΔW_proxy', 'MPa/cycle', s.top[0].dW, e.top[0].dW, 4, CONFIDENCE.fatigue); });
+  (res.ddiScreening || []).forEach(s => { const e = named(base.ddiScreening, s.die); if (e && s.top[0] && e.top[0]) add('Fatigue screening', s.die + ': worst-site DDI microbump ΔW_proxy', 'MPa/cycle', s.top[0].dW, e.top[0].dW, 4, CONFIDENCE.fatigue); });
+  const sa = worstOf(subs), sb = worstOf(base.submodels);
+  if (sa && sb) {
+    add('Bump submodels', 'Worst submodel ΔW per cycle', 'MPa/cycle', sa.dW, sb.dW, 4, CONFIDENCE.fatigue);
+    add('Bump submodels', 'Life of the worst submodel, Syed energy model', 'cycles', sa.life.syedEnergy, sb.life.syedEnergy, 0, CONFIDENCE.fatigue);
+  }
+  return rows;
+}
+
+/** Configuration sections that differ between the current results and the baseline (from the hashes the results carry). */
+function baselineChanges(res, base) {
+  const ha = res.hashes, hb = base.hashes || (base.pinned && base.pinned.hashes);
+  if (!ha || !hb) return null;
+  const names = { geometry: 'geometry', materials: 'materials', process: 'process temperatures', loads: 'reflow and cycling loads', post: 'limits, fatigue constants and submodel settings' };
+  return Object.keys(names).filter(k => ha[k] !== hb[k]).map(k => names[k]);
+}
+
+/** Plain-language notes on how far the two results can be compared. */
+function baselineNotes(res, base) {
+  const notes = [];
+  if (res.preset !== base.preset) notes.push({ cls: 'warning', text: 'Different mesh presets (current ' + res.preset + ', baseline ' + base.preset + '): part of every difference comes from the mesh, not the design. Run both at the same preset for a fair comparison.' });
+  if (!!res.preview !== !!base.preview) notes.push({ cls: 'warning', text: 'One of the two is a quick preview (25 °C only): the reflow sweep and fatigue screening rows are missing.' });
+  const ch = baselineChanges(res, base);
+  if (ch) notes.push({ cls: 'info', text: ch.length ? 'Changed since the baseline: ' + ch.join(', ') + '.' : 'No configuration change since the baseline (same geometry, materials, process and loads).' });
+  return notes;
+}
+
+const fmtSigned = (v, d) => (v >= 0 ? '+' : '') + fmt(v, d);
+/** Ratio cell: current / baseline, left out when the baseline is zero or the signs differ. */
+const ratioText = r => (r.ref !== 0 && r.cur / r.ref > 0 ? '×' + fmt(r.cur / r.ref, 3) : '–');
+const valueText = (v, d) => (d >= 4 ? fmtE(v, 3) : fmt(v, d));
+
+/** The comparison table, grouped, with the confidence of each group. */
+function baselineTable(rows) {
+  const tbl = h('table', { class: 'small compare' }, h('tr', null, h('th', null, 'Quantity'), h('th', null, 'Baseline'), h('th', null, 'Current'), h('th', null, 'Δ (current − baseline)'), h('th', null, 'Ratio')));
+  let group = null;
+  for (const r of rows) {
+    if (r.group !== group) { group = r.group; tbl.append(h('tr', null, h('td', { colspan: 5 }, h('b', null, group), h('span', { class: 'muted' }, '  ' + r.conf)))); }
+    tbl.append(h('tr', null, h('td', null, r.label), h('td', null, valueText(r.ref, r.digits) + ' ' + r.unit), h('td', null, valueText(r.cur, r.digits) + ' ' + r.unit), h('td', null, (r.digits >= 4 ? (r.cur - r.ref >= 0 ? '+' : '') + fmtE(r.cur - r.ref, 2) : fmtSigned(r.cur - r.ref, r.digits)) + ' ' + r.unit), h('td', null, ratioText(r))));
+  }
+  return tbl;
+}
+
+/** Results > Baseline comparison. */
+function renderCompareView(root, res) {
+  const base = app.baseline;
+  root.append(h('div', { class: 'row' }, h('b', null, 'Baseline comparison'), h('span', { class: 'conf' }, 'Differences and ratios between designs are the most trustworthy outputs of a screening model.')));
+  const pinRow = h('div', { class: 'row' }, h('button', tip('pinBaseline', { class: base ? 'small' : 'primary small', disabled: res ? null : '', onclick: pinBaseline }), base ? 'Pin current results instead' : 'Pin current results as baseline'), h('button', tip('pinBaselineFile', { class: 'small', onclick: pinBaselineFile }), 'Pin a results file as baseline'), base ? h('button', tip('clearBaseline', { class: 'small', onclick: clearBaseline }), 'Clear baseline') : null);
+  root.append(pinRow);
+  if (!base) {
+    root.append(h('div', { class: 'msg info' }, 'No baseline pinned. Pin the current results (or a saved results file) as the baseline, change the design (a material, a thickness, the lid, the floorplan) and run again: this view then lists every result next to the baseline with the difference and the ratio. The step 6 summary, the warpage-versus-temperature plot, the report and the CSV export show the comparison as well.'));
+    return;
+  }
+  root.append(h('div', { class: 'kv' }, h('span', { class: 'k' }, 'Baseline'), h('span', null, baselineLabel(base)), h('span', { class: 'k' }, 'Current'), h('span', null, (app.cfg.name || 'current configuration') + ', ' + res.preset + (res.preview ? ' preview' : '') + ', ' + res.meshInfo.nDof.toLocaleString() + ' DOF')));
+  if (baselineIsCurrent()) {
+    root.append(h('div', { class: 'msg info' }, 'The current results are the baseline. Change the design and run the analysis again (or open another results file); the comparison appears here.'));
+    return;
+  }
+  for (const n of baselineNotes(res, base)) root.append(h('div', { class: 'msg ' + n.cls }, n.text));
+  const rows = baselineRows(res, app.submodels, base);
+  if (!rows.length) { root.append(h('div', { class: 'msg warning' }, 'The two results share no comparable quantity (no die, chiplet or silicon part of the same name).')); return; }
+  root.append(baselineTable(rows));
+  root.append(h('div', { class: 'row' }, h('button', tip('exportCompareCsv', { class: 'small', onclick: () => exportBaselineCSV(res, base) }), 'Export comparison CSV')));
+  if (res.sweep.length > 1 && base.sweep && base.sweep.length > 1) {
+    const cv = h('canvas', tip('compareSweep', { class: 'plot' }));
+    root.append(cv);
+    requestAnimationFrame(() => linePlot(cv, [{ x: res.sweep.map(r => r.T), y: res.sweep.map(r => r.signed * 1000), label: 'current', points: true }, { x: base.sweep.map(r => r.T), y: base.sweep.map(r => r.signed * 1000), label: 'baseline', dash: [4, 3], points: true }], { title: 'Signed warpage versus temperature, current and baseline', xlabel: '°C', ylabel: 'µm' }));
+  }
+}
+
+/** Step 6 line under the pin buttons: what is pinned, and the way to the comparison. */
+function baselineStatus() {
+  const base = app.baseline;
+  if (!base) return h('div', { class: 'small muted' }, 'No baseline pinned. Pin one, then compare variants: ratios and differences against the baseline are the most trustworthy outputs of a screening model.');
+  return h('div', { class: 'msg info' }, h('div', null, h('b', null, 'Baseline: '), baselineLabel(base)), h('div', { class: 'row' }, h('span', { class: 'small' }, baselineIsCurrent() ? 'The current results are the baseline; change the design and run again to compare.' : 'The cards below show differences against it.'), h('button', tip('viewCompare', { class: 'small', onclick: () => { app.resultsView = 'compare'; setCenterTab('results'); renderCenter(); } }), 'Show comparison')));
+}
+
+/** Report section: the comparison table, when a baseline other than the current results is pinned. */
+function baselineReportSection(res) {
+  const base = app.baseline;
+  if (!base || baselineIsCurrent()) return null;
+  const rows = baselineRows(res, app.submodels, base);
+  if (!rows.length) return null;
+  return h('div', null, h('h3', null, 'Comparison with the baseline'), h('p', { class: 'small' }, 'Baseline: ' + baselineLabel(base) + '.'), ...baselineNotes(res, base).map(n => h('p', { class: 'small' }, n.text)), baselineTable(rows));
+}
+
+/** CSV lines of the comparison (empty without a baseline other than the current results). */
+function baselineCsvLines(res, base) {
+  if (!base || baselineIsCurrent()) return [];
+  const q = s => '"' + String(s).replace(/"/g, '""') + '"';
+  return ['', 'baseline,' + q(baselineLabel(base)), 'group,quantity,unit,baseline,current,delta,ratio'].concat(baselineRows(res, app.submodels, base).map(r => [q(r.group), q(r.label), q(r.unit), r.ref, r.cur, r.cur - r.ref, r.ref !== 0 ? r.cur / r.ref : ''].join(',')));
+}
+function exportBaselineCSV(res, base) {
+  const blob = new Blob([baselineCsvLines(res, base).slice(1).join('\n')], { type: 'text/csv' });
+  const a = h('a', { href: URL.createObjectURL(blob), download: (app.cfg.name || 'fcbga').replace(/[^\w.-]+/g, '_') + '_vs_baseline.csv' });
+  document.body.appendChild(a); a.click(); a.remove();
 }
 
 // ===== UI: shell, navigation, wiring ===========================================
